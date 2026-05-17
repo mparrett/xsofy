@@ -1,0 +1,31 @@
+(ns tests.runes
+  (:require [tests.harness :as h]
+            [xsofy.runes :as r]))
+
+;; parse-runes compiles a flat rune sequence into pipeline steps.
+;; See xsofy/runes.lg and docs/spell-dsl.md.
+
+(h/group "runes: parse-runes — single primitive"
+  (h/is= [:fire] (r/parse-runes [:fire])))
+
+(h/group "runes: parse-runes — two-step pipeline"
+  (h/is= [:fire :ice] (r/parse-runes [:fire :ice])))
+
+(h/group "runes: parse-runes — apply combinator (fire(3), ice)"
+  ;; The textbook example from the rune-system docstring.
+  (h/is= [[:fire 3] :ice] (r/parse-runes [:apply :fire 3 :ice])))
+
+(h/group "runes: parse-runes — math reduces inline"
+  (h/is= [6 :fire] (r/parse-runes [:mul 2 3 :fire])))
+
+(h/group "runes: parse-runes — bad math argument surfaces error"
+  (let [steps (r/parse-runes [:mul :fire 3])
+        step  (first steps)]
+    (h/is (map? step))
+    (h/is= :bad-argument (:error step))
+    (h/is= :mul (:rune step))))
+
+(h/group "runes: generate-rune-table — every primitive gets a glyph"
+  (let [table (r/generate-rune-table)]
+    (h/is= (count r/all-runes) (count table))
+    (h/is (every? string? (mapv :glyph (vals table))))))

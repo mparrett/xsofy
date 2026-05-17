@@ -1,0 +1,30 @@
+(ns tests.world
+  (:require [tests.harness :as h]
+            [xsofy.world :as w]))
+
+;; make-world generates a floor, a player, starting items, and a rune table.
+;; update-world is the per-turn reducer. :wait is the safest action to test
+;; because it advances the turn unconditionally without depending on terrain.
+
+(h/group "world: make-world — produces a live player at depth 1"
+  (let [world  (w/make-world 30 20)
+        player (get-in world [:entities :player])
+        hp     (get-in player [:body :hp])]
+    (h/is= 1 (:depth world))
+    (h/is= 0 (:turn world))
+    (h/is (vector? (:pos player)))
+    (h/is (and (number? hp) (pos? hp)))))
+
+(h/group "world: make-world — player starts with inventory"
+  (let [player (get-in (w/make-world 30 20) [:entities :player])]
+    (h/is (seq (:inventory player)))))
+
+(h/group "world: update-world :wait — advances turn, keeps player alive"
+  (let [w0 (w/make-world 30 20)
+        w1 (w/update-world w0 :wait)
+        hp0 (get-in w0 [:entities :player :body :hp])
+        hp1 (get-in w1 [:entities :player :body :hp])]
+    (h/is= (inc (:turn w0)) (:turn w1))
+    (h/is (some? (get-in w1 [:entities :player])))
+    ;; Resting one turn shouldn't kill you on a fresh floor.
+    (h/is (= hp0 hp1))))
