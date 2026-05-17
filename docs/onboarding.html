@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Caverns of Dependency Hell · Onboarding Log</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0c0c0c;
+      --bg-rise:   #131311;
+      --panel:     #15140f;
+      --ink:       #e8e6df;
+      --ink-dim:   #8a877c;
+      --ink-dust:  #5a584f;
+      --rule:      rgba(232, 230, 223, 0.08);
+      --rule-soft: rgba(232, 230, 223, 0.04);
+      --teal:      #5ec4b6;
+      --amber:     #d8a657;
+      --rust:      #c25450;
+      --moss:      #8aa86b;
+      --display:   "Cinzel", "Iowan Old Style", "Palatino", serif;
+      --mono:      "IBM Plex Mono", "Menlo", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: var(--mono);
+      font-size: 14.5px;
+      line-height: 1.7;
+      letter-spacing: 0.01em;
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* ---------- Atmosphere ---------- */
+    /* Subtle CRT scan + grain. Tasteful, not corny. */
+    body::before {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,0.012) 0px,
+        rgba(255,255,255,0.012) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      z-index: 1;
+    }
+    body::after {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse at 50% -20%, rgba(94, 196, 182, 0.06), transparent 55%),
+        radial-gradient(ellipse at 110% 120%, rgba(216, 166, 87, 0.05), transparent 50%),
+        radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.5) 100%);
+      z-index: 0;
+    }
+
+    /* Scattered runes — distant, breathing */
+    .runes {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      font-family: var(--mono);
+    }
+    .runes span {
+      position: absolute;
+      font-size: clamp(18px, 1.4vw, 26px);
+      color: var(--moss);
+      opacity: 0;
+      animation: rune-rise 1.8s ease-out forwards, rune-pulse 7s ease-in-out infinite;
+    }
+    @keyframes rune-rise {
+      0%   { opacity: 0; transform: translateY(8px); }
+      100% { opacity: 0.16; transform: translateY(0); }
+    }
+    @keyframes rune-pulse {
+      0%, 100% { opacity: 0.10; }
+      50%      { opacity: 0.22; }
+    }
+
+    /* ---------- Layout ---------- */
+    .frame {
+      position: relative;
+      z-index: 2;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 6vh 6vw 12vh;
+    }
+
+    /* ---------- Masthead ---------- */
+    .mast { margin-bottom: 14vh; position: relative; }
+    .mast .strip {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--ink-dust);
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 14px;
+      margin-bottom: 60px;
+    }
+    .mast .strip .crumb { color: var(--teal); }
+
+    .mast h1 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: clamp(48px, 8vw, 96px);
+      line-height: 0.98;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      margin-bottom: 24px;
+    }
+    .mast h1 em {
+      font-style: italic;
+      font-weight: 400;
+      color: var(--amber);
+      letter-spacing: 0;
+    }
+    .mast .quest {
+      font-family: var(--mono);
+      font-style: italic;
+      font-size: 16px;
+      color: var(--ink-dim);
+      max-width: 56ch;
+      margin-bottom: 8px;
+    }
+    .mast .quest .loot {
+      color: var(--amber);
+      font-style: normal;
+      border-bottom: 1px dashed rgba(216, 166, 87, 0.4);
+    }
+    .mast .seal {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: repeat(4, auto);
+      gap: 36px 48px;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .mast .seal dt { color: var(--ink-dust); font-size: 10px; margin-bottom: 4px; }
+    .mast .seal dd { color: var(--ink); font-family: var(--mono); font-size: 13px; letter-spacing: 0; text-transform: none; }
+
+    /* ---------- Prelude ---------- */
+    .prelude {
+      font-family: var(--display);
+      font-style: italic;
+      font-weight: 400;
+      font-size: clamp(18px, 2vw, 22px);
+      line-height: 1.55;
+      color: var(--ink-dim);
+      max-width: 62ch;
+      margin: 0 auto 14vh;
+      padding-left: 28px;
+      border-left: 2px solid var(--teal);
+    }
+    .prelude::first-letter {
+      font-size: 1.6em;
+      color: var(--amber);
+      padding-right: 0.05em;
+    }
+
+    /* ---------- Floors (sections) ---------- */
+    .floor {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 36px;
+      padding: 56px 0;
+      border-top: 1px solid var(--rule);
+      position: relative;
+    }
+    .floor + .floor { margin-top: 0; }
+
+    .floor .glyph {
+      font-family: var(--display);
+      font-weight: 400;
+      letter-spacing: 0.18em;
+      color: var(--ink-dust);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .floor .glyph .depth {
+      display: block;
+      font-size: 38px;
+      color: var(--teal);
+      letter-spacing: 0;
+      line-height: 1;
+      margin-top: 8px;
+      font-family: var(--mono);
+      font-weight: 300;
+    }
+    .floor .glyph .rune {
+      display: block;
+      font-size: 28px;
+      color: var(--moss);
+      margin-top: 18px;
+      opacity: 0.6;
+    }
+
+    .floor h2 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: clamp(26px, 3.4vw, 38px);
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 8px;
+    }
+    .floor h2 .sub {
+      display: block;
+      font-family: var(--mono);
+      font-style: italic;
+      font-weight: 400;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--ink-dust);
+      margin-top: 4px;
+    }
+    .floor p { margin-bottom: 18px; max-width: 64ch; color: var(--ink); }
+    .floor p.note {
+      color: var(--ink-dim);
+      font-size: 13px;
+      font-style: italic;
+      border-left: 1px solid var(--rule);
+      padding-left: 14px;
+    }
+
+    .floor .term {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-left: 2px solid var(--teal);
+      padding: 16px 20px;
+      margin: 14px 0 22px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--ink);
+      overflow-x: auto;
+      position: relative;
+    }
+    .floor .term::before {
+      content: attr(data-label);
+      position: absolute; top: -9px; left: 12px;
+      background: var(--bg);
+      padding: 0 8px;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .term .p { color: var(--teal); user-select: none; }
+    .term .c { color: var(--ink); }
+    .term .o { color: var(--ink-dim); display: block; }
+    .term .err { color: var(--rust); }
+    .term .ok { color: var(--moss); }
+
+    .floor .pill {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--amber);
+      border: 1px solid rgba(216, 166, 87, 0.35);
+      padding: 3px 9px;
+      margin-right: 6px;
+      vertical-align: 1px;
+    }
+    .floor .pill.ok { color: var(--moss); border-color: rgba(138, 168, 107, 0.35); }
+    .floor .pill.err { color: var(--rust); border-color: rgba(194, 84, 80, 0.4); }
+
+    code { font-family: var(--mono); color: var(--amber); font-size: 0.95em; }
+    a { color: var(--teal); text-decoration: none; border-bottom: 1px dotted rgba(94, 196, 182, 0.4); }
+    a:hover { border-bottom-style: solid; }
+
+    /* ---------- Ledger ---------- */
+    .ledger {
+      margin-top: 10vh;
+      padding-top: 56px;
+      border-top: 1px solid var(--rule);
+    }
+    .ledger h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 22px;
+      letter-spacing: 0.04em;
+      color: var(--amber);
+      margin-bottom: 24px;
+    }
+    .ledger table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .ledger th, .ledger td {
+      text-align: left;
+      padding: 14px 12px;
+      border-bottom: 1px solid var(--rule-soft);
+      vertical-align: top;
+    }
+    .ledger th {
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .ledger td.path { color: var(--ink); }
+    .ledger td.state .tag {
+      display: inline-block;
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border: 1px solid;
+    }
+    .tag.committed { color: var(--moss); border-color: rgba(138,168,107,0.4); }
+    .tag.local     { color: var(--ink-dim); border-color: rgba(138,135,124,0.4); }
+    .tag.runtime   { color: var(--teal);  border-color: rgba(94,196,182,0.4); }
+    .tag.cross     { color: var(--amber); border-color: rgba(216,166,87,0.4); }
+
+    /* ---------- Next ---------- */
+    .next {
+      margin-top: 10vh;
+      padding: 36px 36px 40px;
+      border: 1px solid var(--rule);
+      background: linear-gradient(180deg, var(--bg-rise), var(--bg));
+      position: relative;
+    }
+    .next::before {
+      content: "▾ next descent";
+      position: absolute; top: -9px; left: 20px;
+      background: var(--bg);
+      padding: 0 10px;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--rust);
+    }
+    .next h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 24px;
+      color: var(--ink);
+      margin-bottom: 10px;
+    }
+    .next p { color: var(--ink-dim); max-width: 64ch; }
+    .next ul {
+      list-style: none;
+      margin-top: 18px;
+      padding-left: 0;
+    }
+    .next li {
+      padding: 8px 0 8px 28px;
+      position: relative;
+      color: var(--ink);
+      border-bottom: 1px dashed var(--rule-soft);
+    }
+    .next li:last-child { border-bottom: none; }
+    .next li::before {
+      content: "ᛏ";
+      position: absolute; left: 0; top: 8px;
+      color: var(--rust);
+      font-family: var(--mono);
+    }
+
+    /* ---------- Colophon ---------- */
+    .colophon {
+      margin-top: 12vh;
+      padding-top: 28px;
+      border-top: 1px solid var(--rule);
+      display: flex; justify-content: space-between;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+
+    /* ---------- Staggered reveal on load ---------- */
+    .floor { opacity: 0; transform: translateY(12px); animation: enter 0.8s ease-out forwards; }
+    .floor:nth-of-type(1) { animation-delay: 0.25s; }
+    .floor:nth-of-type(2) { animation-delay: 0.40s; }
+    .floor:nth-of-type(3) { animation-delay: 0.55s; }
+    .floor:nth-of-type(4) { animation-delay: 0.70s; }
+    .floor:nth-of-type(5) { animation-delay: 0.85s; }
+    .floor:nth-of-type(6) { animation-delay: 1.00s; }
+    @keyframes enter { to { opacity: 1; transform: translateY(0); } }
+
+    .mast h1, .mast .quest, .mast .strip, .mast .seal {
+      opacity: 0; animation: enter 0.8s ease-out forwards;
+    }
+    .mast .strip { animation-delay: 0.05s; }
+    .mast h1    { animation-delay: 0.15s; }
+    .mast .quest{ animation-delay: 0.30s; }
+    .mast .seal { animation-delay: 0.45s; }
+
+    @media (max-width: 720px) {
+      .floor { grid-template-columns: 1fr; gap: 12px; padding: 40px 0; }
+      .floor .glyph { display: flex; gap: 18px; align-items: baseline; }
+      .floor .glyph .depth { margin-top: 0; font-size: 22px; }
+      .floor .glyph .rune  { margin-top: 0; font-size: 18px; }
+      .mast .seal { grid-template-columns: repeat(2, auto); gap: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="runes" aria-hidden="true">
+    <span style="top:  8vh; left:  6vw">ᚠ</span>
+    <span style="top: 14vh; right: 9vw">ᛇ</span>
+    <span style="top: 28vh; left: 12vw">ᚦ</span>
+    <span style="top: 36vh; right: 6vw">ᚨ</span>
+    <span style="top: 52vh; left:  4vw">ᛈ</span>
+    <span style="top: 60vh; right: 14vw">ᛉ</span>
+    <span style="top: 74vh; left: 10vw">ᚱ</span>
+    <span style="top: 82vh; right: 8vw">ᛊ</span>
+    <span style="top: 94vh; left: 18vw">ᛟ</span>
+    <span style="top:108vh; right:12vw">ᚾ</span>
+    <span style="top:126vh; left:  7vw">ᛒ</span>
+    <span style="top:140vh; right: 5vw">ᛏ</span>
+    <span style="top:158vh; left: 14vw">ᚲ</span>
+    <span style="top:176vh; right:11vw">ᛚ</span>
+    <span style="top:196vh; left:  9vw">ᛗ</span>
+  </div>
+
+  <main class="frame">
+
+    <header class="mast">
+      <div class="strip">
+        <span>Session Log · 2026-05-16</span>
+        <span class="crumb">expmt/kaiju · xsofy</span>
+        <span>Sheet I of I</span>
+      </div>
+      <h1>Caverns of<br><em>Dependency Hell</em></h1>
+      <p class="quest">A run through the xsofy repo. Quest: retrieve the <span class="loot">Bucket of Your Cousin</span>.</p>
+      <dl class="seal">
+        <div><dt>Repo</dt><dd>nooga/xsofy</dd></div>
+        <div><dt>Branch</dt><dd>expmt/kaiju</dd></div>
+        <div><dt>Stack</dt><dd>let-go · Go 1.26</dd></div>
+        <div><dt>Posture</dt><dd>local only · no push</dd></div>
+      </dl>
+    </header>
+
+    <p class="prelude">
+      The procedural title generator handed us “Caverns of Dependency Hell” before
+      we had typed a single command. We laughed. Then we typed our first command
+      and it was wrong, and the joke became the day.
+    </p>
+
+    <section class="floor">
+      <div class="glyph">
+        Floor
+        <span class="depth">I</span>
+        <span class="rune">ᚠ</span>
+      </div>
+      <div class="body">
+        <h2>Cartography
+          <span class="sub">— /init, the first lantern</span>
+        </h2>
+        <p>
+          Twenty-three <code>.lg</code> files in <code>xsofy/</code> and six design
+          specs in <code>docs/</code>. Read enough to know the shape:
+          a single immutable world map threaded through pure functions, a byte-array
+          terrain layered with sparse-effect maps, and a spell engine that compiles
+          rune sequences to s-expressions and then literally evaluates them.
+        </p>
+        <p>
+          Wrote a CLAUDE.md that future sessions will actually read — runtime,
+          commands, the byte-array-plus-sparse-map performance contract, the
+          module map, and a pointer to the design docs.
+        </p>
+        <p class="note">
+          <code>CLAUDE.md</code> is in <code>.gitignore</code> alongside
+          <code>AGENTS.md</code>, <code>.claude/</code>, and friends — a project
+          convention we left alone. The file lives locally; it does not ship.
+        </p>
+      </div>
+    </section>
+
+    <section class="floor">
+      <div class="glyph">
+        Floor
+        <span class="depth">II</span>
+        <span class="rune">ᚦ</span>
+      </div>
+      <div class="body">
+        <h2>Staking the ground
+          <span class="sub">— project memory, three empty ledgers</span>
+        </h2>
+        <p>
+          Scaffolded <code>docs/project_notes/</code> with three files — bugs,
+          decisions, key facts — plus inboxes for incoming and archived tickets.
+          Empty, but waiting. The point is the next surprise has a home.
+        </p>
+        <div class="term" data-label="git">
+          <span class="p">$</span> <span class="c">git commit -m "docs: initialize project memory notes"</span>
+          <span class="o ok">[expmt/kaiju 9221674] 3 files changed, 40 insertions(+)</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="floor">
+      <div class="glyph">
+        Floor
+        <span class="depth">III</span>
+        <span class="rune">ᛟ</span>
+      </div>
+      <div class="body">
+        <h2>A binding rune
+          <span class="sub">— never push this repo</span>
+        </h2>
+        <p>
+          One inscription, persistent across sessions: this is a third-party
+          repo. Commits stay local; nothing leaves the machine. Future me will
+          read this before reaching for <code>git push</code>.
+        </p>
+        <p class="note">
+          Saved to <code>~/.claude/projects/.../memory/feedback_no_push.md</code>,
+          indexed in <code>MEMORY.md</code>. Auto-loaded on every future session
+          in this working directory.
+        </p>
+      </div>
+    </section>
+
+    <section class="floor">
+      <div class="glyph">
+        Floor
+        <span class="depth">IV</span>
+        <span class="rune">ᚱ</span>
+      </div>
+      <div class="body">
+        <h2>Forge the binary
+          <span class="sub">— summoning let-go</span>
+        </h2>
+        <p>
+          Neither <code>lg</code> nor <code>let-go</code> on the path. README
+          recommends Homebrew. Tapped <code>nooga/let-go</code>, installed
+          1.7.4, and the binary lands as <code>lg</code> only — both names refer
+          to the same executable.
+        </p>
+        <p>
+          As a cheap sanity check before the WASM build, compiled the whole
+          source to bytecode. Every namespace parsed, every macro expanded,
+          every symbol resolved.
+        </p>
+        <div class="term" data-label="bytecode">
+          <span class="p">$</span> <span class="c">lg -c main.lgb main.lg</span>
+          <span class="o ok">— exit 0 · main.lgb 423 KB</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="floor">
+      <div class="glyph">
+        Floor
+        <span class="depth">V</span>
+        <span class="rune">ᛏ</span>
+      </div>
+      <div class="body">
+        <h2>The actual dependency hell
+          <span class="sub">— Go 1.19 versus a go.mod from the future</span>
+        </h2>
+        <p>
+          Asked for the WASM build. The compiler shells out to <code>go mod
+          tidy</code>, which read a <code>go.mod</code> requiring 1.26 and met
+          a local Go of 1.19.1. The error was uncannily on-brand:
+        </p>
+        <div class="term" data-label="lg -w dist main.lg">
+          <span class="o">resolving dependencies...</span>
+          <span class="o err">go: go.mod file indicates go 1.26, but maximum version supported by tidy is 1.19</span>
+          <span class="o err">error: go mod tidy: exit status 1</span>
+        </div>
+        <p>
+          Upgraded Go 1.19.1 → 1.26.3 through brew, re-ran the build, and the
+          WASM pipeline produced <code>dist/index.html</code> — 6.3 MB, self-contained,
+          the exact artifact CI publishes to GitHub Pages on every merge to
+          <code>main</code>.
+        </p>
+      </div>
+    </section>
+
+    <section class="floor">
+      <div class="glyph">
+        Floor
+        <span class="depth">VI</span>
+        <span class="rune">ᛇ</span>
+      </div>
+      <div class="body">
+        <h2>First descent
+          <span class="sub">— Playwright in the dungeon</span>
+        </h2>
+        <p>
+          Served <code>dist/</code> on port 8000 and drove a headless Chromium
+          at it. The COI service worker installed on first load; cross-origin
+          isolation came up on the reload; <code>SharedArrayBuffer</code> showed
+          up where the WASM runtime expected it.
+        </p>
+        <p>
+          The title screen rolled <span class="pill ok">Caverns of Dependency Hell</span>
+          — the run had named itself before we even arrived. Space advanced past
+          the title; we landed on floor 1 with a quest to retrieve the
+          <span class="loot" style="color: var(--amber);">Bucket of Your Cousin</span>,
+          a dagger doing 2–4, and two kobolds and a goblin in line-of-sight.
+        </p>
+        <p>
+          We walked into the fight, took four damage, and never reproduced the
+          bail the user saw in their real browser. Tomorrow, with more time and
+          a better idea of where to point the probe.
+        </p>
+      </div>
+    </section>
+
+    <section class="ledger">
+      <h3>Loot ledger</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 38%;">Artifact</th>
+            <th style="width: 22%;">Location</th>
+            <th>Provenance</th>
+            <th style="width: 18%;">State</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="path">CLAUDE.md</td>
+            <td>repo root</td>
+            <td>onboarding map for future sessions</td>
+            <td class="state"><span class="tag local">local · gitignored</span></td>
+          </tr>
+          <tr>
+            <td class="path">docs/project_notes/{bugs,decisions,key_facts}.md</td>
+            <td>repo</td>
+            <td>memory scaffolding</td>
+            <td class="state"><span class="tag committed">9221674</span></td>
+          </tr>
+          <tr>
+            <td class="path">feedback_no_push.md</td>
+            <td>~/.claude/projects/…/memory/</td>
+            <td>cross-session rule</td>
+            <td class="state"><span class="tag cross">cross-session</span></td>
+          </tr>
+          <tr>
+            <td class="path">main.lgb</td>
+            <td>repo root</td>
+            <td>compiled bytecode, sanity-check artifact</td>
+            <td class="state"><span class="tag local">local · gitignored</span></td>
+          </tr>
+          <tr>
+            <td class="path">dist/index.html (6.3 MB)</td>
+            <td>repo</td>
+            <td>WASM bundle, matches CI output</td>
+            <td class="state"><span class="tag local">local · gitignored</span></td>
+          </tr>
+          <tr>
+            <td class="path">Go 1.26.3</td>
+            <td>/opt/homebrew</td>
+            <td>upgraded from 1.19.1 to unblock WASM build</td>
+            <td class="state"><span class="tag runtime">runtime</span></td>
+          </tr>
+          <tr>
+            <td class="path">let-go 1.7.4</td>
+            <td>/opt/homebrew (brew tap nooga/let-go)</td>
+            <td>game runtime &amp; WASM toolchain</td>
+            <td class="state"><span class="tag runtime">runtime</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="next">
+      <h3>The unknown rune</h3>
+      <p>
+        The user reported that the real-browser run “bails on some term thing.”
+        The headless probe did not reproduce it. Next session:
+      </p>
+      <ul>
+        <li>Compare key bindings the title screen actually consumes versus what xterm.js delivers in regular Chrome.</li>
+        <li>Re-run with the dev tools console attached, looking for <code>term/*</code> calls without WASM shims.</li>
+        <li>If still elusive, instrument <code>main.lg</code>’s top-level <code>try</code> to surface the exception text on the page itself instead of stdout.</li>
+      </ul>
+    </section>
+
+    <footer class="colophon">
+      <span>set in cinzel &amp; ibm plex mono</span>
+      <span>palette borrowed from xsofy's title screen</span>
+    </footer>
+
+  </main>
+</body>
+</html>
