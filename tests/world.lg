@@ -1,30 +1,31 @@
 (ns tests.world
-  (:require [tests.harness :as h]
+  (:require [test :refer :all]
             [xsofy.world :as w]))
 
 ;; make-world generates a floor, a player, starting items, and a rune table.
-;; update-world is the per-turn reducer. :wait is the safest action to test
-;; because it advances the turn unconditionally without depending on terrain.
+;; update-world is the per-turn reducer. :wait advances the turn
+;; unconditionally without depending on terrain, so it's the safest action
+;; to exercise here.
 
-(h/group "world: make-world — produces a live player at depth 1"
+(deftest make-world-produces-live-player-at-depth-1
   (let [world  (w/make-world 30 20)
         player (get-in world [:entities :player])
         hp     (get-in player [:body :hp])]
-    (h/is= 1 (:depth world))
-    (h/is= 0 (:turn world))
-    (h/is (vector? (:pos player)))
-    (h/is (and (number? hp) (pos? hp)))))
+    (is (= 1 (:depth world)))
+    (is (= 0 (:turn world)))
+    (is (vector? (:pos player)))
+    (is (and (number? hp) (pos? hp)))))
 
-(h/group "world: make-world — player starts with inventory"
+(deftest make-world-gives-player-starting-inventory
   (let [player (get-in (w/make-world 30 20) [:entities :player])]
-    (h/is (seq (:inventory player)))))
+    (is (seq (:inventory player)))))
 
-(h/group "world: update-world :wait — advances turn, keeps player alive"
-  (let [w0 (w/make-world 30 20)
-        w1 (w/update-world w0 :wait)
+(deftest wait-action-advances-turn-without-harming-player
+  (let [w0  (w/make-world 30 20)
+        w1  (w/update-world w0 :wait)
         hp0 (get-in w0 [:entities :player :body :hp])
         hp1 (get-in w1 [:entities :player :body :hp])]
-    (h/is= (inc (:turn w0)) (:turn w1))
-    (h/is (some? (get-in w1 [:entities :player])))
-    ;; Resting one turn shouldn't kill you on a fresh floor.
-    (h/is (= hp0 hp1))))
+    (is (= (inc (:turn w0)) (:turn w1)))
+    (is (some? (get-in w1 [:entities :player])))
+    ;; Resting one turn on a fresh floor shouldn't lose HP.
+    (is (= hp0 hp1))))

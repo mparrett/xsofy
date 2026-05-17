@@ -2,14 +2,16 @@
 ;;
 ;;     lg tests/run.lg
 ;;
+;; Uses let-go's built-in `test` namespace (its `clojure.test` equivalent).
 ;; Exit code is 0 on full pass, 1 on any failure — suitable for CI.
 ;;
-;; Note: this file deliberately has no (ns ...) form. lg evaluates a file with
-;; a ns declaration TWICE (once as a script, once as a namespace load), which
-;; would double-run the suite. A bare script runs cleanly once.
+;; Note: this file deliberately has no (ns ...) form. lg evaluates a file
+;; with a ns declaration TWICE (once as a script, once as a namespace load),
+;; which would double-run the suite. A bare script runs once.
 
-(require 'tests.harness)
 (require 'tests.runes)
 (require 'tests.world)
 
-(tests.harness/report-and-exit)
+(test/run-tests)
+
+(os/exit (if test/*test-result* 0 1))
