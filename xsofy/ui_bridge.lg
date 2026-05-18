@@ -1,0 +1,43 @@
+(ns xsofy.ui-bridge
+  (:require [js]))
+
+;; Outbound channel from the game to whatever HTML/JS shell is hosting it.
+;; Builds on let-go's (js/emit ...) — see ../let-go fork on branch
+;; expmt/js-bridge. On native, (js/emit ...) is a validated no-op so the
+;; game runs unchanged in a real terminal; in WASM the event arrives on
+;; window as a CustomEvent whose .detail is the JSON-marshaled data.
+;;
+;; Use `emit` from anywhere in the game when something interesting just
+;; happened. Keep payloads small and shaped for direct UI consumption —
+;; the bridge isn't a state-replication channel, it's a structured
+;; output stream.
+
+(defn emit
+  "Emit a structured event to the HTML/JS host under the `xsofy/` namespace.
+
+   event-key may be unqualified (`:startup`) — it's auto-namespaced to
+   `:xsofy/startup` — or already-qualified (`:xsofy/inventory`), in which
+   case it's used as-is. data is any JSON-serializable let-go value.
+   Returns nil. No-op on native."
+  [event-key data]
+  (let [qualified (if (qualified-keyword? event-key)
+                    event-key
+                    (keyword "xsofy" (name event-key)))]
+    (js/emit qualified data)))
+
+;; --- Named channels ------------------------------------------------------
+;; One function per event the bridge advertises. Centralizing the names
+;; means consumers can grep this file to know what's available, and we
+;; avoid drift between callers if a channel ever gets renamed.
+
+(defn emit-boot
+  "Fired before any title-screen interaction. Useful for HTML shells that
+   want to draw their chrome as soon as the WASM is alive."
+  [phase]
+  (emit :boot {:phase phase}))
+
+(defn emit-startup
+  "Fired once per run, after the procgen title is decided. Tells the HTML
+   shell what to label the session (e.g., in a header bar or page title)."
+  [title quest]
+  (emit :startup {:title title :quest quest}))

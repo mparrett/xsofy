@@ -7,6 +7,7 @@
             [xsofy.input :as input]
             [xsofy.render :as render]
             [xsofy.ui :as ui]
+            [xsofy.ui-bridge :as bridge]
             [xsofy.runes :as runes]
             [xsofy.title :as title]
             [xsofy.debug :as dbg]))
@@ -309,9 +310,11 @@
       :else world)))
 
 (defn new-game []
+  (bridge/emit-boot "new-game")
   (let [{:keys [title scheme]} (title/show-title-screen)
         quest (title/generate-quest)
-        _ (title/show-descending-screen 1 scheme)]
+        _ (title/show-descending-screen 1 scheme)
+        _ (bridge/emit-startup title (:item quest))]
     (-> (world/make-world 79 30)
         (assoc :title title
                :scheme scheme
