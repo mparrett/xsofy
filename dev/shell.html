@@ -73,6 +73,15 @@
      desktop users have a real keyboard. */
   #xsofy-shell .touch { display: none; }
 
+  /* Portrait: relax the template's default 100:36 letterbox so the
+     terminal gets a useful number of rows at the chunkier font size we
+     apply via _lgSetFontSize below. ~55vh leaves the bar enough space
+     for the D-pad to stay thumb-sized. Overrides the template rule via
+     source order — shell.html is injected after the template's <style>. */
+  @media (orientation: portrait) {
+    body #terminal { height: 55vh; }
+  }
+
   @media (orientation: portrait) {
     #xsofy-shell .touch {
       /* Outer grid: D-pad on the left, action column on the right. The
@@ -234,5 +243,17 @@
       // Keep buttons from stealing focus from the terminal.
       btn.addEventListener("mousedown", (e) => e.preventDefault());
     });
+
+    // Chunky chars on portrait: at fontSize 14 each cell is ~7px wide,
+    // unreadable on a 375px viewport. 22 gives ~12px wide cells — ~17
+    // cols across, which works alongside xsofy's collapsed-sidebar layout.
+    // Re-apply on orientation change since landscape wants the default.
+    function syncFontSize() {
+      if (!window._lgSetFontSize) return;
+      const portrait = matchMedia("(orientation: portrait)").matches;
+      window._lgSetFontSize(portrait ? 22 : 14);
+    }
+    syncFontSize();
+    matchMedia("(orientation: portrait)").addEventListener("change", syncFontSize);
   })();
 </script>
