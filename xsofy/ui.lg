@@ -128,10 +128,12 @@
         ;; under the WASM build. Threshold is sidebar + a usable map.
         show-sidebar? (>= gw (+ sidebar-width 60))
         ;; Drop the log when short: <16 rows starves the map. Status (1
-        ;; row) is always cheap to keep — bail on it only if the terminal
-        ;; is degenerate.
+        ;; row) shows the keybinding hint, which only fits at ~67 cols —
+        ;; below that it truncates mid-token to something useless. Under
+        ;; WASM the HTML bar already shows the action set, so dropping the
+        ;; row when narrow costs nothing and buys the map an extra line.
         show-log?    (>= gh (+ log-height status-height 10))
-        show-status? (>= gh 2)
+        show-status? (and (>= gh 2) (>= gw 67))
         [sidebar main] (if show-sidebar?
                          (rect-split-h full sidebar-width)
                          [nil full])
