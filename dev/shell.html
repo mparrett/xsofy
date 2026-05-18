@@ -146,6 +146,21 @@
   }
   #xsofy-shell button .glyph { font-size: 16px; color: var(--bar-accent); }
   #xsofy-shell button .label { font-size: 10px; color: var(--bar-dim); letter-spacing: 0.05em; margin-top: 2px; }
+
+  /* Font-size cycle lives in the info row. Compact tap target, intrinsic
+     height (info row stays one line) — minimums and padding stripped so
+     it doesn't push the rest of the row out of shape. */
+  #xsofy-shell .font-cycle {
+    flex: 0 0 auto;
+    min-height: 0;
+    min-width: 0;
+    padding: 0.15rem 0.45rem;
+    border-radius: 5px;
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--bar-dim);
+  }
+  #xsofy-shell .font-cycle .glyph { font-size: 12px; color: var(--bar-fg); }
 </style>
 
 <div id="xsofy-shell">
@@ -157,6 +172,9 @@
       <span><span class="k">hp</span> <span id="xs-hp">·</span>/<span id="xs-max">·</span></span>
       <span><span class="k">t</span> <span id="xs-turn">·</span></span>
     </span>
+    <button class="font-cycle" id="xs-font-cycle" title="Cycle char size">
+      <span class="glyph">A</span><span id="xs-font-px">22</span>
+    </button>
   </div>
 
   <div class="row touch">
@@ -244,16 +262,44 @@
       btn.addEventListener("mousedown", (e) => e.preventDefault());
     });
 
-    // Chunky chars on portrait: at fontSize 14 each cell is ~7px wide,
-    // unreadable on a 375px viewport. 22 gives ~12px wide cells — ~17
-    // cols across, which works alongside xsofy's collapsed-sidebar layout.
-    // Re-apply on orientation change since landscape wants the default.
-    function syncFontSize() {
-      if (!window._lgSetFontSize) return;
-      const portrait = matchMedia("(orientation: portrait)").matches;
-      window._lgSetFontSize(portrait ? 22 : 14);
+    // Font-size cycle. xterm's default 14 is unreadable on a 375px
+    // viewport; 22 gives ~12px-wide cells. Sizes are kept short so the
+    // cycle is predictable; tap the "A22" chip in the info row to bump.
+    // Choice persists in localStorage; first ever load picks by
+    // orientation (chunky for portrait, default for landscape).
+    const FONT_SIZES = [14, 18, 22, 28];
+    const LS_KEY = "xsofy/font-size";
+    const cycleEl = $("xs-font-cycle");
+    const fontPxEl = $("xs-font-px");
+
+    function applyFontSize(n) {
+      if (window._lgSetFontSize) window._lgSetFontSize(n);
+      if (fontPxEl) fontPxEl.textContent = n;
     }
-    syncFontSize();
-    matchMedia("(orientation: portrait)").addEventListener("change", syncFontSize);
+
+    function initFontSize() {
+      let n = parseInt(localStorage.getItem(LS_KEY) || "", 10);
+      if (!FONT_SIZES.includes(n)) {
+        n = matchMedia("(orientation: portrait)").matches ? 22 : 14;
+      }
+      applyFontSize(n);
+    }
+
+    cycleEl?.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const cur = parseInt(fontPxEl?.textContent || "14", 10);
+      const i = FONT_SIZES.indexOf(cur);
+      const next = FONT_SIZES[(i + 1) % FONT_SIZES.length];
+      localStorage.setItem(LS_KEY, String(next));
+      applyFontSize(next);
+    });
+    cycleEl?.addEventListener("mousedown", (e) => e.preventDefault());
+
+    // _lgSetFontSize may not be defined yet at script execution time —
+    // the bundle defines it during boot, before shell.html is fetched,
+    // so calling immediately is safe. If the host loads the shell before
+    // the bundle (unusual), this still works via the persisted value
+    // being re-applied on the next user interaction.
+    initFontSize();
   })();
 </script>
