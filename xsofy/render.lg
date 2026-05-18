@@ -42,9 +42,52 @@
 ;; dancing tiles: water and lava get randomized color each frame
 (def dancing-tiles #{3 4 7})
 
+;; --- Camera ---
+;; The map rect on a narrow terminal is smaller than the world (e.g. 27x17
+;; visible vs 79x30 in xsofy). Without an offset, world-coord renders
+;; that land outside the rect are silently dropped — including the player.
+;; The fix: attach a camera offset (:cx :cy) to the map rect, centered on
+;; the player and clamped to world bounds. render-map-tile and friends
+;; consume the offset via map-cell, so callers keep passing world coords.
+
+(defn camera-for
+  "Centered-on-player camera for map rect r, clamped so the viewport
+   stays inside the world. Returns [cx cy] — the world coord at the
+   top-left of the visible window. Falls back to [0 0] if the world
+   fits entirely (no scrolling needed)."
+  [world r]
+  (let [ww (or (:width world) 0)
+        wh (or (:height world) 0)
+        rw (:w r)
+        rh (:h r)
+        [px py] (or (get-in world [:entities :player :pos]) [0 0])
+        cx (if (<= ww rw) 0 (max 0 (min (- ww rw) (- px (quot rw 2)))))
+        cy (if (<= wh rh) 0 (max 0 (min (- wh rh) (- py (quot rh 2)))))]
+    [cx cy]))
+
+(defn with-camera
+  "Attach a camera-for offset to the map rect. Callers pass the result
+   anywhere a map rect is consumed."
+  [world r]
+  (let [[cx cy] (camera-for world r)]
+    (assoc r :cx cx :cy cy)))
+
+(defn map-cell
+  "Translate world (x y) → terminal [col row] for map rect r, honoring
+   the rect's camera offset (:cx :cy, default 0). Returns nil if the
+   cell falls outside the visible window."
+  [r x y]
+  (let [cx (or (:cx r) 0)
+        cy (or (:cy r) 0)
+        tx (- x cx)
+        ty (- y cy)]
+    (when (and (>= tx 0) (< tx (:w r))
+               (>= ty 0) (< ty (:h r)))
+      [(+ (:x r) tx) (+ (:y r) ty)])))
+
 (defn render-map-tile [r x y tile visible remembered light-val stain gas]
-  (when (and (>= x 0) (< x (:w r)) (>= y 0) (< y (:h r)))
-    (term/move-cursor (+ (:x r) x) (+ (:y r) y))
+  (when-let [[col row] (map-cell r x y)]
+    (term/move-cursor col row)
     (cond
       visible
       (let [style (style-tile tile)
@@ -121,16 +164,23 @@
   (let [{:keys [terrain width height fov memory]} world
         lights (or (:lights world) [])
         stains (or (:stains world) {})
-        gases (or (:gases world) {})]
-    (dotimes [y (min height (:h r))]
-      (dotimes [x (min width (:w r))]
-        (let [visible (contains? fov [x y])
-              remembered (get memory [x y])
-              tile (when visible (terrain/tget terrain width x y))
-              lv (when visible (light/light-at x y lights))
-              stain (when visible (get stains [x y]))
-              gas (when visible (get gases [x y]))]
-          (render-map-tile r x y tile visible remembered lv stain gas))))))
+        gases (or (:gases world) {})
+        ;; Iterate the world-coord window the camera exposes, not 0..w/h
+        ;; from the rect's perspective — otherwise a non-zero camera
+        ;; offset would leave the right/bottom edge of the viewport blank.
+        cx (or (:cx r) 0)
+        cy (or (:cy r) 0)
+        x-end (min width (+ cx (:w r)))
+        y-end (min height (+ cy (:h r)))]
+    (doseq [y (range cy y-end)
+            x (range cx x-end)]
+      (let [visible (contains? fov [x y])
+            remembered (get memory [x y])
+            tile (when visible (terrain/tget terrain width x y))
+            lv (when visible (light/light-at x y lights))
+            stain (when visible (get stains [x y]))
+            gas (when visible (get gases [x y]))]
+        (render-map-tile r x y tile visible remembered lv stain gas)))))
 
 (defn render-entity [world r entity]
   (when-let [pos (:pos entity)]
@@ -138,8 +188,7 @@
           lights (or (:lights world) [])
           [x y] pos]
       (when (and (contains? fov [x y])
-                 (>= x 0) (< x (:w r))
-                 (>= y 0) (< y (:h r)))
+                 (map-cell r x y))
         (let [tile (terrain/tget (:terrain world) (:width world) x y)
               tile-bg (:bg (style-tile tile))
               stains (or (:stains world) {})
@@ -166,8 +215,9 @@
                       [(quot (+ br sr) 2) (quot (+ bg sg) 2) (quot (+ bb sb) 2)])
                     bg-lit)
               fg-lit (if lv (light/apply-light fg0 lv) fg0)
-              glyph (get-in entity [:visual :glyph] "?")]
-          (term/move-cursor (+ (:x r) x) (+ (:y r) y))
+              glyph (get-in entity [:visual :glyph] "?")
+              [col row] (map-cell r x y)]
+          (term/move-cursor col row)
           (let [[fr fg fb] fg-lit] (term/set-fg fr fg fb))
           (let [[br bgg bb] bg1] (term/set-bg br bgg bb))
           (term/write glyph))))))
@@ -375,7 +425,7 @@
                                  m))
                              {} ents)]
     (doseq [[x y] dirty]
-      (when (and (>= x 0) (< x (:w r)) (>= y 0) (< y (:h r)))
+      (when (map-cell r x y)
         (let [visible (contains? fov [x y])
               remembered (get memory [x y])
               tile (when visible (terrain/tget terrain width x y))
@@ -406,7 +456,7 @@
                   white [255 255 255]
                   i2 (* intensity intensity)]
               (doseq [[x y] cells]
-                (when (and (>= x 0) (< x (:w r)) (>= y 0) (< y (:h r)))
+                (when-let [[col row] (map-cell r x y)]
                   (let [tile (terrain/tget (:terrain world) (:width world) x y)
                         style (style-tile tile)
                         fg (boost-color (boost-color (:fg style) tint intensity)
@@ -414,7 +464,7 @@
                         bg (boost-color (boost-color (:bg style) tint (* intensity 0.7))
                                         white (* i2 0.5))
                         ch (get terrain/tile-chars tile ".")]
-                    (term/move-cursor (+ (:x r) x) (+ (:y r) y))
+                    (term/move-cursor col row)
                     (let [[fr fg_ fb] fg] (term/set-fg fr fg_ fb))
                     (let [[br bg_ bb] bg] (term/set-bg br bg_ bb))
                     (term/write ch)))))
@@ -426,12 +476,12 @@
                   color (or (:color event) [200 180 120])]
               (when (< step (count path))
                 (let [[x y] (nth path step)]
-                  (when (and (>= x 0) (< x (:w r)) (>= y 0) (< y (:h r)))
+                  (when-let [[col row] (map-cell r x y)]
                     (let [tile (terrain/tget (:terrain world) (:width world) x y)
                           style (style-tile tile)
                           bg-lit (let [lv (light/light-at x y (or (:lights world) []))]
                                    (if lv (light/apply-light (:bg style) lv) (:bg style)))]
-                      (term/move-cursor (+ (:x r) x) (+ (:y r) y))
+                      (term/move-cursor col row)
                       (let [[fr fg_ fb] color] (term/set-fg fr fg_ fb))
                       (let [[br bg_ bb] bg-lit] (term/set-bg br bg_ bb))
                       (term/write glyph))))))
@@ -439,14 +489,14 @@
             :flash
             (let [[x y] (:pos event)
                   i2 (* intensity intensity)]
-              (when (and (>= x 0) (< x (:w r)) (>= y 0) (< y (:h r)))
+              (when-let [[col row] (map-cell r x y)]
                 (let [tile (terrain/tget (:terrain world) (:width world) x y)
                       style (style-tile tile)
                       white [255 255 255]
                       fg (boost-color (:fg style) white i2)
                       bg (boost-color (:bg style) white (* i2 0.8))
                       ch (get terrain/tile-chars tile ".")]
-                  (term/move-cursor (+ (:x r) x) (+ (:y r) y))
+                  (term/move-cursor col row)
                   (let [[fr fg_ fb] fg] (term/set-fg fr fg_ fb))
                   (let [[br bg_ bb] bg] (term/set-bg br bg_ bb))
                   (term/write ch))))
@@ -476,26 +526,29 @@
   (if (every? #(= :projectile (:type %)) vfx) 25 50))
 
 (defn animate-vfx! [world r]
-  "Run vfx animation loop — only redraws affected cells between frames."
-  (loop [vfx (or (:vfx world) []) prev-dirty #{}]
-    (when (seq vfx)
-      ;; collect cells this frame will touch
-      (let [cur-dirty (vfx-dirty-cells vfx)
-            ;; restore cells from previous frame that aren't in current frame
-            to-restore (core/into prev-dirty cur-dirty)]
-        ;; restore all previously dirty cells first
-        (when (seq prev-dirty)
-          (restore-dirty-cells! world r prev-dirty)
-          (term/flush))
-        ;; render current vfx overlay
-        (render-vfx-frame (assoc world :vfx vfx) r)
-        (pause! (vfx-frame-delay vfx))
-        (let [next-vfx (tick-vfx vfx)]
-          (if (seq next-vfx)
-            (recur next-vfx cur-dirty)
-            ;; final frame — restore all dirty cells
-            (do (restore-dirty-cells! world r cur-dirty)
-                (term/flush))))))))
+  "Run vfx animation loop — only redraws affected cells between frames.
+   Attaches the camera offset to the rect so vfx painted at world coords
+   land in the right terminal cells even when the map is scrolled."
+  (let [r (with-camera world r)]
+    (loop [vfx (or (:vfx world) []) prev-dirty #{}]
+      (when (seq vfx)
+        ;; collect cells this frame will touch
+        (let [cur-dirty (vfx-dirty-cells vfx)
+              ;; restore cells from previous frame that aren't in current frame
+              to-restore (core/into prev-dirty cur-dirty)]
+          ;; restore all previously dirty cells first
+          (when (seq prev-dirty)
+            (restore-dirty-cells! world r prev-dirty)
+            (term/flush))
+          ;; render current vfx overlay
+          (render-vfx-frame (assoc world :vfx vfx) r)
+          (pause! (vfx-frame-delay vfx))
+          (let [next-vfx (tick-vfx vfx)]
+            (if (seq next-vfx)
+              (recur next-vfx cur-dirty)
+              ;; final frame — restore all dirty cells
+              (do (restore-dirty-cells! world r cur-dirty)
+                  (term/flush)))))))))
 
 ;; --- Item Display Helpers ---
 
@@ -1019,7 +1072,8 @@
 
 (defn render-full [world]
   (let [[tw th] (term/size)
-        panels (ui/layout tw th)]
+        panels (ui/layout tw th)
+        mr (with-camera world (:map panels))]
     ;; blank entire terminal with bg color
     (ui/apply-bg ui/bg)
     (ui/apply-fg ui/bg)
@@ -1027,8 +1081,8 @@
       (term/move-cursor 1 (inc y))
       (term/write (apply str (repeat tw " "))))
     ;; render panels
-    (render-map world (:map panels))
-    (render-map-entities world (:map panels))
+    (render-map world mr)
+    (render-map-entities world mr)
     (render-sidebar world (:sidebar panels))
     (render-log world (:log panels))
     (render-status world (:status panels))
@@ -1037,35 +1091,45 @@
 (defn render-dirty [world prev-world]
   (let [[tw th] (term/size)
         panels (ui/layout tw th)
-        mr (:map panels)
+        ;; If the player moved, the camera may shift too — and that turns
+        ;; a "dirty" tile-by-tile pass into a misleading patch on top of
+        ;; stale geometry. Force a full repaint on camera change.
+        prev-mr (with-camera prev-world (:map panels))
+        mr      (with-camera world      (:map panels))
         old-fov (:fov prev-world)
         new-fov (:fov world)]
-    (let [lights (or (:lights world) [])
-          stains (or (:stains world) {})
-          gases (or (:gases world) {})]
-      (doseq [[x y] old-fov]
-        (when (and (not (contains? new-fov [x y]))
-                   (< x (:w mr)) (< y (:h mr)))
-          (render-map-tile mr x y nil false (get (:memory world) [x y]) nil nil nil)))
-      (doseq [[x y] new-fov]
-        (when (and (< x (:w mr)) (< y (:h mr)))
+    (if (or (not= (:cx prev-mr) (:cx mr))
+            (not= (:cy prev-mr) (:cy mr)))
+      (do (render-map world mr)
+          (render-map-entities world mr)
+          (render-sidebar world (:sidebar panels))
+          (render-log world (:log panels))
+          (render-status world (:status panels))
+          (term/flush))
+      (let [lights (or (:lights world) [])
+            stains (or (:stains world) {})
+            gases (or (:gases world) {})]
+        (doseq [[x y] old-fov]
+          (when-not (contains? new-fov [x y])
+            (render-map-tile mr x y nil false (get (:memory world) [x y]) nil nil nil)))
+        (doseq [[x y] new-fov]
           (render-map-tile mr x y
                            (terrain/tget (:terrain world) (:width world) x y)
                            true nil
                            (light/light-at x y lights)
                            (get stains [x y])
-                           (get gases [x y]))))
-      (let [[opx opy] (get-in prev-world [:entities :player :pos])]
-        (when (and opx opy (< opx (:w mr)) (< opy (:h mr)))
-          (let [tile (terrain/tget (:terrain world) (:width world) opx opy)
-                vis (contains? new-fov [opx opy])]
-            (render-map-tile mr opx opy tile vis
-                             (get (:memory world) [opx opy])
-                             (when vis (light/light-at opx opy lights))
-                             (when vis (get stains [opx opy]))
-                             (when vis (get gases [opx opy])))))))
-    (render-map-entities world mr)
-    (render-sidebar world (:sidebar panels))
-    (render-log world (:log panels))
-    (render-status world (:status panels))
-    (term/flush)))
+                           (get gases [x y])))
+        (let [[opx opy] (get-in prev-world [:entities :player :pos])]
+          (when (and opx opy)
+            (let [tile (terrain/tget (:terrain world) (:width world) opx opy)
+                  vis (contains? new-fov [opx opy])]
+              (render-map-tile mr opx opy tile vis
+                               (get (:memory world) [opx opy])
+                               (when vis (light/light-at opx opy lights))
+                               (when vis (get stains [opx opy]))
+                               (when vis (get gases [opx opy]))))))
+        (render-map-entities world mr)
+        (render-sidebar world (:sidebar panels))
+        (render-log world (:log panels))
+        (render-status world (:status panels))
+        (term/flush)))))
