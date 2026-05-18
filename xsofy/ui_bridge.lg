@@ -41,3 +41,15 @@
    shell what to label the session (e.g., in a header bar or page title)."
   [title quest]
   (emit :startup {:title title :quest quest}))
+
+(defn emit-stats
+  "Fired after each turn the player sees. Small per-turn summary the HUD
+   uses to render the info row. Skip when there's no player (death) so the
+   bar shows the last known good state until restart."
+  [world]
+  (let [player (get-in world [:entities :player])]
+    (when player
+      (emit :stats {:hp     (get-in player [:body :hp] 0)
+                    :max-hp (get-in player [:body :max-hp] 1)
+                    :depth  (or (:depth world) 1)
+                    :turn   (or (:turn world) 0)}))))

@@ -460,7 +460,8 @@
                            new-world)
                cur-size (term/size)
                resized (not= cur-size prev-size)
-               floor-changed (not= (:depth new-world) (:depth world))]
+               floor-changed (not= (:depth new-world) (:depth world))
+               _ (bridge/emit-stats new-world)]
            (if (or floor-changed resized (:screen new-world))
              (do (when-not (:screen new-world)
                    (render/render-full new-world))
