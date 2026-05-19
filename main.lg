@@ -469,10 +469,13 @@
                    (render/render-full new-world))
                  (let [t-render (System/currentTimeMillis)
                        u (- t-update t-key)
-                       r (- t-render t-update)]
-                   (bridge/emit-perf {:total (+ u r) :update u :render r :mode :full :key (str key)})
-                   (dbg/log "perf full u=" u "ms r=" r "ms key=" key))
-                 (recur new-world new-world cur-size))
+                       r (- t-render t-update)
+                       detail (:perf-detail new-world)]
+                   (bridge/emit-perf (cond-> {:total (+ u r) :update u :render r :mode :full :key (str key)}
+                                       detail (assoc :detail detail)))
+                   (dbg/log "perf full u=" u "ms r=" r "ms key=" key
+                            (if detail (str " detail=" detail) "")))
+                 (recur (dissoc new-world :perf-detail) new-world cur-size))
              (do (render/render-dirty new-world world)
                  ;; animate vfx between turns
                  (when (seq (:vfx new-world))
@@ -481,10 +484,13 @@
                      (render/animate-vfx! new-world (:map panels))))
                  (let [t-render (System/currentTimeMillis)
                        u (- t-update t-key)
-                       r (- t-render t-update)]
-                   (bridge/emit-perf {:total (+ u r) :update u :render r :mode :dirty :key (str key)})
-                   (dbg/log "perf dirty u=" u "ms r=" r "ms key=" key))
-                 (recur (dissoc new-world :vfx) world cur-size)))))))))
+                       r (- t-render t-update)
+                       detail (:perf-detail new-world)]
+                   (bridge/emit-perf (cond-> {:total (+ u r) :update u :render r :mode :dirty :key (str key)}
+                                       detail (assoc :detail detail)))
+                   (dbg/log "perf dirty u=" u "ms r=" r "ms key=" key
+                            (if detail (str " detail=" detail) "")))
+                 (recur (dissoc new-world :vfx :perf-detail) world cur-size)))))))))
 
 (defn -main []
   (init-terminal)
