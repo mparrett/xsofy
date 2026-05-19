@@ -1,0 +1,875 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Of Phantoms and Polish · Quest Log</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0c0c0c;
+      --bg-rise:   #131311;
+      --panel:     #15140f;
+      --ink:       #e8e6df;
+      --ink-dim:   #8a877c;
+      --ink-dust:  #5a584f;
+      --rule:      rgba(232, 230, 223, 0.08);
+      --rule-soft: rgba(232, 230, 223, 0.04);
+      --teal:      #5ec4b6;
+      --amber:     #d8a657;
+      --rust:      #c25450;
+      --moss:      #8aa86b;
+      --violet:    #b29bd1;
+      --display:   "Cinzel", "Iowan Old Style", "Palatino", serif;
+      --mono:      "IBM Plex Mono", "Menlo", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: var(--mono);
+      font-size: 14.5px;
+      line-height: 1.75;
+      letter-spacing: 0.01em;
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* ---------- Atmosphere ---------- */
+    body::before {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,0.012) 0px,
+        rgba(255,255,255,0.012) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      z-index: 1;
+    }
+    body::after {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse at 50% -10%, rgba(216, 166, 87, 0.08), transparent 55%),
+        radial-gradient(ellipse at -10% 80%, rgba(94, 196, 182, 0.06), transparent 45%),
+        radial-gradient(ellipse at 110% 30%, rgba(178, 155, 209, 0.05), transparent 50%),
+        radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.55) 100%);
+      z-index: 0;
+    }
+
+    /* Phantom glyphs — wisps not coils */
+    .haunt {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      font-family: var(--mono);
+    }
+    .haunt span {
+      position: absolute;
+      font-size: clamp(16px, 1.2vw, 22px);
+      color: var(--amber);
+      opacity: 0;
+      animation: phantom-fade 1.6s ease-out forwards, phantom-drift 11s ease-in-out infinite;
+    }
+    @keyframes phantom-fade {
+      0%   { opacity: 0; transform: translate(0, 12px); }
+      100% { opacity: 0.10; transform: translate(0, 0); }
+    }
+    @keyframes phantom-drift {
+      0%, 100% { opacity: 0.06; transform: translateX(0); }
+      50%      { opacity: 0.14; transform: translateX(6px); }
+    }
+
+    /* ---------- Layout ---------- */
+    .frame {
+      position: relative;
+      z-index: 2;
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 6vh 6vw 14vh;
+    }
+
+    /* ---------- Masthead ---------- */
+    .mast { margin-bottom: 12vh; position: relative; }
+    .mast .strip {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--ink-dust);
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 14px;
+      margin-bottom: 56px;
+    }
+    .mast .strip .here { color: var(--amber); }
+
+    .mast h1 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: clamp(48px, 8vw, 92px);
+      line-height: 0.96;
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 28px;
+    }
+    .mast h1 em {
+      font-style: italic;
+      font-weight: 400;
+      color: var(--amber);
+      letter-spacing: 0;
+    }
+    .mast .sub {
+      font-family: var(--display);
+      font-style: italic;
+      font-weight: 400;
+      font-size: clamp(17px, 1.8vw, 21px);
+      color: var(--ink-dim);
+      max-width: 56ch;
+      margin-bottom: 36px;
+      line-height: 1.5;
+    }
+    .mast .seal {
+      display: grid;
+      grid-template-columns: repeat(4, auto);
+      gap: 36px 56px;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .mast .seal dt { color: var(--ink-dust); font-size: 10px; margin-bottom: 4px; letter-spacing: 0.18em; }
+    .mast .seal dd { color: var(--ink); font-family: var(--mono); font-size: 13px; letter-spacing: 0; text-transform: none; }
+
+    /* ---------- Prelude ---------- */
+    .prelude {
+      font-family: var(--display);
+      font-style: italic;
+      font-weight: 400;
+      font-size: clamp(18px, 1.9vw, 22px);
+      line-height: 1.55;
+      color: var(--ink-dim);
+      max-width: 64ch;
+      margin: 0 0 14vh 0;
+      padding: 14px 0 14px 28px;
+      border-left: 2px solid var(--amber);
+    }
+    .prelude::first-letter {
+      font-size: 1.6em;
+      color: var(--violet);
+      padding-right: 0.05em;
+    }
+
+    /* ---------- Acts ---------- */
+    .act {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 36px;
+      padding: 60px 0;
+      border-top: 1px solid var(--rule);
+      position: relative;
+    }
+    .act .glyph {
+      font-family: var(--display);
+      font-weight: 400;
+      letter-spacing: 0.18em;
+      color: var(--ink-dust);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .act .glyph .roman {
+      display: block;
+      font-size: 36px;
+      color: var(--amber);
+      letter-spacing: 0;
+      line-height: 1;
+      margin-top: 10px;
+      font-family: var(--display);
+      font-weight: 400;
+    }
+    .act .glyph .rune {
+      display: block;
+      font-size: 26px;
+      color: var(--moss);
+      margin-top: 22px;
+      opacity: 0.55;
+    }
+
+    .act h2 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: clamp(26px, 3.2vw, 36px);
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 6px;
+      line-height: 1.15;
+    }
+    .act h2 .tag {
+      display: block;
+      font-family: var(--mono);
+      font-style: italic;
+      font-weight: 400;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--ink-dust);
+      margin-top: 6px;
+    }
+
+    .act p { margin: 16px 0; max-width: 66ch; color: var(--ink); }
+    .act p.aside {
+      color: var(--ink-dim);
+      font-size: 13px;
+      font-style: italic;
+      border-left: 1px solid var(--rule);
+      padding-left: 14px;
+      margin-top: 22px;
+    }
+    .act p.win {
+      color: var(--moss);
+      font-style: italic;
+      border-left: 2px solid var(--moss);
+      padding-left: 14px;
+      max-width: 60ch;
+    }
+    .act p.dead-end {
+      color: var(--rust);
+      font-style: italic;
+      border-left: 2px solid var(--rust);
+      padding-left: 14px;
+      max-width: 60ch;
+    }
+
+    .act .term {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-left: 2px solid var(--amber);
+      padding: 16px 20px;
+      margin: 18px 0 24px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--ink);
+      overflow-x: auto;
+      position: relative;
+    }
+    .act .term::before {
+      content: attr(data-label);
+      position: absolute; top: -9px; left: 12px;
+      background: var(--bg);
+      padding: 0 8px;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .term .p { color: var(--teal); user-select: none; }
+    .term .c { color: var(--ink); }
+    .term .o { color: var(--ink-dim); display: block; }
+    .term .err { color: var(--rust); }
+    .term .ok { color: var(--moss); }
+    .term .hl { color: var(--amber); }
+    .term .dim { color: var(--ink-dust); }
+
+    code { font-family: var(--mono); color: var(--amber); font-size: 0.95em; background: rgba(216,166,87,0.06); padding: 1px 4px; border-radius: 2px; }
+    a { color: var(--amber); text-decoration: none; border-bottom: 1px dotted rgba(216, 166, 87, 0.4); }
+    a:hover { border-bottom-style: solid; }
+
+    /* ---------- Numbers table inside an act ---------- */
+    .perf-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 18px 0 24px;
+      max-width: 60ch;
+    }
+    .perf-table th, .perf-table td {
+      text-align: left;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--rule-soft);
+    }
+    .perf-table th {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+      font-weight: 500;
+    }
+    .perf-table td.row-label { color: var(--ink-dim); font-style: italic; }
+    .perf-table td.hot { color: var(--rust); font-weight: 500; }
+    .perf-table td.cool { color: var(--moss); }
+
+    /* ---------- Moral coda ---------- */
+    .moral {
+      margin-top: 12vh;
+      padding: 40px 36px 44px;
+      border: 1px solid var(--rule);
+      background: linear-gradient(180deg, var(--bg-rise), var(--bg));
+      position: relative;
+    }
+    .moral::before {
+      content: "▾ what we learned";
+      position: absolute; top: -9px; left: 20px;
+      background: var(--bg);
+      padding: 0 10px;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--amber);
+    }
+    .moral h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 24px;
+      color: var(--amber);
+      margin-bottom: 14px;
+    }
+    .moral p { color: var(--ink); max-width: 66ch; margin-bottom: 12px; }
+    .moral ol {
+      margin: 18px 0 0 0;
+      padding-left: 0;
+      counter-reset: lesson;
+      list-style: none;
+    }
+    .moral li {
+      padding: 10px 0 10px 36px;
+      position: relative;
+      color: var(--ink);
+      border-bottom: 1px dashed var(--rule-soft);
+      counter-increment: lesson;
+      max-width: 66ch;
+    }
+    .moral li:last-child { border-bottom: none; }
+    .moral li::before {
+      content: counter(lesson, decimal-leading-zero);
+      position: absolute; left: 0; top: 10px;
+      color: var(--amber);
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+
+    /* ---------- Ledger ---------- */
+    .ledger {
+      margin-top: 9vh;
+      padding-top: 56px;
+      border-top: 1px solid var(--rule);
+    }
+    .ledger h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 22px;
+      letter-spacing: 0.04em;
+      color: var(--amber);
+      margin-bottom: 24px;
+    }
+    .ledger table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .ledger th, .ledger td {
+      text-align: left;
+      padding: 14px 12px;
+      border-bottom: 1px solid var(--rule-soft);
+      vertical-align: top;
+    }
+    .ledger th {
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .ledger td.sha   { color: var(--teal); font-family: var(--mono); }
+    .ledger td.repo  { color: var(--violet); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; }
+    .ledger td.what  { color: var(--ink); }
+    .ledger td.tag .badge {
+      display: inline-block;
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border: 1px solid;
+    }
+    .badge.feat { color: var(--moss);   border-color: rgba(138,168,107,0.4); }
+    .badge.fix  { color: var(--rust);   border-color: rgba(194,84,80,0.4); }
+    .badge.docs { color: var(--violet); border-color: rgba(178,155,209,0.4); }
+    .badge.test { color: var(--amber);  border-color: rgba(216,166,87,0.4); }
+
+    /* ---------- Colophon ---------- */
+    .colophon {
+      margin-top: 10vh;
+      padding-top: 28px;
+      border-top: 1px solid var(--rule);
+      display: flex; justify-content: space-between;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+
+    /* ---------- Staggered reveal ---------- */
+    .act { opacity: 0; transform: translateY(14px); animation: enter 0.8s ease-out forwards; }
+    .act:nth-of-type(1) { animation-delay: 0.30s; }
+    .act:nth-of-type(2) { animation-delay: 0.45s; }
+    .act:nth-of-type(3) { animation-delay: 0.60s; }
+    .act:nth-of-type(4) { animation-delay: 0.75s; }
+    .act:nth-of-type(5) { animation-delay: 0.90s; }
+    .act:nth-of-type(6) { animation-delay: 1.05s; }
+    @keyframes enter { to { opacity: 1; transform: translateY(0); } }
+
+    .mast h1, .mast .sub, .mast .strip, .mast .seal {
+      opacity: 0; animation: enter 0.8s ease-out forwards;
+    }
+    .mast .strip { animation-delay: 0.05s; }
+    .mast h1    { animation-delay: 0.18s; }
+    .mast .sub  { animation-delay: 0.32s; }
+    .mast .seal { animation-delay: 0.48s; }
+
+    @media (max-width: 720px) {
+      .act { grid-template-columns: 1fr; gap: 14px; padding: 44px 0; }
+      .act .glyph { display: flex; gap: 20px; align-items: baseline; }
+      .act .glyph .roman { margin-top: 0; font-size: 22px; }
+      .act .glyph .rune  { margin-top: 0; font-size: 20px; }
+      .mast .seal { grid-template-columns: repeat(2, auto); gap: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="haunt" aria-hidden="true">
+    <span style="top:  8vh; left:  6vw">⚯</span>
+    <span style="top: 18vh; right: 9vw">⌖</span>
+    <span style="top: 31vh; left:  4vw">◎</span>
+    <span style="top: 44vh; right: 7vw">⌬</span>
+    <span style="top: 57vh; left:  9vw">◇</span>
+    <span style="top: 71vh; right: 5vw">⊹</span>
+    <span style="top: 86vh; left: 11vw">⚯</span>
+    <span style="top:100vh; right: 8vw">⌖</span>
+    <span style="top:117vh; left:  3vw">◎</span>
+    <span style="top:135vh; right:10vw">⌬</span>
+    <span style="top:154vh; left:  7vw">◇</span>
+    <span style="top:172vh; right: 4vw">⊹</span>
+    <span style="top:194vh; left: 10vw">⚯</span>
+  </div>
+
+  <main class="frame">
+
+    <header class="mast">
+      <div class="strip">
+        <span>Quest Log · 2026-05-18</span>
+        <span class="here">expmt/kaiju · xsofy</span>
+        <span>Sequel to coi-quest.html</span>
+      </div>
+      <h1>Of Phantoms<br>and <em>Polish</em></h1>
+      <p class="sub">
+        A bug that didn't exist led us to six that did. By the end of the day the phone was playable, the bar had a memory, and we knew — to the millisecond — what the engine was really spending its turns on.
+      </p>
+      <dl class="seal">
+        <div><dt>Hunt began</dt><dd>imagined FitAddon bug</dd></div>
+        <div><dt>Hunt yielded</dt><dd>5 real fixes, 1 dataset</dd></div>
+        <div><dt>Lines changed</dt><dd>~350</dd></div>
+        <div><dt>Commits</dt><dd>9 local, 0 pushed</dd></div>
+      </dl>
+    </header>
+
+    <p class="prelude">
+      Yesterday's handoff named a parting threat: "the FitAddon doesn't refit cols on resize — verified by probe." Today began with that as the next thread to pull. The probe was wrong. The thread led elsewhere. What unspooled, before the day was out, was a small carnival of phone-shaped indignities — wrong viewports, ghost service workers, hand cramps from tap-tap-tapping — and at the end, a lantern to see by.
+    </p>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">I</span>
+        <span class="rune">⚯</span>
+      </div>
+      <div class="body">
+        <h2>The phantom cols
+          <span class="tag">— a misread DOM attribute, a screenshot, a confident handoff</span>
+        </h2>
+        <p>
+          The handoff said FitAddon was failing to recompute columns on a
+          dynamic resize: 1280px viewport → 375px viewport, rows shrank
+          correctly, cols stayed at 150. A real bug; worth a ResizeObserver
+          in the let-go fork.
+        </p>
+        <p>
+          Four probes later — direct <code>term.cols</code>, <code>fitAddon.proposeDimensions()</code>,
+          buffer inspection through xterm's API, and an explored-map screenshot — the
+          finding was that <em>cols updates fine</em>. 150 → 42 on the dot. The
+          earlier probe had read <code>.xterm-screen[aria-rowcount]</code> and
+          labelled it <em>cols</em>; that attribute is <code>null</code> on
+          current xterm, and the symptom screenshot showed a map blob on the
+          right side of the viewport — actually correct camera behaviour for a
+          spawn at world column 71 of 79, with only the spawn FOV revealed.
+        </p>
+        <div class="term" data-label="diagnostic probe">
+          <span class="o"><span class="dim">term.cols</span>     150 → <span class="ok">42</span>     <span class="dim"># corrected on resize</span></span>
+          <span class="o"><span class="dim">term.rows</span>      46 → <span class="ok">27</span>     <span class="dim"># corrected on resize</span></span>
+          <span class="o"><span class="dim">proposed</span>    {cols:42, rows:27}   <span class="dim"># FitAddon agrees</span></span>
+          <span class="o"><span class="dim">aria-rowcount</span>  null            <span class="dim"># not a thing on .xterm-screen</span></span>
+        </div>
+        <p>
+          So: no fix. The right artifact was a written one — an ADR in
+          <code>docs/project_notes/decisions.md</code> explaining the
+          misdiagnosis so a future session wouldn't chase the same ghost.
+          Cost: an hour. Benefit: not spending the next session adding a
+          ResizeObserver to working code.
+        </p>
+        <p class="win">Phantom recorded. Real bugs awaited.</p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">II</span>
+        <span class="rune">⌖</span>
+      </div>
+      <div class="body">
+        <h2>The truncated hint
+          <span class="tag">— and the first checked-in e2e smoke</span>
+        </h2>
+        <p>
+          The keybind hint at the bottom of the game (<code>yuhjklbn:move .:wait
+          eUda:item …</code>) is 67 chars. On a 27-col portrait viewport it
+          truncated to <code>yuhjklbn:move .:wait eUd</code> — useless. The
+          HTML host bar already shows the action buttons, so the hint had
+          nothing to add on phone.
+        </p>
+        <p>
+          One line in <code>xsofy/ui.lg</code>: gate <code>show-status?</code>
+          on <code>(and (&gt;= gh 2) (&gt;= gw 67))</code>. When the row drops,
+          the layout's <code>rect-split-v</code> gives that row back to the
+          map. Trivial diff, real gain.
+        </p>
+        <p>
+          The more durable artifact was <code>tests/e2e/shell_smoke.py</code>,
+          a Playwright probe promoted from a one-off in <code>/tmp</code>:
+          18 assertions covering DOM mount, event bus, <code>_lgKey</code>
+          input path, portrait collapse (this hint-drop included), resize
+          wake, and font cycle persistence. Boots once per scenario, runs
+          in ~30s, exits 1 on failure. The same harness would carry every
+          subsequent change today.
+        </p>
+        <p class="aside">
+          A subtlety we'd later need: the xterm accessibility tree includes
+          <em>invisible</em> buffer cells past <code>term.cols</code>. A naive
+          <code>textContent</code> match against <code>.xterm-rows &gt; div</code>
+          will happily find a "deleted" landscape hint sitting in zombie cells
+          at column 67+. The fix is to read xterm's buffer through
+          <code>_lgTerm.buffer.active.getLine(y).translateToString(true).slice(0, t.cols)</code>
+          — which meant exposing <code>_lgTerm</code> from the let-go template
+          as a documented diagnostic affordance.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">III</span>
+        <span class="rune">◎</span>
+      </div>
+      <div class="body">
+        <h2>The vanishing glyph
+          <span class="tag">— one missing meta tag, two-and-a-half-times zoom</span>
+        </h2>
+        <p>
+          A screenshot arrived from an iPhone 13. The terminal worked, but
+          all the characters were <em>tiny</em>. The HTML host bar at the
+          bottom rendered at expected size; only the terminal area was
+          undersized.
+        </p>
+        <p>
+          The reveal: the bar's font-cycle chip showed <code>A14</code>, but
+          the layout was clearly using more than 80 columns (the sidebar
+          was visible — its threshold). On a 390-CSS-px iPhone with
+          fontSize 14, 80 cols would need a cell width of <code>390/80 = 4.875px</code>.
+          Impossible for fontSize 14. The conclusion forced itself: <code>100vw</code>
+          wasn't <em>actually</em> 390px.
+        </p>
+        <p>
+          Mobile Safari defaults its layout viewport to <strong>980 CSS px</strong>
+          when there's no <code>&lt;meta name="viewport"&gt;</code> tag. The
+          terminal was rendering at desktop size — <em>then being scaled down
+          by Safari</em> to fit the device — at roughly 39% of intended size.
+          Every "collapse on narrow" branch in <code>ui/layout</code> was
+          inert because the page never <em>thought</em> it was narrow.
+        </p>
+        <div class="term" data-label="the one-line fix">
+          <span class="o"><span class="hl">&lt;meta</span> name=<span class="ok">"viewport"</span> content=<span class="ok">"width=device-width, initial-scale=1, viewport-fit=cover"</span><span class="hl">&gt;</span></span>
+        </div>
+        <p class="win">
+          One tag in the let-go fork's WASM template. With it, <code>100vw</code>
+          resolved to the real device width, fontSize 22 (portrait default)
+          gave ~30 cols, the sidebar and hint dropped, and the map filled
+          the viewport at full pixel density.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">IV</span>
+        <span class="rune">⌬</span>
+      </div>
+      <div class="body">
+        <h2>The service worker maze
+          <span class="tag">— a loop, a guard, a header, a phone freeze</span>
+        </h2>
+        <p>
+          On the rebuilt bundle, the phone went into an infinite reload loop.
+          Familiar territory: cross-origin isolation, the <code>coi-serviceworker.js</code>
+          shim that yesterday's quest already half-defeated by sending COI
+          headers from the dev server. But the SW was still living in
+          Safari's storage, intercepting every fetch, rewriting our
+          <code>Cross-Origin-Embedder-Policy: require-corp</code> into
+          <code>credentialless</code> — a header Safari refuses to honour —
+          and triggering the bundle's reload-on-register-completion path,
+          which had no guard.
+        </p>
+        <p>
+          Three layered fixes, all in <code>let-go/wasm.go</code>:
+        </p>
+        <p>
+          <strong>1.</strong> A <code>sessionStorage</code> guard around the
+          SW registration. If isolation never activates, we reload at most
+          once per tab, then accept the degraded state instead of churning
+          CPU forever.
+        </p>
+        <p>
+          <strong>2.</strong> Auto-unregister any leftover SW when the
+          document <em>is</em> isolated. If the server headers worked, the
+          SW is dead code — get it off the phone so future visits stay clean.
+        </p>
+        <p>
+          <strong>3.</strong> Fix the SW itself: stop overriding
+          server-set COOP/COEP, and when the SW <em>does</em> need to inject
+          headers (GitHub Pages, etc.), use <code>require-corp</code>
+          (broadly compatible) instead of <code>credentialless</code>
+          (Chrome-only). The combination undoes the trap that put us in
+          the loop in the first place.
+        </p>
+        <p class="aside">
+          The user, mid-recovery, reported: "It worked and I don't really
+          know why — I couldn't find a way to clear cookies because my phone
+          froze." A phone freeze is also a way of clearing service workers.
+          We accepted the win.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">V</span>
+        <span class="rune">◇</span>
+      </div>
+      <div class="body">
+        <h2>The held direction
+          <span class="tag">— hold-to-repeat with a toggle, scoped to movement</span>
+        </h2>
+        <p>
+          With the phone playable, the next friction surfaced: tap-tap-tapping
+          to cross a corridor. Roguelikes solve this with shift+direction
+          run-keys, but a thumb on glass doesn't get modifier keys. Hold-to-repeat
+          on the D-pad was the natural answer.
+        </p>
+        <p>
+          The implementation is small (~50 lines in <code>dev/shell.html</code>),
+          but the decisions were the interesting part:
+        </p>
+        <p>
+          <strong>Scope.</strong> Only the <code>.pad</code> set (8 arrows +
+          WAIT) repeats. Action buttons — GET, INV, FIRE, DESCEND, RUNES,
+          MENU — deliberately don't. Holding FIRE re-fires the spell;
+          holding INV opens-closes-opens the menu. Both are footguns.
+        </p>
+        <p>
+          <strong>Cadence.</strong> 200ms initial delay, 100ms interval
+          (10 Hz). Picked to roughly match the engine's sustainable rate
+          on a held wait — going faster just backs up the SAB busy-wait.
+          See Act VI for why we know that number.
+        </p>
+        <p>
+          <strong>Surface.</strong> A small <code>↻on</code> chip in the
+          info row, next to the <code>A22</code> font cycle. Tap to toggle;
+          state persists to <code>localStorage</code> under
+          <code>xsofy/auto-repeat</code>.
+        </p>
+        <p>
+          The cancel-on-release path is more careful than it looks: pointers
+          can leave a button without firing <code>pointerup</code> on it
+          (finger slides off, browser steals the event). The handler
+          listens for <code>pointerleave</code> and <code>pointercancel</code>
+          on each button, AND <code>pointerup</code> on the window itself
+          as a final safety net. Without that, a drag-off-then-release
+          left the timer ticking forever.
+        </p>
+        <p class="win">
+          Result: hold any direction, walk smoothly. The e2e suite gained
+          four assertions (multi-fire on hold, single-fire when toggled
+          off, state persisted) so the behaviour stays put.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">VI</span>
+        <span class="rune">⊹</span>
+      </div>
+      <div class="body">
+        <h2>The telemetry lantern
+          <span class="tag">— what is the engine actually doing all turn?</span>
+        </h2>
+        <p>
+          The hold-to-repeat probe surfaced an oddity: 1.0s of hold produced
+          only 3 turns, not the 7 we'd expect from a 200/100ms cadence. Was
+          it the engine, the JS timer, xterm, the SAB busy-wait, the bridge?
+          The honest answer was: <em>we'd been guessing</em>.
+        </p>
+        <p>
+          A small instrumentation pass, both at the let-go and HTML layers:
+        </p>
+        <p>
+          <strong>Game side.</strong> Two <code>System/currentTimeMillis</code>
+          markers around <code>world/update-world</code> and around the
+          subsequent render call (full or dirty). Per-turn data goes out
+          two channels: <code>bridge/emit-perf</code> (a JS event for the
+          browser) and <code>dbg/log</code> (a line in <code>debug.log</code>
+          for native). Native callers see the same numbers without involving
+          the bridge; WASM callers can wire a listener with a single line.
+        </p>
+        <p>
+          <strong>Sample side.</strong> A checked-in
+          <code>tests/e2e/perf_sample.py</code>, distinct from the regression
+          smoke (it asserts nothing). Three workloads: discrete WAIT taps,
+          held WAIT, autoexplore. Boots a fresh page per workload so prior
+          world state doesn't confound the next sample.
+        </p>
+        <div class="term" data-label="first reading">
+          <span class="o"><span class="dim">scenario</span>            <span class="dim">update    render    total     rate</span></span>
+          <span class="o">discrete '.' taps    <span class="cool">53ms</span>      <span class="cool">27ms</span>      <span class="cool">81ms</span>      ~10 Hz</span>
+          <span class="o">held WAIT (2s)       <span class="hl">196ms</span>     30ms      226ms     ~4 Hz</span>
+          <span class="o">autoexplore (4s)     <span class="err">310ms</span>     <span class="err">150ms</span>     <span class="err">461ms</span>     ~2 Hz</span>
+          <span class="o"></span>
+          <span class="o"><span class="dim">untracked overhead   ~25 ms/turn  (xterm paint + bridge + SAB)</span></span>
+        </div>
+        <p>
+          Three discoveries fall out of this:
+        </p>
+        <p>
+          <strong>Same key, different cost.</strong> A discrete <code>.</code>
+          press costs <code>~53ms</code> in <code>update-world</code>; the
+          same key held for 2s averages <code>~196ms</code>. The action is
+          identical — the difference is that "held WAIT" lets the world
+          drift further from idle. Enemies wander into FOV, fire spreads,
+          AI activity scales.
+        </p>
+        <p>
+          <strong>Render is mostly cheap.</strong> Dirty-rect repaints stay
+          under 30ms in nearly every steady-state scenario. Autoexplore's
+          150ms render average is camera-shift triggered <em>full</em>
+          repaints, not the per-cell incremental.
+        </p>
+        <p>
+          <strong>Input is not the bottleneck.</strong> The 10 Hz auto-repeat
+          cadence is already faster than the engine can sustain when the
+          world is active. Bumping to 12 Hz would just back up the SAB.
+          The optimization targets are <em>inside</em> <code>update-world</code>:
+          AI tick cost as activity scales, the every-turn fire/water/light
+          passes, and (more speculatively) the full-vs-dirty render decision
+          during a camera-tracking sequence.
+        </p>
+        <p class="win">
+          Numbers, not guesses. Anywhere we want to take the next swing,
+          we'll do it with the lantern.
+        </p>
+      </div>
+    </section>
+
+    <aside class="moral">
+      <h3>What we learned</h3>
+      <p>
+        The day started with a phantom and ended with a dataset. In between,
+        each "small UX nit" we touched turned into a structural fix — usually
+        in the let-go fork, often a half-line of HTML, almost always at a
+        seam between two layers (xterm and the document, the document and
+        the SW, the WASM worker and the JS bridge).
+      </p>
+      <ol>
+        <li><strong>Verify before fixing — even your own handoff.</strong> Yesterday's session was confident enough about FitAddon to write it into Next Steps. A direct measurement said otherwise in 20 minutes. An hour of skepticism saved a half-day of fictional repair.</li>
+        <li><strong>The xterm accessibility tree lies about visibility.</strong> Buffer cells past <code>term.cols</code> stay populated; <code>textContent</code> includes them. Slice to <code>t.cols</code> via the buffer API, or your probes will pass on broken pages and fail on working ones.</li>
+        <li><strong>Mobile Safari assumes 980px until you tell it otherwise.</strong> Every responsive-design "this looks great on phone" rule is silently inert on iOS without a <code>viewport</code> meta tag. The render is correct; the scale is wrong; the symptom is "tiny chars."</li>
+        <li><strong>A service worker that fixes one device can poison another.</strong> Once registered, it controls every future fetch — even fetches that <em>would have been fine</em> via direct server headers. Belt-AND-suspenders means making each layer aware of the other: the SW shouldn't override what's already correct; the document should sweep up SWs it no longer needs.</li>
+        <li><strong>Telemetry is cheap; measurement debt is not.</strong> The instrumentation that produced Act VI's table was two <code>System/currentTimeMillis</code> calls and a one-line bridge emit. The two days of "is it the engine? is it xterm? is it the bridge?" before that were the actual cost.</li>
+      </ol>
+    </aside>
+
+    <section class="ledger">
+      <h3>The day's artifacts</h3>
+      <table>
+        <thead>
+          <tr><th>sha</th><th>repo</th><th>tag</th><th>what</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="sha">cee4fe0</td><td class="repo">xsofy</td>
+            <td class="tag"><span class="badge docs">docs</span></td>
+            <td class="what">ADR: the FitAddon resize "bug" doesn't exist</td>
+          </tr>
+          <tr>
+            <td class="sha">5a939e4</td><td class="repo">xsofy</td>
+            <td class="tag"><span class="badge feat">feat</span></td>
+            <td class="what">Drop status hint on narrow terminals; first <code>tests/e2e/shell_smoke.py</code></td>
+          </tr>
+          <tr>
+            <td class="sha">fecec95</td><td class="repo">xsofy</td>
+            <td class="tag"><span class="badge feat">feat</span></td>
+            <td class="what">Hold-to-repeat on D-pad with info-row toggle</td>
+          </tr>
+          <tr>
+            <td class="sha">6d350ff</td><td class="repo">xsofy</td>
+            <td class="tag"><span class="badge feat">feat</span></td>
+            <td class="what">Bump auto-repeat to 10 Hz (200ms/100ms)</td>
+          </tr>
+          <tr>
+            <td class="sha">4e3f193</td><td class="repo">xsofy</td>
+            <td class="tag"><span class="badge feat">feat</span></td>
+            <td class="what">Per-turn perf telemetry + <code>tests/e2e/perf_sample.py</code></td>
+          </tr>
+          <tr>
+            <td class="sha">43c6cf2</td><td class="repo">let-go</td>
+            <td class="tag"><span class="badge feat">feat</span></td>
+            <td class="what">Expose <code>_lgTerm</code>/<code>_lgFit</code> for headless probes</td>
+          </tr>
+          <tr>
+            <td class="sha">6f4f17d</td><td class="repo">let-go</td>
+            <td class="tag"><span class="badge fix">fix</span></td>
+            <td class="what">Add <code>viewport</code> meta — iPhone tiny-chars</td>
+          </tr>
+          <tr>
+            <td class="sha">f3ed218</td><td class="repo">let-go</td>
+            <td class="tag"><span class="badge fix">fix</span></td>
+            <td class="what">COI service worker reload-loop guard + auto-unregister when redundant</td>
+          </tr>
+          <tr>
+            <td class="sha">44812e9</td><td class="repo">let-go</td>
+            <td class="tag"><span class="badge fix">fix</span></td>
+            <td class="what">SW passes through server headers; defaults to <code>require-corp</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="colophon">
+      <span>Quest log · 2026-05-18</span>
+      <span>9 commits · 2 repos · 0 pushed</span>
+    </footer>
+
+  </main>
+</body>
+</html>
