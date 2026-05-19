@@ -172,6 +172,9 @@
       <span><span class="k">hp</span> <span id="xs-hp">·</span>/<span id="xs-max">·</span></span>
       <span><span class="k">t</span> <span id="xs-turn">·</span></span>
     </span>
+    <button class="font-cycle" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
+      <span class="glyph">↻</span><span id="xs-repeat-state">on</span>
+    </button>
     <button class="font-cycle" id="xs-font-cycle" title="Cycle char size">
       <span class="glyph">A</span><span id="xs-font-px">22</span>
     </button>
@@ -253,14 +256,66 @@
       setTimeout(() => btn.classList.remove("pressed"), 90);
     }
 
+    // Hold-to-repeat for D-pad buttons. After REPEAT_INITIAL ms of hold,
+    // re-fire every REPEAT_INTERVAL ms until pointerup/cancel/leave. Scope
+    // is movement only (the .pad set) — repeating GET/INV/FIRE/etc on a
+    // long press is a footgun (wasted spells, repeated menu opens).
+    const REPEAT_INITIAL = 250;
+    const REPEAT_INTERVAL = 150;
+    const REPEAT_LS_KEY = "xsofy/auto-repeat";
+    const repeatToggleEl = $("xs-repeat-toggle");
+    const repeatStateEl = $("xs-repeat-state");
+    let repeatEnabled = (localStorage.getItem(REPEAT_LS_KEY) ?? "1") === "1";
+
+    function paintRepeatState() {
+      if (repeatStateEl) repeatStateEl.textContent = repeatEnabled ? "on" : "off";
+      if (repeatToggleEl) repeatToggleEl.style.opacity = repeatEnabled ? "" : "0.5";
+    }
+    paintRepeatState();
+
+    let cancelHoldRepeat = null;
+    function startHoldRepeat(btn) {
+      if (cancelHoldRepeat) { cancelHoldRepeat(); cancelHoldRepeat = null; }
+      if (!repeatEnabled || !btn.closest(".pad")) return;
+      let intervalId = null;
+      const initialId = setTimeout(() => {
+        intervalId = setInterval(() => press(btn), REPEAT_INTERVAL);
+      }, REPEAT_INITIAL);
+      cancelHoldRepeat = () => {
+        clearTimeout(initialId);
+        if (intervalId) clearInterval(intervalId);
+      };
+    }
+    function stopHoldRepeat() {
+      if (cancelHoldRepeat) { cancelHoldRepeat(); cancelHoldRepeat = null; }
+    }
+
     document.querySelectorAll("#xsofy-shell button").forEach((btn) => {
       btn.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         press(btn);
+        startHoldRepeat(btn);
       });
+      btn.addEventListener("pointerup", stopHoldRepeat);
+      btn.addEventListener("pointerleave", stopHoldRepeat);
+      btn.addEventListener("pointercancel", stopHoldRepeat);
       // Keep buttons from stealing focus from the terminal.
       btn.addEventListener("mousedown", (e) => e.preventDefault());
     });
+    // Final safety net: if the pointer ends anywhere on the page (e.g. user
+    // drags off the button and releases over the terminal), kill repeat.
+    window.addEventListener("pointerup", stopHoldRepeat);
+    window.addEventListener("pointercancel", stopHoldRepeat);
+
+    repeatToggleEl?.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();  // don't also start a repeat on the chip itself
+      repeatEnabled = !repeatEnabled;
+      localStorage.setItem(REPEAT_LS_KEY, repeatEnabled ? "1" : "0");
+      paintRepeatState();
+      stopHoldRepeat();
+    });
+    repeatToggleEl?.addEventListener("mousedown", (e) => e.preventDefault());
 
     // Font-size cycle. xterm's default 14 is unreadable on a 375px
     // viewport; 22 gives ~12px-wide cells. Sizes are kept short so the

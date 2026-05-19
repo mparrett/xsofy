@@ -179,6 +179,54 @@ with sync_playwright() as p:
     expect(has_content, "rendered content visible after resize wake")
     ctx2.close()
 
+    print("\n--- Hold-to-repeat ---")
+    # Hold the WAIT button for ~1s. With repeat enabled (default), expect
+    # ~5 fires: 1 immediate + (1000-250)/150 ≈ 5 repeats. Don't pin a tight
+    # window — Playwright timing slop is ~50ms.
+    turn_pre = int(page.evaluate("() => document.getElementById('xs-turn').textContent"))
+    page.evaluate("""() => {
+        const btn = document.querySelector('.pad button[data-key="."]');
+        const r = btn.getBoundingClientRect();
+        btn.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, clientX:r.x+5, clientY:r.y+5}));
+    }""")
+    time.sleep(1.0)
+    page.evaluate("() => window.dispatchEvent(new PointerEvent('pointerup', {bubbles:true}))")
+    time.sleep(0.5)
+    turn_post = int(page.evaluate("() => document.getElementById('xs-turn').textContent"))
+    fires = turn_post - turn_pre
+    expect(3 <= fires <= 9, f"hold WAIT for 1s repeated ({fires} fires; expected ~5)")
+
+    # Toggle OFF, hold again — should fire exactly once.
+    page.evaluate("""() => {
+        const t = document.getElementById('xs-repeat-toggle');
+        t.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
+    }""")
+    time.sleep(0.2)
+    state = page.evaluate("() => document.getElementById('xs-repeat-state').textContent")
+    expect(state == "off", f"toggle flipped to off ({state!r})")
+
+    turn_pre = int(page.evaluate("() => document.getElementById('xs-turn').textContent"))
+    page.evaluate("""() => {
+        const btn = document.querySelector('.pad button[data-key="."]');
+        const r = btn.getBoundingClientRect();
+        btn.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, clientX:r.x+5, clientY:r.y+5}));
+    }""")
+    time.sleep(1.0)
+    page.evaluate("() => window.dispatchEvent(new PointerEvent('pointerup', {bubbles:true}))")
+    time.sleep(0.5)
+    turn_post = int(page.evaluate("() => document.getElementById('xs-turn').textContent"))
+    expect(turn_post - turn_pre == 1, f"with repeat OFF, single fire only ({turn_post - turn_pre})")
+
+    persisted = page.evaluate("() => localStorage.getItem('xsofy/auto-repeat')")
+    expect(persisted == "0", f"toggle state persisted ({persisted!r})")
+
+    # Reset to on so subsequent runs don't carry surprise state if the
+    # context were ever reused.
+    page.evaluate("""() => {
+        const t = document.getElementById('xs-repeat-toggle');
+        t.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
+    }""")
+
     print("\n--- Font cycle ---")
     pre_size = page.evaluate("() => document.getElementById('xs-font-px')?.textContent")
     pre_rows = page.evaluate("() => window._lgTerm.rows")
