@@ -260,8 +260,8 @@
     // re-fire every REPEAT_INTERVAL ms until pointerup/cancel/leave. Scope
     // is movement only (the .pad set) — repeating GET/INV/FIRE/etc on a
     // long press is a footgun (wasted spells, repeated menu opens).
-    const REPEAT_INITIAL = 200;
-    const REPEAT_INTERVAL = 100;
+    const REPEAT_INITIAL = 150;
+    const REPEAT_INTERVAL = 83;
     const REPEAT_LS_KEY = "xsofy/auto-repeat";
     const repeatToggleEl = $("xs-repeat-toggle");
     const repeatStateEl = $("xs-repeat-state");

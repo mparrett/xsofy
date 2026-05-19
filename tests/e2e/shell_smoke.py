@@ -194,7 +194,9 @@ with sync_playwright() as p:
     time.sleep(0.5)
     turn_post = int(page.evaluate("() => document.getElementById('xs-turn').textContent"))
     fires = turn_post - turn_pre
-    expect(3 <= fires <= 9, f"hold WAIT for 1s repeated ({fires} fires; expected ~5)")
+    # At REPEAT_INITIAL=150, REPEAT_INTERVAL=83 (~12Hz) and engine ~40ms,
+    # expect roughly 1 + (1000-150)/83 ≈ 11 fires. Loose bound for jitter.
+    expect(5 <= fires <= 13, f"hold WAIT for 1s repeated ({fires} fires; expected ~10)")
 
     # Toggle OFF, hold again — should fire exactly once.
     page.evaluate("""() => {
