@@ -38,20 +38,14 @@
   (let [{:keys [terrain width height]} world
         fire-ttl (or (:fire-ttl world) {})
         new-fires (atom [])
-        new-ttl (atom {})
-        ;; Track whether terrain actually mutated. Used to gate :lights
-        ;; cache invalidation — collect-terrain-lights is O(w*h) and was
-        ;; previously rerun every turn even when no fire ignited or
-        ;; burned out, which is the common case once a floor is settled.
-        terrain-changed (atom false)]
+        new-ttl (atom {})]
     ;; process each fire cell
     (doseq [[[x y] ttl] fire-ttl]
       (let [tile (terrain/tget terrain width x y)]
         (when (= tile fire-tile)
           (if (<= ttl 1)
             ;; burn out → ash
-            (do (terrain/tset! terrain width x y ash-tile)
-                (reset! terrain-changed true))
+            (terrain/tset! terrain width x y ash-tile)
             (do
               ;; keep burning
               (swap! new-ttl assoc [x y] (dec ttl))
@@ -69,7 +63,6 @@
                         (if (not= t fire-tile)
                           (do (terrain/tset! (:terrain w) (:width w) x y fire-tile)
                               (swap! new-ttl assoc [x y] fire-default-ttl)
-                              (reset! terrain-changed true)
                               w)
                           w)))
                     world @new-fires)]
@@ -88,14 +81,8 @@
                                         w)))
                                   w targets)))
                       w @new-ttl)]
-        ;; update fire ttl. Invalidate :lights cache only when terrain
-        ;; actually mutated (a fire ignited or burned out to ash) — those
-        ;; are the only state changes that affect which tiles emit light.
-        ;; Skipping the invalidation on settled turns avoids an O(w*h)
-        ;; terrain scan in collect-terrain-lights on the next update-fov.
-        (if @terrain-changed
-          (assoc w :fire-ttl @new-ttl :lights nil)
-          (assoc w :fire-ttl @new-ttl))))))
+        ;; update fire ttl, recompute lights since fire changed
+        (assoc w :fire-ttl @new-ttl :lights nil)))))
 
 ;; --- Web System ---
 ;; Webs are tile 19. Creatures stepping on them get :webbed status.
