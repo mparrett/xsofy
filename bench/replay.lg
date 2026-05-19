@@ -57,7 +57,13 @@
    ;; entities + lighting + fire effects compound. The '>' will be a
    ;; no-op unless the player is on a down-stair; that's fine, fixture
    ;; cost just reflects "what if we try."
-   [:descend (fn [n] (if (zero? n) ">" ".")) 60]])
+   [:descend (fn [n] (if (zero? n) ">" ".")) 60]
+
+   ;; busy-explore: long autoexplore. Drives the player through varied
+   ;; terrain (water, doors, items, enemies) across many floors. Higher
+   ;; entity count + more movement amplifies per-turn pattern costs that
+   ;; the short fixtures don't surface. Used for allocator attribution.
+   [:busy    (fn [n] (if (zero? n) "x" ".")) 300]])
 
 (def TRIALS 5)
 
