@@ -13,6 +13,12 @@
             [xsofy.title :as title]
             [xsofy.ui :as ui]))
 
+;; When true, render-full/render-dirty paint a small dim per-turn ms gauge
+;; in the top-right of the map rect. Reads world :perf-ms (set by main.lg
+;; in the :game branch). Works in both native and WASM — just a term/write.
+;; Set to false for tournament/screenshot play.
+(def *perf-overlay* true)
+
 (defn pause! [ms]
   (<!! (timeout (if *in-wasm* (max ms 30) ms))))
 
@@ -1070,6 +1076,21 @@
     (term/write msg)
     (term/flush)))
 
+(defn render-perf-overlay
+  "Dim per-turn ms gauge in the top-right of the map rect. No-op when
+   the flag is off or the world hasn't been timed yet. Reads :perf-ms,
+   which main.lg's :game branch stashes on the world after each turn."
+  [world map-rect]
+  (when (and *perf-overlay* map-rect (:perf-ms world))
+    (let [ms   (:perf-ms world)
+          text (str ms "ms")
+          col  (max (:x map-rect) (- (+ (:x map-rect) (:w map-rect)) (count text)))
+          row  (:y map-rect)]
+      (term/move-cursor col row)
+      (ui/apply-fg [90 90 90])
+      (ui/apply-bg ui/bg)
+      (term/write text))))
+
 (defn render-full [world]
   (let [[tw th] (term/size)
         panels (ui/layout tw th)
@@ -1086,6 +1107,7 @@
     (render-sidebar world (:sidebar panels))
     (render-log world (:log panels))
     (render-status world (:status panels))
+    (render-perf-overlay world mr)
     (term/flush)))
 
 (defn render-dirty [world prev-world]
@@ -1105,6 +1127,7 @@
           (render-sidebar world (:sidebar panels))
           (render-log world (:log panels))
           (render-status world (:status panels))
+          (render-perf-overlay world mr)
           (term/flush))
       (let [lights (or (:lights world) [])
             stains (or (:stains world) {})
@@ -1132,4 +1155,5 @@
         (render-sidebar world (:sidebar panels))
         (render-log world (:log panels))
         (render-status world (:status panels))
+        (render-perf-overlay world mr)
         (term/flush)))))

@@ -470,12 +470,17 @@
                  (let [t-render (System/currentTimeMillis)
                        u (- t-update t-key)
                        r (- t-render t-update)
+                       total (+ u r)
                        detail (:perf-detail new-world)]
-                   (bridge/emit-perf (cond-> {:total (+ u r) :update u :render r :mode :full :key (str key)}
+                   (bridge/emit-perf (cond-> {:total total :update u :render r :mode :full :key (str key)}
                                        detail (assoc :detail detail)))
                    (dbg/log "perf full u=" u "ms r=" r "ms key=" key
-                            (if detail (str " detail=" detail) "")))
-                 (recur (dissoc new-world :perf-detail) new-world cur-size))
+                            (if detail (str " detail=" detail) ""))
+                   ;; Stash total ms on the recurred world for the next
+                   ;; render's :perf-overlay gauge. Always overwritten;
+                   ;; no dissoc needed across turns.
+                   (recur (-> new-world (dissoc :perf-detail) (assoc :perf-ms total))
+                          new-world cur-size)))
              (do (render/render-dirty new-world world)
                  ;; animate vfx between turns
                  (when (seq (:vfx new-world))
@@ -485,12 +490,14 @@
                  (let [t-render (System/currentTimeMillis)
                        u (- t-update t-key)
                        r (- t-render t-update)
+                       total (+ u r)
                        detail (:perf-detail new-world)]
-                   (bridge/emit-perf (cond-> {:total (+ u r) :update u :render r :mode :dirty :key (str key)}
+                   (bridge/emit-perf (cond-> {:total total :update u :render r :mode :dirty :key (str key)}
                                        detail (assoc :detail detail)))
                    (dbg/log "perf dirty u=" u "ms r=" r "ms key=" key
-                            (if detail (str " detail=" detail) "")))
-                 (recur (dissoc new-world :vfx :perf-detail) world cur-size)))))))))
+                            (if detail (str " detail=" detail) ""))
+                   (recur (-> new-world (dissoc :vfx :perf-detail) (assoc :perf-ms total))
+                          world cur-size))))))))))
 
 (defn -main []
   (init-terminal)
