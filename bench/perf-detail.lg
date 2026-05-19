@@ -1,0 +1,101 @@
+;; bench/perf-detail.lg — Tier-1.5: subsystem isolation bench.
+;;
+;; Times each step of update-world's tick chain INDIVIDUALLY, without
+;; modifying world.lg. The pattern:
+;;
+;;   1. Build a "warm" world (run N wait turns through update-world so
+;;      some fire / lighting / entity activity has accumulated).
+;;   2. For each subsystem, call the function directly K times on a
+;;      *copy* of that warm world (snapshot taken once).
+;;   3. Report avg ms.
+;;
+;; Caveats:
+;;   - Calling subsystems out of sequence may produce slightly
+;;     different work than the same call would do inside a real turn
+;;     (sub-phases depend on prior sub-phases' world mutations). The
+;;     numbers are order-of-magnitude attribution, not precise.
+;;   - For a no-fire, no-entity world, fire/* round to 0ms. That's
+;;     correct: those subsystems short-circuit when their inputs are
+;;     empty. Real cost shows up in deeper-floor scenarios.
+;;
+;; Run:
+;;     lg bench/perf-detail.lg
+
+(require 'xsofy.world)
+(require 'xsofy.fire)
+(require 'xsofy.input)
+(alias 'world 'xsofy.world)
+(alias 'fire 'xsofy.fire)
+(alias 'input 'xsofy.input)
+
+(def WARMUP-TURNS 20)
+(def SAMPLES-PER-PHASE 50)
+(def TRIALS 5)
+
+(defn warm-world []
+  "Build a world with WARMUP-TURNS of waiting applied."
+  (loop [w (world/make-world 79 30) i 0]
+    (if (or (= i WARMUP-TURNS)
+            (nil? (get-in w [:entities :player])))
+      w
+      (recur (world/update-world w :wait) (inc i)))))
+
+(defn time-many
+  "Call (op world) SAMPLES-PER-PHASE times on a snapshot of world.
+   Returns total ms."
+  [op world]
+  (let [t0 (System/currentTimeMillis)]
+    (dotimes [_ SAMPLES-PER-PHASE]
+      (op world))
+    (- (System/currentTimeMillis) t0)))
+
+(defn run-trial []
+  (let [w (warm-world)]
+    (when (get-in w [:entities :player])
+      {:rupt    (time-many world/run-until-player-turn w)
+       :fire    (time-many fire/step-fire w)
+       :ignite  (time-many fire/burning-entities-ignite w)
+       :drift   (time-many world/drift-water-items w)
+       :fov     (time-many world/update-fov w)
+       ;; baseline: a full update-world :wait — for comparison
+       :total   (time-many (fn [w] (world/update-world w :wait)) w)})))
+
+(defn aggregate [results]
+  (let [valid (filter some? results)
+        n     (count valid)
+        sum-k (fn [k] (reduce + 0 (map #(get % k 0) valid)))]
+    (when (pos? n)
+      {:n n
+       :rupt   (quot (sum-k :rupt)   n)
+       :fire   (quot (sum-k :fire)   n)
+       :ignite (quot (sum-k :ignite) n)
+       :drift  (quot (sum-k :drift)  n)
+       :fov    (quot (sum-k :fov)    n)
+       :total  (quot (sum-k :total)  n)})))
+
+(println "=== xsofy update-world subsystem isolation bench ===")
+(println (format "warmup turns: %d, samples per phase: %d, trials: %d"
+                 WARMUP-TURNS SAMPLES-PER-PHASE TRIALS))
+(println (format "(each cell = sum of %d calls, averaged across %d trials)"
+                 SAMPLES-PER-PHASE TRIALS))
+(println)
+
+(let [results (doall (map (fn [_] (run-trial)) (range TRIALS)))
+      agg (aggregate results)]
+  (if agg
+    (let [per-call (fn [v] (quot v SAMPLES-PER-PHASE))
+          sum-comp (+ (:rupt agg) (:fire agg) (:ignite agg) (:drift agg) (:fov agg))]
+      (println (format "%-30s %8s %8s" "subsystem" "sum(ms)" "/call(ms)"))
+      (println (format "%-30s %8s %8s"   "-----------------------------" "-------" "---------"))
+      (println (format "%-30s %8d %8d" "run-until-player-turn" (:rupt agg)   (per-call (:rupt agg))))
+      (println (format "%-30s %8d %8d" "fire/step-fire"        (:fire agg)   (per-call (:fire agg))))
+      (println (format "%-30s %8d %8d" "fire/burning-ignite"   (:ignite agg) (per-call (:ignite agg))))
+      (println (format "%-30s %8d %8d" "drift-water-items"     (:drift agg)  (per-call (:drift agg))))
+      (println (format "%-30s %8d %8d" "update-fov"            (:fov agg)    (per-call (:fov agg))))
+      (println (format "%-30s %8s %8s" "" "-------" "---------"))
+      (println (format "%-30s %8d %8d" "Σ components"          sum-comp      (per-call sum-comp)))
+      (println (format "%-30s %8d %8d" "full update-world :wait" (:total agg) (per-call (:total agg))))
+      (println)
+      (println (format "implied 'other' (action+post-check) per call: %dms"
+                       (max 0 (- (per-call (:total agg)) (per-call sum-comp))))))
+    (println "all trials died before sampling — try fewer warmup turns or a different seed run")))
