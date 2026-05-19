@@ -53,3 +53,19 @@
                     :max-hp (get-in player [:body :max-hp] 1)
                     :depth  (or (:depth world) 1)
                     :turn   (or (:turn world) 0)}))))
+
+(defn emit-perf
+  "Fired after each :game-screen iteration. Caller passes a map with
+   timing in ms; minimum useful keys:
+   :update — world/update-world cost (AI, sim, FOV, etc.)
+   :render — render-full or render-dirty cost
+   :total  — wall-clock from key-arrival to render-done (so any gap
+             beyond :update+:render is xterm paint, bridge messaging,
+             or SAB busy-wait — the things we can't easily attribute)
+   :mode   — :full or :dirty
+   :key    — action that drove the turn (string)
+
+   Listen via window.addEventListener('xsofy/perf', e => ...) — the HUD
+   ignores by default. Native callers see the same data in debug.log."
+  [data]
+  (emit :perf data))
