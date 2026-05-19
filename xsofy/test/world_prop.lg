@@ -1,0 +1,105 @@
+(ns xsofy.test.world-prop
+  "Property tests for world-state updates. Covers the burning-player
+   resurrection class of bugs."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.check :as c]
+            [xsofy.check-gen :as g]
+            [xsofy.world :as w]
+            [xsofy.fire :as fire]))
+
+(c/defprop turn-never-goes-backward
+  [world g/gen-minimal-world
+   action g/gen-action]
+  (>= (:turn (w/update-world world action)) (:turn world)))
+
+;; ============================================================================
+;; Rich-world properties — movement through terrain features, hazards, fire,
+;; webs, plus the presence of other creatures and items.
+;; ============================================================================
+
+(c/defprop rich-world-action-doesnt-throw
+  [world  g/gen-rich-world
+   action g/gen-action]
+  (do (w/update-world world action) true))
+
+(c/defprop rich-world-action-sequence-doesnt-throw
+  [world   g/gen-rich-world
+   actions g/gen-action-seq]
+  (do (reduce w/update-world world actions) true))
+
+;; ============================================================================
+;; Effects: fire simulation
+;; ============================================================================
+
+(c/defprop step-fire-doesnt-throw
+  [world g/gen-rich-world]
+  (do (fire/step-fire world) true))
+
+;; ============================================================================
+;; World invariants are preserved by every mutating operation.
+;; world-invariants? subsumes the per-field checks (player-shape, in-bounds,
+;; no-resurrection, hp-non-negative).
+;; ============================================================================
+
+(c/defprop update-world-preserves-invariants
+  [world  g/gen-rich-world
+   action g/gen-action]
+  (g/world-invariants? (w/update-world world action)))
+
+(c/defprop action-sequence-preserves-invariants
+  [world   g/gen-rich-world
+   actions g/gen-action-seq]
+  (g/world-invariants? (reduce w/update-world world actions)))
+
+(c/defprop step-fire-preserves-invariants
+  [world g/gen-rich-world]
+  (g/world-invariants? (fire/step-fire world)))
+
+;; ============================================================================
+;; Long simulations — drive TTLs all the way to 0.
+;; Default gen-action-seq is short and many moves get blocked, so few actions
+;; actually advance the turn. These properties use :rest (which always
+;; advances the turn) for enough cycles to exhaust any status TTL (max 5)
+;; and any fire TTL (max 5), exercising the expiration code paths.
+;; ============================================================================
+
+(def ^:private long-sim-length 15)
+
+(c/defprop long-rest-simulation-doesnt-throw
+  [world g/gen-rich-world]
+  (do (reduce w/update-world world (repeat long-sim-length :rest))
+      true))
+
+(c/defprop long-rest-simulation-preserves-invariants
+  [world g/gen-rich-world]
+  (g/world-invariants?
+    (reduce w/update-world world (repeat long-sim-length :rest))))
+
+(c/defprop repeated-step-fire-preserves-invariants
+  [world g/gen-rich-world]
+  ;; Run step-fire enough times to burn out every fire tile (max ttl 5).
+  (g/world-invariants?
+    (reduce (fn [w _] (fire/step-fire w)) world (range 10))))
+
+;; ============================================================================
+;; Targeted regression tests (from property-discovered failures)
+;; ============================================================================
+
+(deftest burning-low-hp-player-with-expiring-status-doesnt-resurrect
+  (testing "Player dies from burning AND has a status about to expire on same tick.
+            The remove-status of the expired one must not resurrect a dead player."
+    (let [world (-> (g/minimal-stone-room)
+                    (assoc-in [:entities :player]
+                      {:id :player :template :player :pos [5 3]
+                       :ticks 0
+                       :body {:hp 2 :max-hp 30 :strength 2 :armor 0}
+                       :status {}
+                       :statuses {:burning {:ttl 2 :max-ttl 2}
+                                  :frozen {:ttl 1 :max-ttl 1}}
+                       :inventory []}))
+          w' (w/update-world world :up)
+          p (get-in w' [:entities :player])]
+      ;; Either the player is gone entirely (correct) or fully intact (also
+      ;; acceptable, e.g. didn't die). What we MUST avoid is a partial shell.
+      (is (or (nil? p)
+              (and (some? (:pos p)) (some? (:body p))))))))
