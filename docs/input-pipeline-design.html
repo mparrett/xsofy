@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Buffer Question · Input Pipeline Design</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0c0c0c;
+      --bg-rise:   #131311;
+      --panel:     #141815;
+      --ink:       #e8e6df;
+      --ink-dim:   #8a877c;
+      --ink-dust:  #5a584f;
+      --rule:      rgba(232, 230, 223, 0.08);
+      --rule-soft: rgba(232, 230, 223, 0.04);
+      --teal:      #5ec4b6;
+      --amber:     #d8a657;
+      --rust:      #c25450;
+      --moss:      #8aa86b;
+      --violet:    #b29bd1;
+      --display:   "Cinzel", "Iowan Old Style", "Palatino", serif;
+      --mono:      "IBM Plex Mono", "Menlo", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: var(--mono);
+      font-size: 14.5px;
+      line-height: 1.75;
+      letter-spacing: 0.01em;
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Atmosphere */
+    body::before {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,0.012) 0px,
+        rgba(255,255,255,0.012) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      z-index: 1;
+    }
+    body::after {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse at 50% -10%, rgba(94, 196, 182, 0.09), transparent 55%),
+        radial-gradient(ellipse at -10% 80%, rgba(178, 155, 209, 0.05), transparent 45%),
+        radial-gradient(ellipse at 110% 30%, rgba(216, 166, 87, 0.05), transparent 50%),
+        radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.55) 100%);
+      z-index: 0;
+    }
+
+    .ticks { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+    .ticks span {
+      position: absolute;
+      width: 1px; height: 14px;
+      background: var(--teal);
+      opacity: 0;
+      animation: tick-pulse 6s ease-in-out infinite, tick-fade 1.6s ease-out forwards;
+    }
+    @keyframes tick-fade { 0% { opacity: 0; transform: translateY(8px); } 100% { opacity: 0.10; transform: translateY(0); } }
+    @keyframes tick-pulse { 0%, 100% { opacity: 0.06; } 50% { opacity: 0.18; } }
+
+    /* Layout */
+    .frame {
+      position: relative;
+      z-index: 2;
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 6vh 6vw 14vh;
+    }
+
+    /* Masthead */
+    .mast { margin-bottom: 12vh; position: relative; }
+    .mast .strip {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--ink-dust);
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 14px;
+      margin-bottom: 56px;
+    }
+    .mast .strip .here { color: var(--teal); }
+
+    .mast h1 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: clamp(48px, 8vw, 92px);
+      line-height: 0.96;
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 28px;
+    }
+    .mast h1 em {
+      font-style: italic;
+      font-weight: 400;
+      color: var(--teal);
+      letter-spacing: 0;
+    }
+    .mast .sub {
+      font-family: var(--display);
+      font-style: italic;
+      font-weight: 400;
+      font-size: clamp(17px, 1.8vw, 21px);
+      color: var(--ink-dim);
+      max-width: 60ch;
+      margin-bottom: 36px;
+      line-height: 1.5;
+    }
+    .mast .seal {
+      display: grid;
+      grid-template-columns: repeat(4, auto);
+      gap: 36px 56px;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .mast .seal dt { color: var(--ink-dust); font-size: 10px; margin-bottom: 4px; letter-spacing: 0.18em; }
+    .mast .seal dd { color: var(--ink); font-family: var(--mono); font-size: 13px; letter-spacing: 0; text-transform: none; }
+
+    /* Prelude */
+    .prelude {
+      font-family: var(--display);
+      font-style: italic;
+      font-weight: 400;
+      font-size: clamp(18px, 1.9vw, 22px);
+      line-height: 1.55;
+      color: var(--ink-dim);
+      max-width: 64ch;
+      margin: 0 0 14vh 0;
+      padding: 14px 0 14px 28px;
+      border-left: 2px solid var(--teal);
+    }
+    .prelude::first-letter {
+      font-size: 1.6em;
+      color: var(--amber);
+      padding-right: 0.05em;
+    }
+
+    /* Acts */
+    .act {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 36px;
+      padding: 60px 0;
+      border-top: 1px solid var(--rule);
+      position: relative;
+    }
+    .act .glyph {
+      font-family: var(--display);
+      font-weight: 400;
+      letter-spacing: 0.18em;
+      color: var(--ink-dust);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .act .glyph .roman {
+      display: block;
+      font-size: 36px;
+      color: var(--teal);
+      letter-spacing: 0;
+      line-height: 1;
+      margin-top: 10px;
+      font-family: var(--display);
+      font-weight: 400;
+    }
+    .act .glyph .mark {
+      display: block;
+      font-size: 26px;
+      color: var(--moss);
+      margin-top: 22px;
+      opacity: 0.55;
+      font-family: var(--mono);
+    }
+
+    .act h2 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: clamp(26px, 3.2vw, 36px);
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 6px;
+      line-height: 1.15;
+    }
+    .act h2 .tag {
+      display: block;
+      font-family: var(--mono);
+      font-style: italic;
+      font-weight: 400;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--ink-dust);
+      margin-top: 6px;
+    }
+
+    .act p { margin: 16px 0; max-width: 66ch; color: var(--ink); }
+    .act p.aside {
+      color: var(--ink-dim);
+      font-size: 13px;
+      font-style: italic;
+      border-left: 1px solid var(--rule);
+      padding-left: 14px;
+      margin-top: 22px;
+    }
+    .act p.win {
+      color: var(--moss);
+      font-style: italic;
+      border-left: 2px solid var(--moss);
+      padding-left: 14px;
+      max-width: 60ch;
+    }
+    .act p.note {
+      color: var(--violet);
+      font-style: italic;
+      border-left: 2px solid var(--violet);
+      padding-left: 14px;
+      max-width: 60ch;
+    }
+    .act p.warn {
+      color: var(--rust);
+      font-style: italic;
+      border-left: 2px solid var(--rust);
+      padding-left: 14px;
+      max-width: 60ch;
+    }
+
+    .act .term {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-left: 2px solid var(--teal);
+      padding: 16px 20px;
+      margin: 18px 0 24px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--ink);
+      overflow-x: auto;
+      position: relative;
+    }
+    .act .term::before {
+      content: attr(data-label);
+      position: absolute; top: -9px; left: 12px;
+      background: var(--bg);
+      padding: 0 8px;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .term .p   { color: var(--teal); user-select: none; }
+    .term .c   { color: var(--ink); }
+    .term .o   { color: var(--ink-dim); display: block; }
+    .term .err { color: var(--rust); }
+    .term .ok  { color: var(--moss); }
+    .term .hl  { color: var(--amber); }
+    .term .dim { color: var(--ink-dust); }
+    .term .hot { color: var(--rust); }
+
+    code { font-family: var(--mono); color: var(--amber); font-size: 0.95em; background: rgba(216,166,87,0.06); padding: 1px 4px; border-radius: 2px; }
+    a { color: var(--teal); text-decoration: none; border-bottom: 1px dotted rgba(94, 196, 182, 0.4); }
+    a:hover { border-bottom-style: solid; }
+
+    .act ul { margin: 14px 0 18px 0; padding-left: 22px; max-width: 66ch; }
+    .act ul li { color: var(--ink); margin: 6px 0; }
+    .act ul li::marker { color: var(--teal); }
+
+    /* Tables — design choices */
+    .measure {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 18px 0 24px;
+      max-width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--rule);
+    }
+    .measure th, .measure td {
+      text-align: left;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--rule-soft);
+      vertical-align: top;
+    }
+    .measure thead th {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+      font-weight: 500;
+      background: rgba(94, 196, 182, 0.04);
+    }
+    .measure td.row-label { color: var(--ink-dim); font-style: italic; font-family: var(--mono); }
+    .measure td.where     { color: var(--teal); font-family: var(--mono); font-size: 12px; }
+    .measure td.cost      { color: var(--amber); font-family: var(--mono); font-size: 12px; }
+    .measure td.catch     { color: var(--ink); font-size: 13px; }
+    .measure td.cap       { color: var(--ink); font-family: var(--mono); font-size: 12px; text-align: center; }
+    .measure td.tail.hot  { color: var(--rust); }
+    .measure td.tail.cool { color: var(--moss); }
+    .measure td.tail      { font-family: var(--mono); font-size: 12px; }
+    .measure td.burst     { color: var(--ink-dim); font-size: 12px; }
+    .measure td.num       { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+    .measure tbody tr:hover { background: rgba(94,196,182,0.03); }
+
+    /* Recommendation tiers */
+    .tiers {
+      margin: 18px 0 24px;
+      counter-reset: tier;
+      list-style: none;
+      padding: 0;
+    }
+    .tiers li {
+      padding: 16px 0 16px 60px;
+      position: relative;
+      border-top: 1px dashed var(--rule-soft);
+      counter-increment: tier;
+      max-width: 70ch;
+    }
+    .tiers li:first-child { border-top: 1px solid var(--rule); }
+    .tiers li:last-child  { border-bottom: 1px solid var(--rule); }
+    .tiers li::before {
+      content: "Tier " counter(tier, decimal-leading-zero);
+      position: absolute; left: 0; top: 18px;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--teal);
+      font-family: var(--mono);
+    }
+    .tiers li strong {
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .tiers li .why {
+      display: block;
+      color: var(--ink-dim);
+      font-size: 13px;
+      font-style: italic;
+      margin-top: 4px;
+    }
+
+    /* Moral coda */
+    .moral {
+      margin-top: 12vh;
+      padding: 40px 36px 44px;
+      border: 1px solid var(--rule);
+      background: linear-gradient(180deg, var(--bg-rise), var(--bg));
+      position: relative;
+    }
+    .moral::before {
+      content: "▾ open questions";
+      position: absolute; top: -9px; left: 20px;
+      background: var(--bg);
+      padding: 0 10px;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--teal);
+    }
+    .moral h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 24px;
+      color: var(--teal);
+      margin-bottom: 14px;
+    }
+    .moral p { color: var(--ink); max-width: 66ch; margin-bottom: 12px; }
+    .moral ol {
+      margin: 18px 0 0 0;
+      padding-left: 0;
+      counter-reset: q;
+      list-style: none;
+    }
+    .moral li {
+      padding: 12px 0 12px 36px;
+      position: relative;
+      color: var(--ink);
+      border-bottom: 1px dashed var(--rule-soft);
+      counter-increment: q;
+      max-width: 66ch;
+    }
+    .moral li:last-child { border-bottom: none; }
+    .moral li::before {
+      content: "Q" counter(q);
+      position: absolute; left: 0; top: 12px;
+      color: var(--amber);
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+
+    /* Colophon */
+    .colophon {
+      margin-top: 10vh;
+      padding-top: 28px;
+      border-top: 1px solid var(--rule);
+      display: flex; justify-content: space-between;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+
+    /* Staggered reveal */
+    .act { opacity: 0; transform: translateY(14px); animation: enter 0.8s ease-out forwards; }
+    .act:nth-of-type(1) { animation-delay: 0.30s; }
+    .act:nth-of-type(2) { animation-delay: 0.45s; }
+    .act:nth-of-type(3) { animation-delay: 0.60s; }
+    .act:nth-of-type(4) { animation-delay: 0.75s; }
+    .act:nth-of-type(5) { animation-delay: 0.90s; }
+    .act:nth-of-type(6) { animation-delay: 1.05s; }
+    @keyframes enter { to { opacity: 1; transform: translateY(0); } }
+
+    .mast h1, .mast .sub, .mast .strip, .mast .seal {
+      opacity: 0; animation: enter 0.8s ease-out forwards;
+    }
+    .mast .strip { animation-delay: 0.05s; }
+    .mast h1    { animation-delay: 0.18s; }
+    .mast .sub  { animation-delay: 0.32s; }
+    .mast .seal { animation-delay: 0.48s; }
+
+    @media (max-width: 720px) {
+      .act { grid-template-columns: 1fr; gap: 14px; padding: 44px 0; }
+      .act .glyph { display: flex; gap: 20px; align-items: baseline; }
+      .act .glyph .roman { margin-top: 0; font-size: 22px; }
+      .act .glyph .mark  { margin-top: 0; font-size: 18px; }
+      .mast .seal { grid-template-columns: repeat(2, auto); gap: 24px; }
+      .measure th, .measure td { padding: 7px 10px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ticks" aria-hidden="true">
+    <span style="top:  7vh; left:  3vw"></span>
+    <span style="top: 16vh; right: 4vw"></span>
+    <span style="top: 24vh; left:  5vw"></span>
+    <span style="top: 31vh; right: 3vw"></span>
+    <span style="top: 43vh; left:  4vw"></span>
+    <span style="top: 52vh; right: 6vw"></span>
+    <span style="top: 61vh; left:  3vw"></span>
+    <span style="top: 73vh; right: 4vw"></span>
+    <span style="top: 84vh; left:  5vw"></span>
+    <span style="top: 95vh; right: 3vw"></span>
+    <span style="top:108vh; left:  4vw"></span>
+    <span style="top:121vh; right: 5vw"></span>
+    <span style="top:134vh; left:  3vw"></span>
+    <span style="top:148vh; right: 4vw"></span>
+    <span style="top:163vh; left:  5vw"></span>
+    <span style="top:178vh; right: 3vw"></span>
+  </div>
+
+  <main class="frame">
+
+    <header class="mast">
+      <div class="strip">
+        <span>Design note · 2026-05-19</span>
+        <span class="here">expmt/kaiju · xsofy</span>
+        <span>Before we touch the buffer</span>
+      </div>
+      <h1>The Buffer<br><em>Question</em></h1>
+      <p class="sub">
+        On the geometry of held keys. A 50ms engine, an 8-slot ring buffer, and a player holding into a wall: why the input lag is seven times the engine cost, where intelligence can live, and the tradeoffs of each.
+      </p>
+      <dl class="seal">
+        <div><dt>Observed</dt><dd>i = 351ms</dd></div>
+        <div><dt>Engine</dt><dd>u + r = 50ms</dd></div>
+        <div><dt>Queue cap</dt><dd>8 slots</dd></div>
+        <div><dt>Status</dt><dd>pre-decision</dd></div>
+      </dl>
+    </header>
+
+    <p class="prelude">
+      We were chasing a phone perf regression and surfaced the missing fourth number — input-pipeline lag, the time between a key entering the JavaScript side and the Go side finally returning it. Reading the gauge mid-game with a finger held into a wall, the gauge sat at 50ms while the lag read 351ms. The lag wasn't a transmission cost. It was depth.
+    </p>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">I</span>
+        <span class="mark">⊟</span>
+      </div>
+      <div class="body">
+        <h2>The shape of the problem
+          <span class="tag">— what the gauge actually told us</span>
+        </h2>
+        <p>
+          A player holds a direction into a wall. The OS auto-repeat fires at ~30Hz. The engine processes each bumped-wall turn at ~50ms — about 20Hz. Producer outpaces consumer. The ring buffer, doing exactly what a buffer should, holds the excess.
+        </p>
+        <p>
+          The input-lag metric measures wall-clock from <code>_lgKey</code> writing a byte to <code>term/read-key</code> returning that byte. With a buffer at depth seven and an engine taking 50ms per turn, that's <strong>50 × 7 = 350ms</strong>. Matches the capture exactly.
+        </p>
+        <div class="term" data-label="capture from the gauge mid-held">
+          <span class="o"><span class="dim">Seq of Concern · d 1 · hp 30/30 · t 53</span></span>
+          <span class="o">u <span class="hl">32ms</span>  r <span class="hl">18ms</span>  i <span class="hot">351ms</span>     <span class="dim">← lag is 7× engine cost</span></span>
+          <span class="o">log:  Blocked. <span class="dim">(x116)</span>      <span class="dim">← same no-op turn, 116 reps</span></span>
+        </div>
+        <p class="note">
+          The lag a player <em>perceives</em> isn't the SAB notify-wait round-trip (microseconds). It's the geometry: <code>queue_depth × engine_ms</code>. Releasing the wall doesn't help — your new key joins the back of the queue.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">II</span>
+        <span class="mark">≡</span>
+      </div>
+      <div class="body">
+        <h2>How the buffer is wired
+          <span class="tag">— current state, fully</span>
+        </h2>
+        <p>
+          The SAB is 256 bytes, mirrored constants in <code>let-go/wasm.go</code> (producer) and <code>let-go/pkg/rt/term_wasm.go</code> (consumer). Eight slots, 16 bytes per key payload, plus side channels for terminal dimensions and per-slot inject timestamps (the latter added for the <code>i</code> metric itself).
+        </p>
+        <div class="term" data-label="sendKey, the producer in JS">
+          <span class="o"><span class="dim">function sendKey(data) {</span></span>
+          <span class="o">  const w = Atomics.load(keyInt32, WRITE_IDX);</span>
+          <span class="o">  const r = Atomics.load(keyInt32, READ_IDX);</span>
+          <span class="o">  <span class="hot">if (w - r >= CAPACITY) return false;</span>          <span class="dim">// full → silent drop</span></span>
+          <span class="o">  <span class="dim">// ... write slot, advance writeIdx, notify ...</span></span>
+          <span class="o"><span class="dim">}</span></span>
+        </div>
+        <p>
+          Two callers: <code>term.onData</code> (xterm.js, feeding real OS keystrokes including auto-repeat) and <code>_lgKey</code> (touch buttons, Playwright). Both ignore the return value. <strong>The only drop policy is "full → silent drop."</strong> Up to seven keys behind you, every one is accepted and dutifully queued.
+        </p>
+        <p>
+          The consumer blocks on <code>Atomics.wait</code> until the buffer is non-empty, reads one slot, advances <code>readIdx</code> by one. No knowledge of queue depth. No coalescing. No special handling. It is the simplest possible consumer.
+        </p>
+        <p class="warn">
+          When the queue fills, sendKey returns false; the OS keeps generating keys at its repeat rate; everything beyond the eighth queued key vanishes. From the OS's perspective, all its events were delivered into the page successfully. There is no backpressure anywhere.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">III</span>
+        <span class="mark">▤</span>
+      </div>
+      <div class="body">
+        <h2>Where intelligence can live
+          <span class="tag">— five places to put a brain</span>
+        </h2>
+        <p>
+          Each location has a different reach and a different cost. The question is not <em>which one is correct</em> — they all "work" in the sense of stopping the buffer from filling — but which combination has the cleanest semantics and the most appropriate cost.
+        </p>
+        <table class="measure">
+          <thead>
+            <tr>
+              <th>Where</th>
+              <th>Mechanism</th>
+              <th>Cost per write</th>
+              <th>Catches</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="where">JS producer, O(1)</td>
+              <td class="catch">Inspect slot <code>(w-1) % 8</code>. If same bytes as incoming, drop.</td>
+              <td class="cost">1 load + memcmp</td>
+              <td class="burst">OS auto-repeat (always sends adjacent dupes)</td>
+            </tr>
+            <tr>
+              <td class="where">JS producer, O(N)</td>
+              <td class="catch">Scan all pending slots; drop if any matches.</td>
+              <td class="cost">up to 8 loads</td>
+              <td class="burst">All dupes regardless of position</td>
+            </tr>
+            <tr>
+              <td class="where">JS producer, time</td>
+              <td class="catch">Reject same key within X ms.</td>
+              <td class="cost">trivial</td>
+              <td class="burst">Time-based bursts; doesn't catch all auto-repeat</td>
+            </tr>
+            <tr>
+              <td class="where">Go consumer, lazy</td>
+              <td class="catch">In <code>read-key</code>, peek slot N+1 — if same bytes, advance past it. Repeat.</td>
+              <td class="cost">1 load + memcmp per coalesce</td>
+              <td class="burst">All dupes; activates at consumption</td>
+            </tr>
+            <tr>
+              <td class="where">Go consumer, smart</td>
+              <td class="catch">After no-op turn, call <code>term/drop-matching &lt;key&gt;</code> to flush identical pending.</td>
+              <td class="cost">engine-side branch</td>
+              <td class="burst">Specifically "this key would no-op repeatedly"</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">IV</span>
+        <span class="mark">◊</span>
+      </div>
+      <div class="body">
+        <h2>The sixth place we considered
+          <span class="tag">— a Go-side in-memory buffer</span>
+        </h2>
+        <p>
+          A poller goroutine drains the SAB into a Go-memory queue; <code>read-key</code> reads from that queue instead of from SAB directly. Two would-be benefits:
+        </p>
+        <ul>
+          <li><strong>Policies that need whole-queue inspection.</strong> Go memory supports maps, sets, priority queues — easier than atomics ops on SAB slots. You could express "drop everything before the most recent y/n confirm."</li>
+          <li><strong>Timing decoupling.</strong> In multi-threaded Go, a poller drains SAB even while the engine is busy. The SAB stays shallow → producer rarely sees overflow.</li>
+        </ul>
+        <p class="warn">
+          The decoupling is illusory on WASM. Go in WebAssembly is single-threaded; a separate goroutine still time-shares with the main game loop. The poller only runs when the game yields. You haven't decoupled anything timing-wise — you've just moved the buffer from SAB-land to Go-land. The SAB <em>is</em> already the buffer.
+        </p>
+        <p class="aside">
+          On native (real terminal) there is no SAB at all. <code>read-key</code> is a blocking stdin read with kernel-level buffering. A Go-side queue there would be a different abstraction for a different problem; the WASM concerns don't transfer.
+        </p>
+        <p class="note">
+          Set aside. Reconsider only if a future policy genuinely requires whole-queue inspection (priority routing, multi-byte sequence detection, etc.). For the held-wall problem we have today, consumer-side logic directly inside <code>read-key</code> is sufficient.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">V</span>
+        <span class="mark">∺</span>
+      </div>
+      <div class="body">
+        <h2>How big should the queue be
+          <span class="tag">— the cap as a tunable knob</span>
+        </h2>
+        <p>
+          The queue exists for one reason: to absorb <em>legitimate bursts</em> — inputs that arrive faster than the engine processes but represent distinct user intents. Multi-tap diagonals, programmatic replay, future chord sequences. OS auto-repeat is a fake burst the buffer dutifully holds; the deeper the queue, the longer the tail when this happens.
+        </p>
+        <table class="measure">
+          <thead>
+            <tr>
+              <th>Cap</th>
+              <th>Held-wall tail latency</th>
+              <th>Legit-burst absorption</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="cap">8 <span style="color:var(--ink-dust)">(current)</span></td><td class="tail hot">up to 400ms</td><td class="burst">8 keys — overkill</td></tr>
+            <tr><td class="cap">4</td><td class="tail">up to 200ms</td><td class="burst">2–3 tap chords</td></tr>
+            <tr><td class="cap">2</td><td class="tail">up to 100ms</td><td class="burst">barely — 2-tap diagonal OK, more drops</td></tr>
+            <tr><td class="cap">1</td><td class="tail cool">~50ms (one engine cycle)</td><td class="burst">none — latest-wins</td></tr>
+          </tbody>
+        </table>
+        <p>
+          Combined with <em>any</em> consumer coalescing, the legit-burst column still bounds at queue size. But the held-wall column collapses to 0–1 regardless of cap. So if coalescing is in place, queue size mostly matters for non-duplicate bursts.
+        </p>
+        <p class="aside">
+          Why not just queue=1 and skip coalescing? Because then the producer rapidly hits "full" and drops keys silently. The player feels skippy holding — some auto-repeats land, others vanish. Coalescing produces the same net effect (one move per held burst) without the silent-drop semantics. Cleaner abstraction.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">VI</span>
+        <span class="mark">✦</span>
+      </div>
+      <div class="body">
+        <h2>The proposed layering
+          <span class="tag">— recommendation, stage by stage</span>
+        </h2>
+        <p>
+          Stage in order; observe before adding the next. Each layer is independently useful and independently revertable.
+        </p>
+        <ol class="tiers">
+          <li>
+            <strong>Consumer-side lazy coalesce</strong> in <code>read-key</code>.
+            Greedily collapse adjacent identical keys before returning. Cheap, isolated to one Go function. Eliminates the held-wall bug.
+            <span class="why">If we only have appetite for one tier, this is the one. It solves the immediate problem with the cleanest semantics.</span>
+          </li>
+          <li>
+            <strong>Queue cap → 4.</strong>
+            Halves the worst-case burst tail even if coalesce somehow misses. Still absorbs typical legit bursts. One-line change to the mirrored <code>CAPACITY</code> / <code>keyCapacity</code> constants.
+            <span class="why">Belt-and-suspenders against pathological inputs the coalescer doesn't see.</span>
+          </li>
+          <li>
+            <strong>JS producer O(1) dedupe</strong> — check just <code>(w-1) % 8</code> for matching bytes.
+            Catches OS auto-repeat <em>before</em> it ever enters the buffer. Very cheap.
+            <span class="why">With this on top, even queue=4 stays at depth ≤1 during held-key. Tail latency stays under ~100ms even adversarially.</span>
+          </li>
+        </ol>
+        <p class="win">
+          All three together: held-wall barely touches the buffer; legitimate bursts get through; the player never feels skipped or stuck. The pipeline becomes invisible.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">VII</span>
+        <span class="mark">⌖</span>
+      </div>
+      <div class="body">
+        <h2>Failure modes worth watching
+          <span class="tag">— what could go wrong after we ship</span>
+        </h2>
+        <ul>
+          <li>
+            <strong>Engine-rate-limited burst.</strong> Player taps the same direction five times deliberately at 200ms apart. Each tap fits in its own engine turn; coalescer doesn't merge non-adjacent keys; all five get through. ✓
+          </li>
+          <li>
+            <strong>Coalescing across distinct intents.</strong> What if "l l l" reaches the buffer because the OS sent rapid repeats, but the player meant three distinct moves? In practice human deliberate tap rate (5–10Hz) is <em>slower</em> than engine processing rate (~20Hz). Only auto-repeat queues; auto-repeat is the case where coalescing is correct.
+          </li>
+          <li>
+            <strong>Producer dedupe vs valid same-key sequences.</strong> Entering inventory, then immediately re-pressing the same direction. The dedupe window is just "what's currently in the buffer" — once the engine consumes the inventory key, the next direction key is fresh.
+          </li>
+          <li>
+            <strong>Smart-drain meeting auto-actions.</strong> If autoexplore is running and the user pre-queues a stop key, the engine should still drain held-direction keys from before autoexplore started. Not a concern for consumer coalesce; would matter only if we add Tier-V (engine-aware drain).
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <aside class="moral">
+      <h3>Open questions</h3>
+      <p>
+        Things we'll only know after the first tier lands and we look at the gauge again:
+      </p>
+      <ol>
+        <li>
+          Should coalescing apply to <em>all</em> keys, or only to known "movement" keys? Generic adjacency is simpler; movement-only would forbid any chance of merging deliberate sequences but adds a key-classification dependency.
+        </li>
+        <li>
+          Is the <code>i</code> metric sufficient for diagnostics, or do we also want <code>:queue-depth</code> exposed in the perf payload? Cheap to add — one extra atomics load per read.
+        </li>
+        <li>
+          After consumer coalesce ships, does <code>i</code> drop to single digits? If yes, the input pipeline is solved. If not, we have a different bottleneck to chase — and now we'll know it isn't the queue.
+        </li>
+        <li>
+          Is the held-wall behavior the only auto-repeat trap, or are there other no-op-loop scenarios (failed equip, no arrows for bow, locked door without key) that produce the same shape? Worth a sweep.
+        </li>
+      </ol>
+    </aside>
+
+    <footer class="colophon">
+      <span>— input pipeline · design note</span>
+      <span>2026 · pre-decision</span>
+    </footer>
+
+  </main>
+
+</body>
+</html>
