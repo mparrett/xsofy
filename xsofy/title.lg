@@ -178,11 +178,17 @@
         runes (scatter-runes tw th 40 scheme)]
     ;; clear once
     (clear-screen tw th)
-    ;; animate
-    (dotimes [frame 50]
-      (draw-frame runes title subtitle tw th frame)
-      (pause! 80))
-    ;; hold final frame, wait for key
+    ;; Animate up to 50 frames, but bail out as soon as the user
+    ;; pre-presses a key — testing churn doesn't need the suspense.
+    ;; The pre-pressed key stays queued; the read-key below consumes
+    ;; it without blocking, so an interrupted title flows straight
+    ;; into the run.
+    (loop [frame 0]
+      (when (and (< frame 50) (not (term/key-pending?)))
+        (draw-frame runes title subtitle tw th frame)
+        (pause! 80)
+        (recur (inc frame))))
+    ;; hold final frame, wait for key (or consume the interrupting one)
     (draw-frame runes title subtitle tw th 50)
     (term/read-key)
     {:title title :scheme scheme}))
