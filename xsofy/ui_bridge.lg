@@ -57,14 +57,16 @@
 (defn emit-perf
   "Fired after each :game-screen iteration. Caller passes a map with
    timing in ms; minimum useful keys:
-   :update — world/update-world cost (AI, sim, FOV, etc.)
-   :render — render-full or render-dirty cost
-   :total  — :update + :render, exact (computed as the sum, not a
-             separate wall measurement). The input-pipeline cost
-             between JS _lgKey and Go term/read-key is NOT measured
-             here; it lives outside this gauge entirely.
-   :mode   — :full or :dirty
-   :key    — action that drove the turn (string)
+   :update    — world/update-world cost (AI, sim, FOV, etc.)
+   :render    — render-full or render-dirty cost
+   :total     — :update + :render, exact (computed as the sum, not a
+                separate wall measurement).
+   :input-lag — ms between JS _lgKey and Go term/read-key returning.
+                Measured by the WASM term namespace (no-op = 0 on
+                native). Stale-but-cheap on auto-action turns where
+                read-key isn't called.
+   :mode      — :full or :dirty
+   :key       — action that drove the turn (string)
 
    Listen via window.addEventListener('xsofy/perf', e => ...) — the HUD
    ignores by default. Native callers see the same data in debug.log."

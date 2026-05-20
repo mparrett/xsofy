@@ -173,6 +173,7 @@
       <span><span class="k">t</span> <span id="xs-turn">·</span></span>
       <span><span class="k">u</span><span id="xs-update">·</span><span class="k">ms</span></span>
       <span><span class="k">r</span><span id="xs-render">·</span><span class="k">ms</span></span>
+      <span><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
     </span>
     <button class="font-cycle" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
       <span class="glyph">↻</span><span id="xs-repeat-state">on</span>
@@ -256,11 +257,15 @@
     // display on N+1. Bar and gauge always reference the same turn.
     const updateEl = $("xs-update");
     const renderEl = $("xs-render");
+    const inputLagEl = $("xs-input-lag");
     let pendingPerf = null;
     window.addEventListener("xsofy/perf", (e) => {
       if (pendingPerf) {
         if (pendingPerf.update != null) updateEl.textContent = pendingPerf.update;
         if (pendingPerf.render != null) renderEl.textContent = pendingPerf.render;
+        // input-lag is :input-lag let-go-side; hyphen survives the JSON
+        // marshal as a "input-lag" string key.
+        if (pendingPerf["input-lag"] != null) inputLagEl.textContent = pendingPerf["input-lag"];
       }
       pendingPerf = e.detail || null;
     });
