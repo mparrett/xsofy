@@ -171,6 +171,8 @@
       <span><span class="k">d</span> <span id="xs-depth">·</span></span>
       <span><span class="k">hp</span> <span id="xs-hp">·</span>/<span id="xs-max">·</span></span>
       <span><span class="k">t</span> <span id="xs-turn">·</span></span>
+      <span><span class="k">u</span><span id="xs-update">·</span><span class="k">ms</span></span>
+      <span><span class="k">r</span><span id="xs-render">·</span><span class="k">ms</span></span>
     </span>
     <button class="font-cycle" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
       <span class="glyph">↻</span><span id="xs-repeat-state">on</span>
@@ -240,6 +242,27 @@
       if (d["max-hp"] != null) maxEl.textContent = d["max-hp"];
       if (d.depth != null) depthEl.textContent = d.depth;
       if (d.turn != null) turnEl.textContent = d.turn;
+    });
+
+    // Per-turn engine vs render split. The total ms gauge in the map
+    // top-right is u+r; surfacing them separately here lets us see which
+    // side dominates a spike. main.lg's emit-perf payload: {update render
+    // total mode key}.
+    //
+    // Display lags by one turn to match the top-right gauge (which can't
+    // show the current turn's number without rendering twice — see
+    // main.lg's :perf-ms stash). So on receiving turn N's perf event we
+    // render turn N-1's values that we held back, then store N for
+    // display on N+1. Bar and gauge always reference the same turn.
+    const updateEl = $("xs-update");
+    const renderEl = $("xs-render");
+    let pendingPerf = null;
+    window.addEventListener("xsofy/perf", (e) => {
+      if (pendingPerf) {
+        if (pendingPerf.update != null) updateEl.textContent = pendingPerf.update;
+        if (pendingPerf.render != null) renderEl.textContent = pendingPerf.render;
+      }
+      pendingPerf = e.detail || null;
     });
 
     // Pointer-driven key injection. Use pointerdown so taps register the

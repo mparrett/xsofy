@@ -59,9 +59,10 @@
    timing in ms; minimum useful keys:
    :update — world/update-world cost (AI, sim, FOV, etc.)
    :render — render-full or render-dirty cost
-   :total  — wall-clock from key-arrival to render-done (so any gap
-             beyond :update+:render is xterm paint, bridge messaging,
-             or SAB busy-wait — the things we can't easily attribute)
+   :total  — :update + :render, exact (computed as the sum, not a
+             separate wall measurement). The input-pipeline cost
+             between JS _lgKey and Go term/read-key is NOT measured
+             here; it lives outside this gauge entirely.
    :mode   — :full or :dirty
    :key    — action that drove the turn (string)
 
