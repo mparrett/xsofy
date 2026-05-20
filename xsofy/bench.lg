@@ -1,0 +1,86 @@
+(ns xsofy.bench
+  (:require [xsofy.world :as world]
+            [xsofy.input :as input]
+            [xsofy.ui-bridge :as bridge]))
+
+;; In-bundle replay benchmark, callable from the running WASM game.
+;;
+;; The native bench (bench/replay.lg) drives world/update-world headlessly
+;; against the same lg binary that runs the game. It tells us "what does
+;; the engine cost natively." But on WASM we go through the same engine
+;; *interpreted by a different runtime* — and the WASM runtime can have
+;; very different perf characteristics (different GC, no native code-gen
+;; for hot paths, etc.). This namespace runs the same fixtures inside the
+;; bundle so we get a directly comparable WASM-engine number.
+;;
+;; Triggered from main.lg when the player presses :bench (key B). The
+;; running game loop pauses while the fixtures execute (~few seconds);
+;; results flow out via (bridge/emit-bench ...) and are also returned
+;; from run-and-emit for native callers / REPL use.
+;;
+;; Deliberately mirrors bench/replay.lg's shape so we can diff the
+;; native and WASM numbers side-by-side. Fixtures, TRIALS, and stats
+;; formulas are copied verbatim. Two intentional differences:
+;;   - No top-level (-main) invocation — caller drives via run-and-emit.
+;;   - No printlns; structured output via bridge for the HTML shell.
+
+(def fixtures
+  [[:wait    (fn [_] ".") 60]
+   [:autoex  (fn [n] (if (zero? n) "x" ".")) 60]
+   [:descend (fn [n] (if (zero? n) ">" ".")) 60]
+   [:busy    (fn [n] (if (zero? n) "x" ".")) 300]])
+
+(def TRIALS 5)
+
+(defn- time-turn
+  [world key-str]
+  (let [k  (input/parse-key key-str)
+        t0 (System/currentTimeMillis)
+        w  (world/update-world world k)
+        dt (- (System/currentTimeMillis) t0)]
+    [w dt]))
+
+(defn- run-trial
+  [keystroke-fn n]
+  (loop [w (world/make-world 79 30)
+         i 0
+         samples (transient [])]
+    (cond
+      (= i n)                                  (persistent! samples)
+      (nil? (get-in w [:entities :player]))    (persistent! samples)
+      :else
+      (let [[w' dt] (time-turn w (keystroke-fn i))]
+        (recur w' (inc i) (conj! samples dt))))))
+
+(defn- percentile [sorted p]
+  (let [n (count sorted)
+        idx (min (dec n) (int (* (dec n) p)))]
+    (nth sorted idx)))
+
+(defn- summarize [samples]
+  (let [n (count samples)
+        sorted (vec (sort samples))
+        sum (reduce + samples)]
+    {:n   n
+     :avg (if (pos? n) (quot sum n) 0)
+     :p50 (percentile sorted 0.50)
+     :p95 (percentile sorted 0.95)
+     :max (if (pos? n) (last sorted) 0)}))
+
+(defn- run-fixture [[name keystroke-fn turn-count] trials]
+  (let [all (loop [i 0 acc []]
+              (if (= i trials)
+                acc
+                (recur (inc i) (into acc (run-trial keystroke-fn turn-count)))))]
+    (assoc (summarize all) :name name)))
+
+(defn run-and-emit
+  "Run all fixtures TRIALS times each. Emit results via the bridge as
+   a single {:bench/results [...]} event the HTML shell can render.
+   Returns the same vector for REPL/native callers."
+  []
+  (let [t0 (System/currentTimeMillis)
+        results (mapv #(run-fixture % TRIALS) fixtures)
+        elapsed (- (System/currentTimeMillis) t0)]
+    (bridge/emit :bench {:results results :trials TRIALS :elapsed-ms elapsed})
+    results))

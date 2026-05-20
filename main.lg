@@ -10,6 +10,7 @@
             [xsofy.ui-bridge :as bridge]
             [xsofy.runes :as runes]
             [xsofy.title :as title]
+            [xsofy.bench :as bench]
             [xsofy.debug :as dbg]))
 
 (defn init-terminal []
@@ -427,6 +428,13 @@
                           (:auto-target world) :auto-target-step
                           :else nil)
                key (or auto-key (input/parse-key (term/read-key)))
+               ;; :bench triggers the in-bundle benchmark and is not a
+               ;; real game action — squash to :unknown so update-world
+               ;; sees a no-op turn. Bench runs BEFORE t-key so its few
+               ;; seconds of compute don't pollute the perf gauge.
+               key (if (= key :bench)
+                     (do (bench/run-and-emit) :unknown)
+                     key)
                t-key (System/currentTimeMillis)
                ;; Input-pipeline lag: ms between JS _lgKey and Go read-key
                ;; returning. Only meaningful when a real key was read this

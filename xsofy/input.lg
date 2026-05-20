@@ -40,5 +40,6 @@
     "i"        :inventory
     "r"        :rune-codex
     "m"        :messages
+    "B"        :bench
     "\u001b"   :quit
     :unknown))
