@@ -484,14 +484,16 @@
                        r (- t-render t-update)
                        total (+ u r)
                        detail (:perf-detail new-world)]
-                   (bridge/emit-perf (cond-> {:total total :update u :render r :input-lag input-lag :mode :full :key (str key)}
+                   (bridge/emit-perf (cond-> {:total total :update u :render r :input-lag input-lag :turn (:turn new-world) :mode :full :key (str key)}
                                        detail (assoc :detail detail)))
-                   (dbg/log "perf full u=" u "ms r=" r "ms i=" input-lag "ms key=" key
+                   (dbg/log "perf full t=" (:turn new-world) " u=" u "ms r=" r "ms i=" input-lag "ms key=" key
                             (if detail (str " detail=" detail) ""))
-                   ;; Stash total ms on the recurred world for the next
-                   ;; render's :perf-overlay gauge. Always overwritten;
-                   ;; no dissoc needed across turns.
-                   (recur (-> new-world (dissoc :perf-detail) (assoc :perf-ms total))
+                   ;; Stash total ms + game turn on the recurred world so
+                   ;; the next render's :perf-overlay gauge can label which
+                   ;; turn its number is from. The gauge always lags by one
+                   ;; turn (can't show this turn's number without rendering
+                   ;; twice); explicit turn label makes the lag legible.
+                   (recur (-> new-world (dissoc :perf-detail) (assoc :perf-ms total :perf-turn (:turn new-world)))
                           new-world cur-size)))
              (do (render/render-dirty new-world world)
                  ;; animate vfx between turns
@@ -504,11 +506,11 @@
                        r (- t-render t-update)
                        total (+ u r)
                        detail (:perf-detail new-world)]
-                   (bridge/emit-perf (cond-> {:total total :update u :render r :input-lag input-lag :mode :dirty :key (str key)}
+                   (bridge/emit-perf (cond-> {:total total :update u :render r :input-lag input-lag :turn (:turn new-world) :mode :dirty :key (str key)}
                                        detail (assoc :detail detail)))
-                   (dbg/log "perf dirty u=" u "ms r=" r "ms i=" input-lag "ms key=" key
+                   (dbg/log "perf dirty t=" (:turn new-world) " u=" u "ms r=" r "ms i=" input-lag "ms key=" key
                             (if detail (str " detail=" detail) ""))
-                   (recur (-> new-world (dissoc :vfx :perf-detail) (assoc :perf-ms total))
+                   (recur (-> new-world (dissoc :vfx :perf-detail) (assoc :perf-ms total :perf-turn (:turn new-world)))
                           world cur-size))))))))))
 
 (defn -main []

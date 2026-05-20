@@ -65,6 +65,10 @@
                 Measured by the WASM term namespace (no-op = 0 on
                 native). Stale-but-cheap on auto-action turns where
                 read-key isn't called.
+   :turn      — game turn the timing values describe. Lets the bottom-
+                bar display label which turn the u/r/i numbers came
+                from, so the inevitable display-vs-gauge alignment
+                drift under rapid input is legible.
    :mode      — :full or :dirty
    :key       — action that drove the turn (string)
 

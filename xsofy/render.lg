@@ -1078,12 +1078,16 @@
 
 (defn render-perf-overlay
   "Dim per-turn ms gauge in the top-right of the map rect. No-op when
-   the flag is off or the world hasn't been timed yet. Reads :perf-ms,
-   which main.lg's :game branch stashes on the world after each turn."
+   the flag is off or the world hasn't been timed yet. Reads :perf-ms
+   and :perf-turn, which main.lg's :game branch stashes on the world
+   after each turn. The turn label makes the inevitable one-turn lag
+   explicit so the gauge can be compared against the bottom-bar split
+   (which also carries the turn it refers to in the emit-perf event)."
   [world map-rect]
   (when (and *perf-overlay* map-rect (:perf-ms world))
     (let [ms   (:perf-ms world)
-          text (str ms "ms")
+          turn (:perf-turn world)
+          text (if turn (str "t" turn " " ms "ms") (str ms "ms"))
           col  (max (:x map-rect) (- (+ (:x map-rect) (:w map-rect)) (count text)))
           row  (:y map-rect)]
       (term/move-cursor col row)

@@ -195,6 +195,7 @@
       <span><span class="k">d</span> <span id="xs-depth">·</span></span>
       <span><span class="k">hp</span> <span id="xs-hp">·</span>/<span id="xs-max">·</span></span>
       <span><span class="k">t</span> <span id="xs-turn">·</span></span>
+      <span><span class="k">@t</span><span id="xs-perf-turn">·</span></span>
       <span><span class="k">u</span><span id="xs-update">·</span><span class="k">ms</span></span>
       <span><span class="k">r</span><span id="xs-render">·</span><span class="k">ms</span></span>
       <span><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
@@ -284,6 +285,7 @@
     const updateEl = $("xs-update");
     const renderEl = $("xs-render");
     const inputLagEl = $("xs-input-lag");
+    const perfTurnEl = $("xs-perf-turn");
 
     // Bench results panel — triggered by xsofy/bench from xsofy.bench's
     // run-and-emit. Tap to dismiss. Formatted as a small monospaced table
@@ -317,6 +319,11 @@
         // input-lag is :input-lag let-go-side; hyphen survives the JSON
         // marshal as a "input-lag" string key.
         if (pendingPerf["input-lag"] != null) inputLagEl.textContent = pendingPerf["input-lag"];
+        // Game turn the perf values are from. Compare against the gauge's
+        // tN prefix and the t stat to read the alignment at a glance:
+        // - if @t and gauge t match → bar and gauge are in sync
+        // - if t (current) > @t → as expected (perf lags by one turn)
+        if (pendingPerf.turn != null) perfTurnEl.textContent = pendingPerf.turn;
       }
       pendingPerf = e.detail || null;
     });
