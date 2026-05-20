@@ -484,9 +484,9 @@
                        r (- t-render t-update)
                        total (+ u r)
                        detail (:perf-detail new-world)]
-                   (bridge/emit-perf (cond-> {:total total :update u :render r :input-lag input-lag :turn (:turn new-world) :mode :full :key (str key)}
+                   (bridge/emit-perf (cond-> {:total total :update u :render r :input-lag input-lag :cells (render/get-cells) :turn (:turn new-world) :mode :full :key (str key)}
                                        detail (assoc :detail detail)))
-                   (dbg/log "perf full t=" (:turn new-world) " u=" u "ms r=" r "ms i=" input-lag "ms key=" key
+                   (dbg/log "perf full t=" (:turn new-world) " u=" u "ms r=" r "ms i=" input-lag "ms c=" (render/get-cells) " key=" key
                             (if detail (str " detail=" detail) ""))
                    ;; Stash total ms + game turn on the recurred world so
                    ;; the next render's :perf-overlay gauge can label which
@@ -506,9 +506,9 @@
                        r (- t-render t-update)
                        total (+ u r)
                        detail (:perf-detail new-world)]
-                   (bridge/emit-perf (cond-> {:total total :update u :render r :input-lag input-lag :turn (:turn new-world) :mode :dirty :key (str key)}
+                   (bridge/emit-perf (cond-> {:total total :update u :render r :input-lag input-lag :cells (render/get-cells) :turn (:turn new-world) :mode :dirty :key (str key)}
                                        detail (assoc :detail detail)))
-                   (dbg/log "perf dirty t=" (:turn new-world) " u=" u "ms r=" r "ms i=" input-lag "ms key=" key
+                   (dbg/log "perf dirty t=" (:turn new-world) " u=" u "ms r=" r "ms i=" input-lag "ms c=" (render/get-cells) " key=" key
                             (if detail (str " detail=" detail) ""))
                    (recur (-> new-world (dissoc :vfx :perf-detail) (assoc :perf-ms total :perf-turn (:turn new-world)))
                           world cur-size))))))))))

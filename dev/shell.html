@@ -199,7 +199,11 @@
       <span><span class="k">u</span><span id="xs-update">·</span><span class="k">ms</span></span>
       <span><span class="k">r</span><span id="xs-render">·</span><span class="k">ms</span></span>
       <span><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
+      <span><span class="k">c</span><span id="xs-cells">·</span></span>
     </span>
+    <button class="font-cycle" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
+      <span class="glyph">⟳</span><span>bench</span>
+    </button>
     <button class="font-cycle" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
       <span class="glyph">↻</span><span id="xs-repeat-state">on</span>
     </button>
@@ -286,6 +290,7 @@
     const renderEl = $("xs-render");
     const inputLagEl = $("xs-input-lag");
     const perfTurnEl = $("xs-perf-turn");
+    const cellsEl = $("xs-cells");
 
     // Bench results panel — triggered by xsofy/bench from xsofy.bench's
     // run-and-emit. Tap to dismiss. Formatted as a small monospaced table
@@ -302,6 +307,15 @@
       const meta = `<div class="label">WASM bench · trials=${trials} · ran in ${elapsed}ms · tap to dismiss</div>`;
       return `${meta}<pre>${header}\n${rows.join("\n")}</pre>`;
     }
+    window.addEventListener("xsofy/bench-start", (e) => {
+      // Fired before the bench loop runs; the engine is locked in the
+      // loop for several seconds after this. Important to repaint so
+      // the user sees something instead of a frozen screen.
+      const d = e.detail || {};
+      const fixtures = (d.fixtures || []).map(f => ":" + f).join(", ");
+      benchEl.innerHTML = `<div class="label">WASM bench running — ${fixtures} × ${d.trials ?? "?"} trials. Engine is locked until done; screen will look frozen.</div>`;
+      benchEl.classList.add("show");
+    });
     window.addEventListener("xsofy/bench", (e) => {
       benchEl.innerHTML = formatBench(e.detail || {});
       benchEl.classList.add("show");
@@ -319,6 +333,9 @@
         // input-lag is :input-lag let-go-side; hyphen survives the JSON
         // marshal as a "input-lag" string key.
         if (pendingPerf["input-lag"] != null) inputLagEl.textContent = pendingPerf["input-lag"];
+        // Cells touched by render this turn — distinguishes FOV-expansion
+        // spikes (high c) from per-cell-expensive turns (low c + high r).
+        if (pendingPerf.cells != null) cellsEl.textContent = pendingPerf.cells;
         // Game turn the perf values are from. Compare against the gauge's
         // tN prefix and the t stat to read the alignment at a glance:
         // - if @t and gauge t match → bar and gauge are in sync

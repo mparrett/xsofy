@@ -69,6 +69,10 @@
                 bar display label which turn the u/r/i numbers came
                 from, so the inevitable display-vs-gauge alignment
                 drift under rapid input is legible.
+   :cells     — count of map tiles touched by this turn's render. Lets
+                us distinguish 'render cost dominated by FOV expansion'
+                (high cells) from 'render is per-cell expensive even on
+                small FOVs' (low cells + high :render).
    :mode      — :full or :dirty
    :key       — action that drove the turn (string)
 

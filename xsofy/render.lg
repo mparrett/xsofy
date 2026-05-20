@@ -19,6 +19,17 @@
 ;; Set to false for tournament/screenshot play.
 (def *perf-overlay* true)
 
+;; Per-turn cell counter. Incremented inside render-map-tile (the per-
+;; visible-tile workhorse on the render hot path). render-full and
+;; render-dirty reset it before their bodies; main.lg reads it after
+;; each render and includes it in emit-perf as :cells, so the bottom-
+;; bar can show how many cells went to the terminal this turn. Useful
+;; for distinguishing "render cost dominated by FOV expansion" (many
+;; cells) from "render cost is per-cell expensive even on small FOVs."
+(def cells-counter (atom 0))
+(defn reset-cells! [] (reset! cells-counter 0))
+(defn get-cells [] (deref cells-counter))
+
 (defn pause! [ms]
   (<!! (timeout (if *in-wasm* (max ms 30) ms))))
 
@@ -93,6 +104,7 @@
 
 (defn render-map-tile [r x y tile visible remembered light-val stain gas]
   (when-let [[col row] (map-cell r x y)]
+    (swap! cells-counter inc)
     (term/move-cursor col row)
     (cond
       visible
@@ -1096,6 +1108,7 @@
       (term/write text))))
 
 (defn render-full [world]
+  (reset-cells!)
   (let [[tw th] (term/size)
         panels (ui/layout tw th)
         mr (with-camera world (:map panels))]
@@ -1115,6 +1128,7 @@
     (term/flush)))
 
 (defn render-dirty [world prev-world]
+  (reset-cells!)
   (let [[tw th] (term/size)
         panels (ui/layout tw th)
         ;; If the player moved, the camera may shift too — and that turns

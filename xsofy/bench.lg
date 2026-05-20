@@ -24,13 +24,19 @@
 ;;   - No top-level (-main) invocation — caller drives via run-and-emit.
 ;;   - No printlns; structured output via bridge for the HTML shell.
 
+;; Fixture sizes tuned for WASM runtime. The native bench uses
+;; 5 trials × up to 300 turns because each turn is ~3ms there
+;; (total ~7s). WASM is ~10-50× slower per turn, so equivalent
+;; trial counts take minutes. Cut to a quick diagnostic instead:
+;; 1 trial of each fixture is enough to read engine order-of-
+;; magnitude; we re-run if a deeper sample is needed.
 (def fixtures
-  [[:wait    (fn [_] ".") 60]
-   [:autoex  (fn [n] (if (zero? n) "x" ".")) 60]
-   [:descend (fn [n] (if (zero? n) ">" ".")) 60]
-   [:busy    (fn [n] (if (zero? n) "x" ".")) 300]])
+  [[:wait    (fn [_] ".") 40]
+   [:autoex  (fn [n] (if (zero? n) "x" ".")) 40]
+   [:descend (fn [n] (if (zero? n) ">" ".")) 40]
+   [:busy    (fn [n] (if (zero? n) "x" ".")) 80]])
 
-(def TRIALS 5)
+(def TRIALS 1)
 
 (defn- time-turn
   [world key-str]
@@ -77,8 +83,13 @@
 (defn run-and-emit
   "Run all fixtures TRIALS times each. Emit results via the bridge as
    a single {:bench/results [...]} event the HTML shell can render.
-   Returns the same vector for REPL/native callers."
+   Returns the same vector for REPL/native callers.
+
+   Also emits a :bench-start event before any work, so the HTML shell
+   can show 'running…' immediately — without it, the engine is locked
+   in this loop for several seconds and the screen looks frozen."
   []
+  (bridge/emit :bench-start {:fixtures (mapv first fixtures) :trials TRIALS})
   (let [t0 (System/currentTimeMillis)
         results (mapv #(run-fixture % TRIALS) fixtures)
         elapsed (- (System/currentTimeMillis) t0)]
