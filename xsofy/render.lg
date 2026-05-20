@@ -67,27 +67,80 @@
 ;; the player and clamped to world bounds. render-map-tile and friends
 ;; consume the offset via map-cell, so callers keep passing world coords.
 
+;; Dead-zone camera state. Camera moves with the player only when the
+;; player is within MARGIN cells of the visible window's edge; otherwise
+;; the camera holds its last committed position. This turns most player
+;; moves into FOV-delta renders (cheap) instead of full-window repaints
+;; (~1300 cells, ~0.14ms/cell on WASM = the dominant render-side spike).
+;;
+;; The atom stores {:cx :cy :depth} so a floor change forces a recenter:
+;; the new floor's coordinate system has no relation to the old one.
+;;
+;; Render-only state; safe as an atom because the render path is
+;; single-threaded (the WASM Go runtime is, and the native path runs in
+;; the main game thread).
+(def last-camera (atom nil))
+
+(def camera-margin 8)
+
+(defn- center-camera
+  "Centered-on-player offset, clamped to world bounds. Used on first
+   render of a floor and as a fallback when no last-camera is stored."
+  [ww wh rw rh px py]
+  [(if (<= ww rw) 0 (max 0 (min (- ww rw) (- px (quot rw 2)))))
+   (if (<= wh rh) 0 (max 0 (min (- wh rh) (- py (quot rh 2)))))])
+
 (defn camera-for
-  "Centered-on-player camera for map rect r, clamped so the viewport
-   stays inside the world. Returns [cx cy] — the world coord at the
-   top-left of the visible window. Falls back to [0 0] if the world
-   fits entirely (no scrolling needed)."
+  "Dead-zone camera for map rect r. If the player is at least
+   camera-margin cells from each edge of the previously-committed camera
+   window, returns the previous camera unchanged — the FOV-delta render
+   path then writes only the cells that actually changed. Otherwise the
+   camera shifts just enough to put the player camera-margin cells from
+   whichever edge they were crossing.
+
+   On first render of a floor (no last-camera, or different :depth), the
+   camera centers on the player."
   [world r]
   (let [ww (or (:width world) 0)
         wh (or (:height world) 0)
         rw (:w r)
         rh (:h r)
         [px py] (or (get-in world [:entities :player :pos]) [0 0])
-        cx (if (<= ww rw) 0 (max 0 (min (- ww rw) (- px (quot rw 2)))))
-        cy (if (<= wh rh) 0 (max 0 (min (- wh rh) (- py (quot rh 2)))))]
-    [cx cy]))
+        cur-depth (:depth world)
+        stored @last-camera
+        valid? (and stored (= cur-depth (:depth stored)))
+        [prev-cx prev-cy] (if valid?
+                            [(:cx stored) (:cy stored)]
+                            (center-camera ww wh rw rh px py))
+        rel-x (- px prev-cx)
+        rel-y (- py prev-cy)
+        new-cx (cond
+                 (<= ww rw)                   0
+                 (< rel-x camera-margin)      (max 0 (- px camera-margin))
+                 (>= rel-x (- rw camera-margin)) (min (- ww rw) (- (+ px camera-margin) rw))
+                 :else                        prev-cx)
+        new-cy (cond
+                 (<= wh rh)                   0
+                 (< rel-y camera-margin)      (max 0 (- py camera-margin))
+                 (>= rel-y (- rh camera-margin)) (min (- wh rh) (- (+ py camera-margin) rh))
+                 :else                        prev-cy)]
+    [new-cx new-cy]))
 
 (defn with-camera
   "Attach a camera-for offset to the map rect. Callers pass the result
-   anywhere a map rect is consumed."
+   anywhere a map rect is consumed. Pure read — does NOT advance the
+   stored camera; render-full / render-dirty call commit-camera! once
+   after using the rect, so callers like animate-vfx! don't accidentally
+   change the camera between turns."
   [world r]
   (let [[cx cy] (camera-for world r)]
     (assoc r :cx cx :cy cy)))
+
+(defn commit-camera!
+  "Persist the camera offset on rect mr as the new baseline for future
+   camera-for calls. Stores depth alongside so floor changes recenter."
+  [world mr]
+  (reset! last-camera {:cx (:cx mr) :cy (:cy mr) :depth (:depth world)}))
 
 (defn map-cell
   "Translate world (x y) → terminal [col row] for map rect r, honoring
@@ -1108,7 +1161,6 @@
       (term/write text))))
 
 (defn render-full [world]
-  (reset-cells!)
   (let [[tw th] (term/size)
         panels (ui/layout tw th)
         mr (with-camera world (:map panels))]
@@ -1125,10 +1177,10 @@
     (render-log world (:log panels))
     (render-status world (:status panels))
     (render-perf-overlay world mr)
-    (term/flush)))
+    (term/flush)
+    (commit-camera! world mr)))
 
 (defn render-dirty [world prev-world]
-  (reset-cells!)
   (let [[tw th] (term/size)
         panels (ui/layout tw th)
         ;; If the player moved, the camera may shift too — and that turns
@@ -1146,7 +1198,8 @@
           (render-log world (:log panels))
           (render-status world (:status panels))
           (render-perf-overlay world mr)
-          (term/flush))
+          (term/flush)
+          (commit-camera! world mr))
       (let [lights (or (:lights world) [])
             stains (or (:stains world) {})
             gases (or (:gases world) {})]
@@ -1174,4 +1227,5 @@
         (render-log world (:log panels))
         (render-status world (:status panels))
         (render-perf-overlay world mr)
-        (term/flush)))))
+        (term/flush)
+        (commit-camera! world mr)))))

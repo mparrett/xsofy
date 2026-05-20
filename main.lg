@@ -435,6 +435,12 @@
                key (if (= key :bench)
                      (do (bench/run-and-emit) :unknown)
                      key)
+               ;; Reset the per-turn cell counter centrally — render-full
+               ;; and render-dirty no longer reset themselves, so when a
+               ;; mode-change turn skips render entirely (e.g. opening
+               ;; the inventory or a confirm dialog), :cells in the perf
+               ;; event correctly reads 0 instead of stale-from-last-turn.
+               _ (render/reset-cells!)
                t-key (System/currentTimeMillis)
                ;; Input-pipeline lag: ms between JS _lgKey and Go read-key
                ;; returning. Only meaningful when a real key was read this
