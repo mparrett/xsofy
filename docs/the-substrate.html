@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Substrate · What WebAssembly Is</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0c0c0c;
+      --bg-rise:   #131311;
+      --panel:     #141815;
+      --ink:       #e8e6df;
+      --ink-dim:   #8a877c;
+      --ink-dust:  #5a584f;
+      --rule:      rgba(232, 230, 223, 0.08);
+      --rule-soft: rgba(232, 230, 223, 0.04);
+      --teal:      #5ec4b6;
+      --amber:     #d8a657;
+      --rust:      #c25450;
+      --moss:      #8aa86b;
+      --violet:    #b29bd1;
+      --display:   "Cinzel", "Iowan Old Style", "Palatino", serif;
+      --mono:      "IBM Plex Mono", "Menlo", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: var(--mono);
+      font-size: 14.5px;
+      line-height: 1.75;
+      letter-spacing: 0.01em;
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    body::before {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,0.012) 0px,
+        rgba(255,255,255,0.012) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      z-index: 1;
+    }
+    body::after {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse at 50% -10%, rgba(178, 155, 209, 0.08), transparent 55%),
+        radial-gradient(ellipse at -10% 80%, rgba(94, 196, 182, 0.06), transparent 45%),
+        radial-gradient(ellipse at 110% 30%, rgba(216, 166, 87, 0.05), transparent 50%),
+        radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.55) 100%);
+      z-index: 0;
+    }
+
+    .ticks { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+    .ticks span {
+      position: absolute;
+      width: 1px; height: 14px;
+      background: var(--violet);
+      opacity: 0;
+      animation: tick-pulse 6s ease-in-out infinite, tick-fade 1.6s ease-out forwards;
+    }
+    @keyframes tick-fade { 0% { opacity: 0; transform: translateY(8px); } 100% { opacity: 0.10; transform: translateY(0); } }
+    @keyframes tick-pulse { 0%, 100% { opacity: 0.06; } 50% { opacity: 0.18; } }
+
+    .frame {
+      position: relative;
+      z-index: 2;
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 6vh 6vw 14vh;
+    }
+
+    /* Masthead */
+    .mast { margin-bottom: 12vh; position: relative; }
+    .mast .strip {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--ink-dust);
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 14px;
+      margin-bottom: 56px;
+    }
+    .mast .strip .here { color: var(--violet); }
+
+    .mast h1 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: clamp(48px, 8vw, 92px);
+      line-height: 0.96;
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 28px;
+    }
+    .mast h1 em {
+      font-style: italic;
+      font-weight: 400;
+      color: var(--violet);
+      letter-spacing: 0;
+    }
+    .mast .sub {
+      font-family: var(--display);
+      font-style: italic;
+      font-weight: 400;
+      font-size: clamp(17px, 1.8vw, 21px);
+      color: var(--ink-dim);
+      max-width: 60ch;
+      margin-bottom: 36px;
+      line-height: 1.5;
+    }
+    .mast .seal {
+      display: grid;
+      grid-template-columns: repeat(4, auto);
+      gap: 36px 56px;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .mast .seal dt { color: var(--ink-dust); font-size: 10px; margin-bottom: 4px; letter-spacing: 0.18em; }
+    .mast .seal dd { color: var(--ink); font-family: var(--mono); font-size: 13px; letter-spacing: 0; text-transform: none; }
+
+    /* Prelude */
+    .prelude {
+      font-family: var(--display);
+      font-style: italic;
+      font-weight: 400;
+      font-size: clamp(18px, 1.9vw, 22px);
+      line-height: 1.55;
+      color: var(--ink-dim);
+      max-width: 64ch;
+      margin: 0 0 14vh 0;
+      padding: 14px 0 14px 28px;
+      border-left: 2px solid var(--violet);
+    }
+    .prelude::first-letter {
+      font-size: 1.6em;
+      color: var(--amber);
+      padding-right: 0.05em;
+    }
+
+    /* Acts */
+    .act {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 36px;
+      padding: 60px 0;
+      border-top: 1px solid var(--rule);
+      position: relative;
+    }
+    .act .glyph {
+      font-family: var(--display);
+      font-weight: 400;
+      letter-spacing: 0.18em;
+      color: var(--ink-dust);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .act .glyph .roman {
+      display: block;
+      font-size: 36px;
+      color: var(--violet);
+      letter-spacing: 0;
+      line-height: 1;
+      margin-top: 10px;
+      font-family: var(--display);
+      font-weight: 400;
+    }
+    .act .glyph .mark {
+      display: block;
+      font-size: 26px;
+      color: var(--moss);
+      margin-top: 22px;
+      opacity: 0.55;
+      font-family: var(--mono);
+    }
+
+    .act h2 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: clamp(26px, 3.2vw, 36px);
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 6px;
+      line-height: 1.15;
+    }
+    .act h2 .tag {
+      display: block;
+      font-family: var(--mono);
+      font-style: italic;
+      font-weight: 400;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--ink-dust);
+      margin-top: 6px;
+    }
+
+    .act p { margin: 16px 0; max-width: 66ch; color: var(--ink); }
+    .act p.aside {
+      color: var(--ink-dim);
+      font-size: 13px;
+      font-style: italic;
+      border-left: 1px solid var(--rule);
+      padding-left: 14px;
+      margin-top: 22px;
+    }
+    .act p.note {
+      color: var(--violet);
+      font-style: italic;
+      border-left: 2px solid var(--violet);
+      padding-left: 14px;
+      max-width: 60ch;
+    }
+    .act p.warn {
+      color: var(--rust);
+      font-style: italic;
+      border-left: 2px solid var(--rust);
+      padding-left: 14px;
+      max-width: 60ch;
+    }
+    .act p.lift {
+      color: var(--teal);
+      font-style: italic;
+      border-left: 2px solid var(--teal);
+      padding-left: 14px;
+      max-width: 60ch;
+    }
+
+    .act ul { margin: 14px 0 18px 0; padding-left: 22px; max-width: 66ch; }
+    .act ul li { color: var(--ink); margin: 6px 0; }
+    .act ul li::marker { color: var(--violet); }
+
+    .act .term {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-left: 2px solid var(--violet);
+      padding: 16px 20px;
+      margin: 18px 0 24px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--ink);
+      overflow-x: auto;
+      position: relative;
+    }
+    .act .term::before {
+      content: attr(data-label);
+      position: absolute; top: -9px; left: 12px;
+      background: var(--bg);
+      padding: 0 8px;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+    .term .o   { color: var(--ink-dim); display: block; }
+    .term .ok  { color: var(--moss); }
+    .term .hl  { color: var(--amber); }
+    .term .dim { color: var(--ink-dust); }
+    .term .hot { color: var(--rust); }
+    .term .vio { color: var(--violet); }
+    .term .tea { color: var(--teal); }
+
+    code { font-family: var(--mono); color: var(--amber); font-size: 0.95em; background: rgba(216,166,87,0.06); padding: 1px 4px; border-radius: 2px; }
+    a { color: var(--violet); text-decoration: none; border-bottom: 1px dotted rgba(178, 155, 209, 0.4); }
+    a:hover { border-bottom-style: solid; }
+
+    /* Comparison table */
+    .compare {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 18px 0 24px;
+      background: var(--panel);
+      border: 1px solid var(--rule);
+    }
+    .compare th, .compare td {
+      text-align: left;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--rule-soft);
+      vertical-align: top;
+    }
+    .compare thead th {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+      font-weight: 500;
+      background: rgba(178, 155, 209, 0.04);
+    }
+    .compare td.dim-col { color: var(--ink-dim); font-style: italic; }
+    .compare td.jvm     { color: var(--teal); }
+    .compare td.wasm    { color: var(--violet); }
+    .compare tbody tr:hover { background: rgba(178,155,209,0.03); }
+
+    /* Architecture diagram */
+    .arch {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-left: 2px solid var(--teal);
+      padding: 20px 24px;
+      margin: 18px 0 24px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.6;
+      color: var(--ink);
+      white-space: pre;
+      overflow-x: auto;
+      position: relative;
+    }
+    .arch::before {
+      content: "architecture · where each layer runs";
+      position: absolute; top: -9px; left: 16px;
+      background: var(--bg);
+      padding: 0 8px;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+
+    /* Tax breakdown */
+    .tiers {
+      margin: 18px 0 24px;
+      counter-reset: tier;
+      list-style: none;
+      padding: 0;
+    }
+    .tiers li {
+      padding: 14px 0 14px 56px;
+      position: relative;
+      border-top: 1px dashed var(--rule-soft);
+      counter-increment: tier;
+      max-width: 70ch;
+    }
+    .tiers li:first-child { border-top: 1px solid var(--rule); }
+    .tiers li:last-child  { border-bottom: 1px solid var(--rule); }
+    .tiers li::before {
+      content: counter(tier, decimal-leading-zero);
+      position: absolute; left: 0; top: 16px;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: var(--violet);
+      font-family: var(--mono);
+    }
+    .tiers li strong { color: var(--ink); font-weight: 500; }
+    .tiers li .why {
+      display: block;
+      color: var(--ink-dim);
+      font-size: 13px;
+      font-style: italic;
+      margin-top: 4px;
+    }
+
+    /* Moral coda */
+    .moral {
+      margin-top: 12vh;
+      padding: 40px 36px 44px;
+      border: 1px solid var(--rule);
+      background: linear-gradient(180deg, var(--bg-rise), var(--bg));
+      position: relative;
+    }
+    .moral::before {
+      content: "▾ where to go next";
+      position: absolute; top: -9px; left: 20px;
+      background: var(--bg);
+      padding: 0 10px;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--violet);
+    }
+    .moral h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 24px;
+      color: var(--violet);
+      margin-bottom: 14px;
+    }
+    .moral p { color: var(--ink); max-width: 66ch; margin-bottom: 12px; }
+    .moral ul { margin: 18px 0 0 22px; padding: 0; }
+    .moral li {
+      padding: 6px 0;
+      color: var(--ink);
+      max-width: 66ch;
+    }
+    .moral li::marker { color: var(--amber); }
+
+    /* Colophon */
+    .colophon {
+      margin-top: 10vh;
+      padding-top: 28px;
+      border-top: 1px solid var(--rule);
+      display: flex; justify-content: space-between;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dust);
+    }
+
+    /* Staggered reveal */
+    .act { opacity: 0; transform: translateY(14px); animation: enter 0.8s ease-out forwards; }
+    .act:nth-of-type(1) { animation-delay: 0.30s; }
+    .act:nth-of-type(2) { animation-delay: 0.42s; }
+    .act:nth-of-type(3) { animation-delay: 0.54s; }
+    .act:nth-of-type(4) { animation-delay: 0.66s; }
+    .act:nth-of-type(5) { animation-delay: 0.78s; }
+    .act:nth-of-type(6) { animation-delay: 0.90s; }
+    @keyframes enter { to { opacity: 1; transform: translateY(0); } }
+
+    .mast h1, .mast .sub, .mast .strip, .mast .seal {
+      opacity: 0; animation: enter 0.8s ease-out forwards;
+    }
+    .mast .strip { animation-delay: 0.05s; }
+    .mast h1    { animation-delay: 0.18s; }
+    .mast .sub  { animation-delay: 0.32s; }
+    .mast .seal { animation-delay: 0.48s; }
+
+    @media (max-width: 720px) {
+      .act { grid-template-columns: 1fr; gap: 14px; padding: 44px 0; }
+      .act .glyph { display: flex; gap: 20px; align-items: baseline; }
+      .act .glyph .roman { margin-top: 0; font-size: 22px; }
+      .act .glyph .mark  { margin-top: 0; font-size: 18px; }
+      .mast .seal { grid-template-columns: repeat(2, auto); gap: 24px; }
+      .compare th, .compare td { padding: 7px 10px; font-size: 12px; }
+      .arch { font-size: 11px; padding: 14px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ticks" aria-hidden="true">
+    <span style="top:  6vh; left:  3vw"></span>
+    <span style="top: 14vh; right: 5vw"></span>
+    <span style="top: 22vh; left:  4vw"></span>
+    <span style="top: 30vh; right: 3vw"></span>
+    <span style="top: 41vh; left:  5vw"></span>
+    <span style="top: 50vh; right: 4vw"></span>
+    <span style="top: 60vh; left:  3vw"></span>
+    <span style="top: 72vh; right: 5vw"></span>
+    <span style="top: 83vh; left:  4vw"></span>
+    <span style="top: 94vh; right: 3vw"></span>
+    <span style="top:107vh; left:  5vw"></span>
+    <span style="top:119vh; right: 4vw"></span>
+    <span style="top:131vh; left:  3vw"></span>
+    <span style="top:145vh; right: 5vw"></span>
+    <span style="top:159vh; left:  4vw"></span>
+    <span style="top:174vh; right: 3vw"></span>
+  </div>
+
+  <main class="frame">
+
+    <header class="mast">
+      <div class="strip">
+        <span>Field notes · 2026-05-20</span>
+        <span class="here">expmt/kaiju · xsofy</span>
+        <span>What runs where, and why it's slow</span>
+      </div>
+      <h1>The<br><em>Substrate</em></h1>
+      <p class="sub">
+        What WebAssembly actually is, what it isn't, and the strange shape of a Go binary running in a Web Worker reading a SharedArrayBuffer that the main thread keeps writing keystrokes into.
+      </p>
+      <dl class="seal">
+        <div><dt>WASM model</dt><dd>stack VM, flat memory, no GC</dd></div>
+        <div><dt>Go runtime</dt><dd>compiled into the bundle</dd></div>
+        <div><dt>Our tax</dt><dd>~10–15× native</dd></div>
+        <div><dt>Threads</dt><dd>one (Go's choice)</dd></div>
+      </dl>
+    </header>
+
+    <p class="prelude">
+      We keep talking about "WASM" as though it's a faster JVM or a different JavaScript. It's neither. WebAssembly is a sandboxed virtual ISA — an abstract CPU. It has integers and a single flat array of bytes and almost nothing else. Everything higher-level — objects, garbage collection, threads, file I/O — gets implemented on top by whichever language compiled to it. When you ship Go to WASM, the binary contains both your code <em>and the entire Go runtime</em>, recompiled to that abstract CPU.
+    </p>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">I</span>
+        <span class="mark">⌹</span>
+      </div>
+      <div class="body">
+        <h2>What WASM actually is
+          <span class="tag">— a stack VM with no opinions</span>
+        </h2>
+        <p>
+          WebAssembly is a binary instruction format for a stack-based virtual machine, standardized as a W3C recommendation in 2017. Think of it as a portable ISA — like x86 or ARM — but designed to be safely runnable in untrusted environments. Originally browsers; now anywhere via WASI runtimes (Wasmtime, Wasmer, etc.).
+        </p>
+        <p>
+          The headline properties:
+        </p>
+        <ul>
+          <li><strong>Stack-based execution.</strong> Operands pushed and popped on a stack, like JVM bytecode. <code>i32.const 7; i32.const 3; i32.add</code> leaves 10 on the stack.</li>
+          <li><strong>Linear memory.</strong> A single contiguous byte array — initially up to 4GB. Every load and store is an offset into it. There are no pointers, no garbage collection, no concept of an "object."</li>
+          <li><strong>Static types at the function-signature level.</strong> Originally just <code>i32 / i64 / f32 / f64</code>. Recent extensions add SIMD vectors and a handful of reference types.</li>
+          <li><strong>Imports and exports declared explicitly.</strong> A module says <em>"I import a function called <code>console.log</code> with signature <code>(i32) -&gt; void</code>"</em>, and the host wires it up at instantiation time.</li>
+          <li><strong>Sandboxed by construction.</strong> No syscalls, no filesystem, no clock, no anything — only what the host provides. The module can only touch its own linear memory.</li>
+        </ul>
+        <p class="note">
+          Crucially: <em>the WASM spec has no concept of objects, classes, garbage collection, threads, or a standard library.</em> It's a thin layer over hardware. Everything higher-level is built on top by the source language's runtime — which the language ships <em>inside</em> the WASM module.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">II</span>
+        <span class="mark">≣</span>
+      </div>
+      <div class="body">
+        <h2>WASM is not a JVM
+          <span class="tag">— same family, very different philosophies</span>
+        </h2>
+        <p>
+          Both are stack VMs with bytecode and JIT compilation. The similarity ends about there.
+        </p>
+        <table class="compare">
+          <thead>
+            <tr>
+              <th></th>
+              <th>JVM</th>
+              <th>WASM</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="dim-col">Designed for</td>
+              <td class="jvm">Java (1995)</td>
+              <td class="wasm">Any compiled language (2015)</td>
+            </tr>
+            <tr>
+              <td class="dim-col">Type system</td>
+              <td class="jvm">Rich: objects, refs, classes, interfaces, generics</td>
+              <td class="wasm">Just <code>i32/i64/f32/f64</code> originally; SIMD + ref types since</td>
+            </tr>
+            <tr>
+              <td class="dim-col">Memory</td>
+              <td class="jvm">Object heap with managed references</td>
+              <td class="wasm">Flat linear byte array — you manage offsets</td>
+            </tr>
+            <tr>
+              <td class="dim-col">Garbage collection</td>
+              <td class="jvm">Built into spec — mandatory</td>
+              <td class="wasm">None (until "WasmGC" recently — still optional)</td>
+            </tr>
+            <tr>
+              <td class="dim-col">Threads</td>
+              <td class="jvm">First-class, with <code>synchronized</code>, <code>volatile</code>, <code>j.u.c</code></td>
+              <td class="wasm">Single-threaded by default; threads proposal adds shared memory + atomics</td>
+            </tr>
+            <tr>
+              <td class="dim-col">Standard library</td>
+              <td class="jvm">Massive — <code>java.*</code> shipped with the runtime</td>
+              <td class="wasm">None — host provides everything</td>
+            </tr>
+            <tr>
+              <td class="dim-col">Runtime size</td>
+              <td class="jvm">~150MB JRE + small per-class files</td>
+              <td class="wasm">No runtime in spec; per-module ~tens of KB</td>
+            </tr>
+            <tr>
+              <td class="dim-col">Execution tiers</td>
+              <td class="jvm">Interpret → C1 → C2 (tiered JIT)</td>
+              <td class="wasm">Liftoff (baseline) → TurboFan (optimizing) in V8</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          The headline difference: <strong>JVM is opinionated, WASM is a substrate.</strong>
+        </p>
+        <p>
+          JVM bytecode reflects Java semantics — <code>.class</code> files, constant pools, monitor-enter/exit, virtual dispatch. Other JVM languages (Scala, Clojure, Kotlin) had to bend their semantics to fit Java's worldview. WASM is closer to LLVM IR. Each source language brings its own conventions on top, and the runtime knows nothing about them.
+        </p>
+        <p class="lift">
+          Concretely: when you compile Clojure to JVM bytecode, the JVM understands the methods, types, and references directly — because it <em>is</em> Clojure's runtime, by way of being Java's. When you compile Go to WASM, you get a binary that internally implements <em>all of Go's memory model and garbage collector and goroutine scheduler</em> using just <code>i32</code> ops and linear memory. The WASM runtime has no idea what a goroutine is. It just sees a function executing with some bookkeeping.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">III</span>
+        <span class="mark">⊜</span>
+      </div>
+      <div class="body">
+        <h2>How Go targets WASM
+          <span class="tag">— compile the runtime in, then your code</span>
+        </h2>
+        <p>
+          Go has supported <code>GOOS=js GOARCH=wasm</code> since Go 1.11 in 2018. More recently <code>GOOS=wasip1</code> for non-browser WASI environments. Both are emitted directly by the Go compiler — no LLVM, no Emscripten. Go ships WASM as a first-class platform.
+        </p>
+        <p>
+          The catch is what gets put into that binary. Every Go WASM module includes the full Go runtime: garbage collector, goroutine scheduler, slice and map primitives, the syscall layer, the lot. That's the price of saying "Go runs here." The output looks roughly like this:
+        </p>
+        <div class="term" data-label="go wasm binary, conceptually">
+          <span class="o"><span class="vio">[your Go code]</span></span>
+          <span class="o"><span class="dim">+</span></span>
+          <span class="o"><span class="hl">[Go runtime — GC, scheduler, syscall/js, runtime primitives]</span></span>
+          <span class="o"><span class="dim">→</span></span>
+          <span class="o"><span class="tea">5–15MB .wasm</span></span>
+        </div>
+        <p>
+          The runtime knows how to allocate into Go's heap (a region of WASM linear memory it manages), how to run GC over that heap, how to schedule goroutines cooperatively on the single thread, and how to talk to the outside world via <code>syscall/js</code>. Once the module is loaded and the runtime initializes, <code>main()</code> starts and it looks essentially like Go is running — just slower, and with a different system layer beneath.
+        </p>
+        <p class="aside">
+          Go's single-threaded WASM is a deliberate choice. The WebAssembly Threads proposal exists, and SharedArrayBuffer + atomics make true parallel goroutines technically possible. The Go team has not implemented it. So in WASM, all goroutines cooperatively time-share the single thread — exactly as if you ran with <code>GOMAXPROCS=1</code>.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">IV</span>
+        <span class="mark">⌭</span>
+      </div>
+      <div class="body">
+        <h2>The bridge — wasm_exec.js
+          <span class="tag">— the operating system Go expects to find</span>
+        </h2>
+        <p>
+          When the Go compiler emits a WASM module, it expects to find a host environment that provides certain imports. Things like <code>runtime.wasmExit</code>, <code>runtime.wasmWrite</code>, <code>syscall/js.valueGet</code>, <code>syscall/js.valueSet</code>, scheduler glue. Without these the module is dead — it has no way to do I/O, allocate from the browser's perspective, or yield to the event loop.
+        </p>
+        <p>
+          The Go toolchain ships a JavaScript file, <code>wasm_exec.js</code>, that provides all of these. It's essentially the operating system for Go-in-the-browser. Three jobs:
+        </p>
+        <ul>
+          <li><strong>Imports the Go runtime expects.</strong> Every syscall Go would normally make to Linux/Darwin/Windows is rerouted to a JS function.</li>
+          <li><strong>A Go-side "JS values" registry.</strong> When Go code does <code>js.Global().Get("document")</code>, the JS value gets stored in a JS-side map keyed by an integer ID. Go holds the ID. The bridge marshals between integers and references this way.</li>
+          <li><strong>Scheduling glue.</strong> When Go calls <code>time.Sleep</code> or blocks on a channel, the runtime sets a JS <code>setTimeout</code> and yields back to the event loop. When the timer fires, JS pokes Go back into running.</li>
+        </ul>
+        <p>
+          <code>wasm_exec.js</code> isn't a part of the WASM spec — it's a Go-specific contract between the Go runtime and JavaScript. Other languages that target browser WASM bring their own equivalent.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">V</span>
+        <span class="mark">⌬</span>
+      </div>
+      <div class="body">
+        <h2>Where our stack actually runs
+          <span class="tag">— two threads, one bundle, many layers</span>
+        </h2>
+        <p>
+          xsofy isn't a typical Go WASM app. It compiles a Clojure-dialect game to a bytecode interpreter (let-go) that itself was compiled to Go that was compiled to WASM that runs in a Web Worker that communicates with the main thread that hosts xterm.js. Five layers between your keypress and the cell that gets painted.
+        </p>
+        <div class="arch">browser tab (main JS thread)
+  ├─ <span style="color:var(--amber)">wasm_exec.js</span>     <span style="color:var(--ink-dust)">— Go ↔ JS glue</span>
+  ├─ <span style="color:var(--amber)">xterm.js</span>         <span style="color:var(--ink-dust)">— terminal emulator, canvas paint</span>
+  ├─ <span style="color:var(--amber)">shell.html</span>       <span style="color:var(--ink-dust)">— D-pad, perf bar, _lgKey</span>
+  └─ <span style="color:var(--violet)">Worker thread</span>
+       └─ <span style="color:var(--teal)">WASM module</span>
+            ├─ <span style="color:var(--moss)">Go runtime</span>           <span style="color:var(--ink-dust)">— GC, scheduler, syscall/js</span>
+            └─ <span style="color:var(--moss)">let-go interpreter</span>   <span style="color:var(--ink-dust)">— Go code</span>
+                 └─ <span style="color:var(--moss)">xsofy bytecode</span>  <span style="color:var(--ink-dust)">— interpreted .lgb</span>
+                      └─ <span style="color:var(--ink)">game logic</span></div>
+        <p>
+          A keystroke makes the journey twice — once in via SAB, once out via postMessage:
+        </p>
+        <ol style="margin-left: 22px; max-width: 66ch;">
+          <li>Touch button or xterm.js calls <code>_lgKey('h')</code> on the main thread.</li>
+          <li>Main thread writes a byte into the SharedArrayBuffer and calls <code>Atomics.notify</code>.</li>
+          <li>The worker thread, parked in <code>Atomics.wait</code>, wakes up.</li>
+          <li>Go's <code>read-key</code> reads the byte from SAB, returns into let-go.</li>
+          <li>let-go's bytecode interpreter dispatches into the game's input handler.</li>
+          <li>The game runs <code>update-world</code>, emits ANSI characters via <code>term/write</code>.</li>
+          <li>Those bytes accumulate in a Go-side buffer.</li>
+          <li><code>term/flush</code> posts the buffer to the main thread via <code>postMessage</code>.</li>
+          <li>The main thread feeds the bytes to xterm.js; xterm parses ANSI and repaints the canvas.</li>
+        </ol>
+        <p class="warn">
+          Critical detail explaining the architecture: <code>Atomics.wait</code> cannot run on the main thread — browsers refuse to let the main UI thread block synchronously. So Go's <code>read-key</code> has to live on a Web Worker. The worker can't touch the DOM. So xterm.js, which needs canvas access, has to live on the main thread. Result: the postMessage hop between them is unavoidable.
+        </p>
+      </div>
+    </section>
+
+    <section class="act">
+      <div class="glyph">
+        Act
+        <span class="roman">VI</span>
+        <span class="mark">⌗</span>
+      </div>
+      <div class="body">
+        <h2>Why we pay 10–15×
+          <span class="tag">— stacking taxes, not one big one</span>
+        </h2>
+        <p>
+          Pure Go-to-WASM is typically 2–3× slower than native Go. Our observed 10–15× tax comes from layering. Each one adds a multiplier:
+        </p>
+        <ol class="tiers">
+          <li>
+            <strong>Single-threaded.</strong> Go's scheduler can't parallelize across cores; goroutines time-share one WASM thread.
+            <span class="why">A multi-core CPU sits idle. <code>GOMAXPROCS=1</code> in spirit.</span>
+          </li>
+          <li>
+            <strong>JIT vs AOT.</strong> V8's Liftoff/TurboFan tier is fast but not as good as Go's native AOT optimizer.
+            <span class="why">No CPU-specific intrinsics. Bounds checks on every memory access. No PGO.</span>
+          </li>
+          <li>
+            <strong>let-go is an interpreter, not a compiler.</strong> Every Clojure op is a Go function call dispatched off bytecode.
+            <span class="why">Native Go doesn't have this layer either. It's structural to running a dynamic language on a static VM on an abstract CPU on a JIT.</span>
+          </li>
+          <li>
+            <strong>GC pressure compounds.</strong> let-go allocates heavily — persistent maps, vectors, lazy seqs — and Go's GC running inside WASM has more overhead than native GC.
+            <span class="why">Heap scanning has to bounds-check; allocations can't use OS huge pages.</span>
+          </li>
+          <li>
+            <strong>Boundary crossings cost microseconds each.</strong> Every <code>postMessage</code> and SAB notify is a few μs.
+            <span class="why">Negligible for one event. For sustained input loops or rapid frame updates it adds up.</span>
+          </li>
+          <li>
+            <strong>No SIMD where it matters.</strong> Native Go can use AVX/SSE; WASM SIMD exists but neither the Go compiler nor let-go targets it.
+            <span class="why">Color blending in render, bit-twiddling in the VM — all scalar.</span>
+          </li>
+        </ol>
+        <p class="lift">
+          Most of these we cannot fix without changing the WASM runtime itself. The Go team is working on better WASI support; V8 keeps improving its tiers. But for now, "10–15× native" is roughly the floor for our specific stack — and that's exactly what the in-bundle bench shows.
+        </p>
+      </div>
+    </section>
+
+    <aside class="moral">
+      <h3>Where to go from here</h3>
+      <p>
+        Some threads worth pulling, if any of this sparked something:
+      </p>
+      <ul>
+        <li><strong>WasmGC</strong> — the spec extension that adds garbage-collected references to WASM. Java has already shipped a JVM-in-WASM that uses it. Go has no plans yet; it'd be a major runtime rewrite.</li>
+        <li><strong>WebAssembly Threads</strong> — adds <code>shared</code> linear memory and atomics. Go could theoretically use this for real parallel goroutines, but the runtime team has chosen not to so far.</li>
+        <li><strong>WASI</strong> — WebAssembly System Interface. The "stdlib" analog for non-browser WASM. <code>GOOS=wasip1</code> targets it.</li>
+        <li><strong>Component Model</strong> — a higher-level interface description for WASM modules. Aims to make cross-language interop work without each language inventing its own bridge.</li>
+        <li><strong>Our specific mystery</strong> — why a cache-invalidation gate that reduced native allocations by 10% made WASM measurably slower. See <code>docs/project_notes/perf-audit-2026-05-18.md</code> Phase 6 follow-up. Possibly a clue to something in let-go's WASM runtime we don't understand yet.</li>
+      </ul>
+    </aside>
+
+    <footer class="colophon">
+      <span>— the substrate · field notes</span>
+      <span>2026 · what runs where</span>
+    </footer>
+
+  </main>
+
+</body>
+</html>
