@@ -83,6 +83,16 @@
 
 (def camera-margin 8)
 
+;; Memoized scatter for the death screen's background runes. Without
+;; this, render-death-screen calls (scatter-runes ...) every time it
+;; renders, which is on every keystroke (j/k to scroll the log, esc to
+;; exit, or any unrecognized tap). scatter-runes draws fresh rand-ints
+;; per rune for x/y/glyph/color, so the background "jumps around" each
+;; render. Cache by [tw th seed] so window resize or a new run rerolls,
+;; but a stable death scene paints identical pixels and the eye reads
+;; it as solid. Same pattern as last-camera.
+(def last-death-scatter (atom nil))
+
 (defn- center-camera
   "Centered-on-player offset, clamped to world bounds. Used on first
    render of a floor and as a fallback when no last-camera is stored."
@@ -919,8 +929,14 @@
         cx (quot tw 2)
         cy (quot th 2)
         scheme [200 50 30]  ;; crimson runes
-        runes (title/scatter-runes tw th 30 scheme)
-        seed (or (:turn world) 0)]
+        seed (or (:turn world) 0)
+        runes (let [stored  @last-death-scatter
+                    cur-key [tw th seed]]
+                (if (and stored (= cur-key (:key stored)))
+                  (:runes stored)
+                  (let [fresh (title/scatter-runes tw th 30 scheme)]
+                    (reset! last-death-scatter {:key cur-key :runes fresh})
+                    fresh)))]
     ;; clear to black
     (title/clear-screen tw th)
     ;; draw runes in background
