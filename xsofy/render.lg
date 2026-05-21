@@ -108,7 +108,15 @@
         [px py] (or (get-in world [:entities :player :pos]) [0 0])
         cur-depth (:depth world)
         stored @last-camera
-        valid? (and stored (= cur-depth (:depth stored)))
+        ;; Floor change OR viewport resize triggers a recenter. Storing
+        ;; rect dimensions in last-camera lets the next render detect a
+        ;; font-size cycle (xterm refits → new cols/rows → new rw/rh)
+        ;; and re-center the camera on the player instead of holding the
+        ;; previous offset inside a now-different-sized window.
+        valid? (and stored
+                    (= cur-depth (:depth stored))
+                    (= rw        (:rw stored))
+                    (= rh        (:rh stored)))
         [prev-cx prev-cy] (if valid?
                             [(:cx stored) (:cy stored)]
                             (center-camera ww wh rw rh px py))
@@ -138,9 +146,15 @@
 
 (defn commit-camera!
   "Persist the camera offset on rect mr as the new baseline for future
-   camera-for calls. Stores depth alongside so floor changes recenter."
+   camera-for calls. Stores depth and rect dimensions alongside — depth
+   change triggers recenter on floor change; rect-dim change triggers
+   recenter on viewport resize (font cycle, window resize)."
   [world mr]
-  (reset! last-camera {:cx (:cx mr) :cy (:cy mr) :depth (:depth world)}))
+  (reset! last-camera {:cx    (:cx mr)
+                       :cy    (:cy mr)
+                       :depth (:depth world)
+                       :rw    (:w mr)
+                       :rh    (:h mr)}))
 
 (defn map-cell
   "Translate world (x y) → terminal [col row] for map rect r, honoring
