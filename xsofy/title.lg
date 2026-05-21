@@ -222,15 +222,16 @@
     ;; clear
     (clear-screen tw th)
     ;; animate — runes drift upward, erase old position each frame.
-    ;; 22 frames × 60ms = 1.32s total. Runes keep drifting through the
-    ;; full duration but a fade-out factor ramps brightness from 1.0 to
-    ;; 0.0 over the last 8 frames so the rain dissolves into the new
-    ;; floor render instead of cutting abruptly. Depth label + message
-    ;; share the same fade-out so nothing pops off when the loop ends.
-    (dotimes [frame 22]
-      (let [fade-out (if (< frame 14)
+    ;; 30 frames × 60ms = 1.8s total. Runes keep drifting through the
+    ;; full duration; a fade-out factor ramps THEIR brightness from
+    ;; 1.0 to 0.0 over the last 10 frames so the rain dissolves rather
+    ;; than cutting. Depth label and message do NOT fade — they stay
+    ;; readable for the full animation so the player has time to take
+    ;; them in.
+    (dotimes [frame 30]
+      (let [fade-out (if (< frame 20)
                        1.0
-                       (max 0.0 (- 1.0 (/ (float (- frame 13)) 8.0))))]
+                       (max 0.0 (- 1.0 (/ (float (- frame 19)) 10.0))))]
         (doseq [r runes]
           (let [;; current y drifts upward (subtract), wrap around
                 cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
@@ -251,16 +252,17 @@
               (do (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
                   (term/set-bg (int (* cr b 0.12)) (int (* cg b 0.12)) (int (* cb b 0.12)))
                   (term/write (:glyph r))))))
-        ;; depth label
+        ;; depth label — fade IN only, then stays. fade-out applies to
+        ;; runes only so the text remains readable through the dissolve.
         (let [dx (max 1 (- cx (quot (count depth-str) 2)))
-              fade (* (min 1.0 (/ (float frame) 8.0)) fade-out)]
+              fade (min 1.0 (/ (float frame) 8.0))]
           (term/move-cursor dx (- cy 1))
           (term/set-fg (int (* 180 fade)) (int (* 160 fade)) (int (* 100 fade)))
           (term/set-bg 10 10 10)
           (term/write depth-str))
-        ;; message
+        ;; message — fade IN only, then stays
         (let [mx (max 1 (- cx (quot (count msg) 2)))
-              mfade (* (min 1.0 (max 0.0 (/ (float (- frame 5)) 8.0))) fade-out)]
+              mfade (min 1.0 (max 0.0 (/ (float (- frame 5)) 8.0)))]
           (term/move-cursor mx (+ cy 1))
           (term/set-fg (int (* 120 mfade)) (int (* 110 mfade)) (int (* 90 mfade)))
           (term/set-bg 10 10 10)
