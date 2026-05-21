@@ -125,12 +125,19 @@
     (/ (float v) 30.0)))
 
 (defn clear-screen [tw th]
+  ;; Deliberately does NOT flush — callers always follow up with drawing
+  ;; (rune scatter, tombstone, title art) and a terminal flush at the
+  ;; end of their pipeline. Flushing here too means xterm renders the
+  ;; blank intermediate state on its RAF cadence, producing a visible
+  ;; white-flash before the content arrives. Letting the caller's final
+  ;; flush carry the whole batch eliminates the flicker. If a future
+  ;; caller wants a paint-only-clear, they should call (term/flush)
+  ;; themselves immediately after this.
   (term/set-bg 10 10 10)
   (term/set-fg 10 10 10)
   (dotimes [y th]
     (term/move-cursor 1 (inc y))
-    (term/write (apply str (repeat tw " "))))
-  (term/flush))
+    (term/write (apply str (repeat tw " ")))))
 
 (defn draw-frame [runes title subtitle tw th frame]
   (let [cx (quot tw 2)
@@ -214,8 +221,11 @@
         runes (scatter-runes tw th 25 scheme)]
     ;; clear
     (clear-screen tw th)
-    ;; animate — runes drift upward, erase old position each frame
-    (dotimes [frame 15]
+    ;; animate — runes drift upward, erase old position each frame.
+    ;; 20 frames × 60ms = 1.2s total (was 15 frames / 900ms). Longer
+    ;; lingers on the message at full opacity and gives the runes more
+    ;; vertical drift before the floor renders underneath.
+    (dotimes [frame 20]
       (doseq [r runes]
         (let [;; current y drifts upward (subtract), wrap around
               cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
