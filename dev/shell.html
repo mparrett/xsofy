@@ -6,7 +6,13 @@
   window._lgKey (which the bundle exposes; pushes bytes through the
   same SAB path that real keystrokes use).
 
-  Portrait: D-pad and actions visible — full touch target set.
+  Portrait: D-pad on the left, action column on the right. The action
+  column is a two-pane swappable grid: a persistent right column
+  (GET/INV/DESC/FIRE/BACK plus the pane-nav tile) and a left grid that
+  swaps between movement (Pane 1) and item/meta actions (Pane 2). The
+  nav tile in the right column cycles panes. Hold-to-repeat is gated
+  to Pane 1's D-pad so Pane 2's item taps never auto-fire.
+
   Landscape: collapses to a single info strip; physical keys do the work.
 -->
 <style>
@@ -129,7 +135,7 @@
     }
     #xsofy-shell .actions {
       grid-template-columns: 1fr 1fr;
-      grid-template-rows: repeat(6, 1fr);
+      grid-template-rows: repeat(3, 1fr);
     }
   }
 
@@ -160,6 +166,22 @@
   }
   #xsofy-shell button .glyph { font-size: 16px; color: var(--bar-accent); }
   #xsofy-shell button .label { font-size: 10px; color: var(--bar-dim); letter-spacing: 0.05em; margin-top: 2px; }
+
+  /* Pane-cycle tile — visually distinct from action buttons so the swap
+     affordance reads as chrome, not an action. Dots indicate current pane;
+     tap cycles forward, wrapping. */
+  #xsofy-shell button.nav {
+    background: rgba(245, 176, 65, 0.02);
+    border-style: dashed;
+  }
+  #xsofy-shell button.nav .glyph { font-size: 13px; letter-spacing: 0.15em; color: var(--bar-fg); }
+  #xsofy-shell button.nav .label { color: var(--bar-accent); }
+
+  /* Empty slot in a pane — keeps the grid aligned without rendering a
+     tappable target. */
+  #xsofy-shell .actions .filler {
+    visibility: hidden;
+  }
 
   /* Font-size cycle lives in the info row. Compact tap target, intrinsic
      height (info row stays one line) — minimums and padding stripped so
@@ -229,32 +251,13 @@
   <div class="bench" id="xs-bench" title="Tap to dismiss"></div>
 
   <div class="row touch">
-    <div class="pad" id="xs-pad">
-      <button data-key="y"><span class="glyph">↖</span></button>
-      <button data-key="k"><span class="glyph">↑</span></button>
-      <button data-key="u"><span class="glyph">↗</span></button>
-      <button data-key="h"><span class="glyph">←</span></button>
-      <button data-key="."><span class="glyph">·</span><span class="label">WAIT</span></button>
-      <button data-key="l"><span class="glyph">→</span></button>
-      <button data-key="b"><span class="glyph">↙</span></button>
-      <button data-key="j"><span class="glyph">↓</span></button>
-      <button data-key="n"><span class="glyph">↘</span></button>
-    </div>
-
-    <div class="actions" id="xs-actions">
-      <button data-key="g"><span class="glyph">g</span><span class="label">GET</span></button>
-      <button data-key="i"><span class="glyph">i</span><span class="label">INV</span></button>
-      <button data-key="a"><span class="glyph">a</span><span class="label">USE</span></button>
-      <button data-key="e"><span class="glyph">e</span><span class="label">EQUIP</span></button>
-      <button data-key="d"><span class="glyph">d</span><span class="label">DROP</span></button>
-      <button data-key="f"><span class="glyph">f</span><span class="label">FIRE</span></button>
-      <button data-key="r"><span class="glyph">r</span><span class="label">RUNES</span></button>
-      <button data-key="x"><span class="glyph">x</span><span class="label">AUTO</span></button>
-      <button data-key="Z"><span class="glyph">Z</span><span class="label">REST</span></button>
-      <button data-key="m"><span class="glyph">m</span><span class="label">MSG</span></button>
-      <button data-key=">"><span class="glyph">&gt;</span><span class="label">DESC</span></button>
-      <button data-key=""><span class="glyph">esc</span><span class="label">BACK</span></button>
-    </div>
+    <!-- Both grids are populated by the script below from PANES.
+         The right column (.actions) is identical on every pane —
+         persistent muscle memory for GET/INV/DESC/FIRE/BACK + the pane
+         nav. The left grid (.pad) swaps content per pane: movement on
+         Pane 1, item/meta actions on Pane 2. -->
+    <div class="pad" id="xs-pad"></div>
+    <div class="actions" id="xs-actions"></div>
   </div>
 </div>
 
@@ -372,17 +375,134 @@
     function press(btn) {
       const k = btn.dataset.key;
       if (!k || !window._lgKey) return;
-      // Data attributes can't carry literal  — decode JS-escapes.
+      // Data attributes can't carry literal  — decode JS-escapes.
       const decoded = k.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
       window._lgKey(decoded);
       btn.classList.add("pressed");
       setTimeout(() => btn.classList.remove("pressed"), 90);
     }
 
+    // Bind a button so a pointerdown fires its data-key (if any), starts
+    // hold-to-repeat where applicable, and stops repeat on up/leave/cancel.
+    // Pulled out of a one-shot querySelectorAll because the touch tiles are
+    // recreated on every pane swap (see renderTouch); each new button needs
+    // the same wiring. Static info-row buttons are also bound through here.
+    function bindButton(btn) {
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        press(btn);
+        startHoldRepeat(btn);
+      });
+      btn.addEventListener("pointerup", stopHoldRepeat);
+      btn.addEventListener("pointerleave", stopHoldRepeat);
+      btn.addEventListener("pointercancel", stopHoldRepeat);
+      // Keep buttons from stealing focus from the terminal.
+      btn.addEventListener("mousedown", (e) => e.preventDefault());
+    }
+
+    // --- Touch panes -----------------------------------------------------
+    // Two panes, both with the same physical layout (3x3 left + 2x3 right).
+    // The RIGHT_COLUMN actions are identical on every pane so muscle memory
+    // works: the four common actions, BACK, and the pane-nav tile always
+    // sit in the same six positions. Only the LEFT 3x3 swaps content —
+    // movement on Pane 1, item/meta actions on Pane 2. Game is turn-based,
+    // so giving up the D-pad on Pane 2 is fine: one nav tap restores it.
+    const ESC = "\u001b";
+
+    // Right column — persistent across every pane. Slot 5 is BACK, slot 6
+    // is the pane-nav tile (rendered by code below, not in this array).
+    const RIGHT_COLUMN = [
+      { key: "g", glyph: "g", label: "GET" },
+      { key: "i", glyph: "i", label: "INV" },
+      { key: ">", glyph: ">", label: "DESC" },
+      { key: "f", glyph: "f", label: "FIRE" },
+      { key: ESC, glyph: "esc", label: "BACK" },
+    ];
+
+    const PANES = [
+      {
+        // Pane 1 — movement (3x3 D-pad)
+        pad: [
+          { key: "y", glyph: "↖" },
+          { key: "k", glyph: "↑" },
+          { key: "u", glyph: "↗" },
+          { key: "h", glyph: "←" },
+          { key: ".", glyph: "·", label: "WAIT" },
+          { key: "l", glyph: "→" },
+          { key: "b", glyph: "↙" },
+          { key: "j", glyph: "↓" },
+          { key: "n", glyph: "↘" },
+        ],
+      },
+      {
+        // Pane 2 — item & meta actions filling the D-pad slot.
+        // Bottom row is yes/no for game prompts (hazard, restart, etc.)
+        // — those keys are also bound on the D-pad's NW/SE diagonals
+        // but undiscoverable there; explicit YES/NO tiles make them
+        // findable when the game asks "Dive into the depths? (y/n)".
+        pad: [
+          { key: "a", glyph: "a", label: "USE" },
+          { key: "e", glyph: "e", label: "EQUIP" },
+          { key: "d", glyph: "d", label: "DROP" },
+          { key: "m", glyph: "m", label: "MSG" },
+          { key: "r", glyph: "r", label: "RUNES" },
+          { key: "x", glyph: "x", label: "AUTO" },
+          { key: "<", glyph: "<", label: "ASCN" },
+          { key: "y", glyph: "y", label: "YES" },
+          { key: "n", glyph: "n", label: "NO" },
+        ],
+      },
+    ];
+    let currentPane = 0;
+
+    function tileFor(spec) {
+      if (spec === null) {
+        const filler = document.createElement("div");
+        filler.className = "filler";
+        return filler;
+      }
+      const btn = document.createElement("button");
+      btn.dataset.key = spec.key;
+      const labelHtml = spec.label ? `<span class="label">${spec.label}</span>` : "";
+      btn.innerHTML = `<span class="glyph">${spec.glyph}</span>${labelHtml}`;
+      bindButton(btn);
+      return btn;
+    }
+
+    function renderTouch() {
+      const padEl = $("xs-pad");
+      const actEl = $("xs-actions");
+      padEl.innerHTML = "";
+      actEl.innerHTML = "";
+      for (const spec of PANES[currentPane].pad) padEl.appendChild(tileFor(spec));
+      for (const spec of RIGHT_COLUMN) actEl.appendChild(tileFor(spec));
+      // Nav tile lives at slot 6 of the right column. Tap cycles forward.
+      // Not routed through bindButton — it doesn't send a key, it swaps
+      // panes, and it must not start a hold-to-repeat cycle.
+      const nav = document.createElement("button");
+      nav.className = "nav";
+      const dots = PANES.map((_, i) => i === currentPane ? "●" : "○").join(" ");
+      const label = currentPane === 0 ? "MOVE" : "ITEMS";
+      nav.innerHTML = `<span class="glyph">${dots}</span><span class="label">${label}</span>`;
+      nav.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        // Kill any in-flight repeat from a tile we just replaced, so we
+        // don't leave an orphan setInterval firing into the new pane.
+        stopHoldRepeat();
+        currentPane = (currentPane + 1) % PANES.length;
+        renderTouch();
+      });
+      nav.addEventListener("mousedown", (e) => e.preventDefault());
+      actEl.appendChild(nav);
+    }
+
     // Hold-to-repeat for D-pad buttons. After REPEAT_INITIAL ms of hold,
     // re-fire every REPEAT_INTERVAL ms until pointerup/cancel/leave. Scope
-    // is movement only (the .pad set) — repeating GET/INV/FIRE/etc on a
-    // long press is a footgun (wasted spells, repeated menu opens).
+    // is movement only — repeating GET/INV/FIRE/etc on a long press is a
+    // footgun (wasted spells, repeated menu opens). The gate checks both
+    // that the button is in .pad AND that we're on Pane 1; Pane 2 reuses
+    // the .pad slot for item/meta actions (USE/EQUIP/DROP/YES/NO/etc),
+    // none of which should auto-fire.
     const REPEAT_INITIAL = 150;
     const REPEAT_INTERVAL = 83;
     const REPEAT_LS_KEY = "xsofy/auto-repeat";
@@ -399,7 +519,7 @@
     let cancelHoldRepeat = null;
     function startHoldRepeat(btn) {
       if (cancelHoldRepeat) { cancelHoldRepeat(); cancelHoldRepeat = null; }
-      if (!repeatEnabled || !btn.closest(".pad")) return;
+      if (!repeatEnabled || !btn.closest(".pad") || currentPane !== 0) return;
       let intervalId = null;
       const initialId = setTimeout(() => {
         intervalId = setInterval(() => press(btn), REPEAT_INTERVAL);
@@ -413,18 +533,14 @@
       if (cancelHoldRepeat) { cancelHoldRepeat(); cancelHoldRepeat = null; }
     }
 
-    document.querySelectorAll("#xsofy-shell button").forEach((btn) => {
-      btn.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        press(btn);
-        startHoldRepeat(btn);
-      });
-      btn.addEventListener("pointerup", stopHoldRepeat);
-      btn.addEventListener("pointerleave", stopHoldRepeat);
-      btn.addEventListener("pointercancel", stopHoldRepeat);
-      // Keep buttons from stealing focus from the terminal.
-      btn.addEventListener("mousedown", (e) => e.preventDefault());
-    });
+    // Initial render. Touch tiles bind via bindButton inside tileFor, so
+    // they get the same wiring on every pane swap.
+    renderTouch();
+
+    // Static info-row buttons (bench-trigger, repeat-toggle, font-cycle) —
+    // bound once. They aren't rebuilt by renderTouch.
+    document.querySelectorAll("#xsofy-shell .info button").forEach(bindButton);
+
     // Final safety net: if the pointer ends anywhere on the page (e.g. user
     // drags off the button and releases over the terminal), kill repeat.
     window.addEventListener("pointerup", stopHoldRepeat);
