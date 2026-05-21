@@ -222,21 +222,22 @@
     ;; clear
     (clear-screen tw th)
     ;; animate — runes drift upward, erase old position each frame.
-    ;; 42 frames × 60ms = 2.52s total, in three phases:
+    ;; 44 frames × 60ms = 2.64s total, in four phases:
     ;;   Phase A (frames 0-19):  runes at full brightness, normal anim
-    ;;   Phase B (frames 20-29): brightness fades 1.0 → 0.1 over 10 frames
-    ;;   Phase C (frames 30-41): heartbeat pulse at ~10% baseline for two
-    ;;                           6-frame beats before the final transition
+    ;;   Phase B (frames 20-29): brightness fades 1.0 → 0.10 over 10 frames
+    ;;   Phase C (frames 30-37): hold steady at 10% for ~half a second
+    ;;                           (the "beat" before the final flare)
+    ;;   Phase D (frames 38-43): one dramatic final pulse — runes ramp
+    ;;                           20 → 50 → 70 → 70 (hold) → 20 → 0
     ;; Runes keep drifting through every phase. Depth label and message
     ;; do NOT fade — they stay full-opacity so the player has time to
-    ;; read them while the rain dies down around them.
-    (dotimes [frame 42]
+    ;; read them while the rain dies and re-flares around them.
+    (dotimes [frame 44]
       (let [fade-out (cond
                        (< frame 20) 1.0
                        (< frame 30) (max 0.1 (- 1.0 (* (/ (float (- frame 19)) 10.0) 0.9)))
-                       ;; Heartbeat: baseline / spike / fall / trough / baseline / rest
-                       :else (nth [0.10 0.20 0.10 0.05 0.10 0.10]
-                                  (rem (- frame 30) 6)))]
+                       (< frame 38) 0.1
+                       :else (nth [0.20 0.50 0.70 0.70 0.20 0.00] (- frame 38)))]
         (doseq [r runes]
           (let [;; current y drifts upward (subtract), wrap around
                 cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
