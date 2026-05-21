@@ -373,14 +373,21 @@
                      (recur w w (term/size))))))
 
          :death
-         (loop [scroll 0]
-           (render/render-death-screen world scroll)
+         ;; Re-render only when scroll actually changes. Previously the
+         ;; loop re-rendered on every keystroke — :else (recur scroll)
+         ;; meant any stray tap (pane swap, unbound key) full-cleared
+         ;; the screen and repainted, producing the white-flash flicker.
+         ;; Track last-rendered alongside scroll so a no-op recur does
+         ;; nothing visible.
+         (loop [scroll 0 last-rendered nil]
+           (when (not= scroll last-rendered)
+             (render/render-death-screen world scroll))
            (let [k (term/read-key)]
              (cond
                (= k "\u001b") (assoc world :running false)
-               (or (= k "j") (= k "\u001b[B")) (recur (max 0 (dec scroll)))
-               (or (= k "k") (= k "\u001b[A")) (recur (inc scroll))
-               :else (recur scroll))))
+               (or (= k "j") (= k "\u001b[B")) (recur (max 0 (dec scroll)) scroll)
+               (or (= k "k") (= k "\u001b[A")) (recur (inc scroll) scroll)
+               :else (recur scroll scroll))))
 
          :confirm-hazard
          (do
