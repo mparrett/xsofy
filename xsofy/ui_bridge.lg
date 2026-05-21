@@ -3,7 +3,7 @@
 
 ;; Outbound channel from the game to whatever HTML/JS shell is hosting it.
 ;; Builds on let-go's (js/emit ...) — see ../let-go fork on branch
-;; expmt/js-bridge. On native, (js/emit ...) is a validated no-op so the
+;; experiment/js-bridge. On native, (js/emit ...) is a validated no-op so the
 ;; game runs unchanged in a real terminal; in WASM the event arrives on
 ;; window as a CustomEvent whose .detail is the JSON-marshaled data.
 ;;
