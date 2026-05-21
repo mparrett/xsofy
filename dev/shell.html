@@ -59,6 +59,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 0 1 auto;
+    /* Ellipsize from the LEFT so the meaningful suffix (the proper-noun
+       item name) survives truncation. "seeking Codpiece of Borrowed
+       Confidence" → "…of Borrowed Confidence" rather than "seeking C…".
+       direction:rtl flips truncation direction; the text content still
+       reads LTR because English content isn't a single RTL run. */
+    direction: rtl;
   }
   #xsofy-shell .info .stats {
     color: var(--bar-accent);
@@ -72,6 +78,14 @@
   /* Touch controls only render in portrait. In landscape they're hidden;
      desktop users have a real keyboard. */
   #xsofy-shell .touch { display: none; }
+
+  /* In landscape the game's own sidebar shows HP/depth (sidebar drops only
+     when terminal width < ~80 cols, which is the portrait case). Hide the
+     duplicated stats block so the bar carries only what isn't already on
+     screen — title + quest + font chip. */
+  @media (orientation: landscape) {
+    #xsofy-shell .info .stats { display: none; }
+  }
 
   /* Portrait: relax the template's default 100:36 letterbox so the
      terminal gets a useful number of rows at the chunkier font size we
@@ -233,7 +247,7 @@
       <button data-key=">"><span class="glyph">&gt;</span><span class="label">DESCEND</span></button>
       <button data-key="f"><span class="glyph">f</span><span class="label">FIRE</span></button>
       <button data-key="r"><span class="glyph">r</span><span class="label">RUNES</span></button>
-      <button data-key=""><span class="glyph">esc</span><span class="label">MENU</span></button>
+      <button data-key=""><span class="glyph">esc</span><span class="label">BACK</span></button>
     </div>
   </div>
 </div>
