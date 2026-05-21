@@ -222,43 +222,48 @@
     ;; clear
     (clear-screen tw th)
     ;; animate — runes drift upward, erase old position each frame.
-    ;; 20 frames × 60ms = 1.2s total (was 15 frames / 900ms). Longer
-    ;; lingers on the message at full opacity and gives the runes more
-    ;; vertical drift before the floor renders underneath.
-    (dotimes [frame 20]
-      (doseq [r runes]
-        (let [;; current y drifts upward (subtract), wrap around
-              cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
-              ;; previous y to erase
-              prev-y (rem (+ th (:y r) (- (quot (dec frame) 2))) th)
-              b (rune-brightness (:phase r) (* frame 3))
-              [cr cg cb] (:color r)]
-          ;; erase previous position (if it moved)
-          (when (not= cur-y prev-y)
-            (term/move-cursor (:x r) (inc prev-y))
-            (term/set-fg 10 10 10)
-            (term/set-bg 10 10 10)
-            (term/write " "))
-          ;; draw at new position — flicker and fade
-          (term/move-cursor (:x r) (inc cur-y))
-          (if (< b 0.05)
-            (do (term/set-fg 10 10 10) (term/set-bg 10 10 10) (term/write " "))
-            (do (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
-                (term/set-bg (int (* cr b 0.12)) (int (* cg b 0.12)) (int (* cb b 0.12)))
-                (term/write (:glyph r))))))
-      ;; depth label
-      (let [dx (max 1 (- cx (quot (count depth-str) 2)))
-            fade (min 1.0 (/ (float frame) 8.0))]
-        (term/move-cursor dx (- cy 1))
-        (term/set-fg (int (* 180 fade)) (int (* 160 fade)) (int (* 100 fade)))
-        (term/set-bg 10 10 10)
-        (term/write depth-str))
-      ;; message
-      (let [mx (max 1 (- cx (quot (count msg) 2)))
-            mfade (min 1.0 (max 0.0 (/ (float (- frame 5)) 8.0)))]
-        (term/move-cursor mx (+ cy 1))
-        (term/set-fg (int (* 120 mfade)) (int (* 110 mfade)) (int (* 90 mfade)))
-        (term/set-bg 10 10 10)
-        (term/write msg))
-      (term/flush)
-      (pause! 60))))
+    ;; 22 frames × 60ms = 1.32s total. Runes keep drifting through the
+    ;; full duration but a fade-out factor ramps brightness from 1.0 to
+    ;; 0.0 over the last 8 frames so the rain dissolves into the new
+    ;; floor render instead of cutting abruptly. Depth label + message
+    ;; share the same fade-out so nothing pops off when the loop ends.
+    (dotimes [frame 22]
+      (let [fade-out (if (< frame 14)
+                       1.0
+                       (max 0.0 (- 1.0 (/ (float (- frame 13)) 8.0))))]
+        (doseq [r runes]
+          (let [;; current y drifts upward (subtract), wrap around
+                cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
+                ;; previous y to erase
+                prev-y (rem (+ th (:y r) (- (quot (dec frame) 2))) th)
+                b (* (rune-brightness (:phase r) (* frame 3)) fade-out)
+                [cr cg cb] (:color r)]
+            ;; erase previous position (if it moved)
+            (when (not= cur-y prev-y)
+              (term/move-cursor (:x r) (inc prev-y))
+              (term/set-fg 10 10 10)
+              (term/set-bg 10 10 10)
+              (term/write " "))
+            ;; draw at new position — flicker and fade
+            (term/move-cursor (:x r) (inc cur-y))
+            (if (< b 0.05)
+              (do (term/set-fg 10 10 10) (term/set-bg 10 10 10) (term/write " "))
+              (do (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
+                  (term/set-bg (int (* cr b 0.12)) (int (* cg b 0.12)) (int (* cb b 0.12)))
+                  (term/write (:glyph r))))))
+        ;; depth label
+        (let [dx (max 1 (- cx (quot (count depth-str) 2)))
+              fade (* (min 1.0 (/ (float frame) 8.0)) fade-out)]
+          (term/move-cursor dx (- cy 1))
+          (term/set-fg (int (* 180 fade)) (int (* 160 fade)) (int (* 100 fade)))
+          (term/set-bg 10 10 10)
+          (term/write depth-str))
+        ;; message
+        (let [mx (max 1 (- cx (quot (count msg) 2)))
+              mfade (* (min 1.0 (max 0.0 (/ (float (- frame 5)) 8.0))) fade-out)]
+          (term/move-cursor mx (+ cy 1))
+          (term/set-fg (int (* 120 mfade)) (int (* 110 mfade)) (int (* 90 mfade)))
+          (term/set-bg 10 10 10)
+          (term/write msg))
+        (term/flush)
+        (pause! 60)))))
