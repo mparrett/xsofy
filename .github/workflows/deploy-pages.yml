@@ -28,11 +28,22 @@ jobs:
         with:
           go-version: '1.26'
 
-      - name: Install let-go (from mparrett fork, play branch)
-        run: go install github.com/mparrett/let-go@play
+      # The mparrett/let-go fork keeps the upstream module path
+      # (github.com/nooga/let-go in go.mod), so `go install
+      # github.com/mparrett/let-go@play` fails with a module-path
+      # mismatch. Clone + go install . from inside the source tree
+      # works around that. Also note: lg -w resolves the WASM-side
+      # runtime through go.mod, and without LETGO_SRC it falls back
+      # to the module proxy (= upstream nooga/let-go, missing the js
+      # bridge primitives). LETGO_SRC pins the runtime to the fork.
+      - name: Clone let-go fork (play branch)
+        run: git clone --branch play --depth 1 https://github.com/mparrett/let-go.git $HOME/let-go
 
-      - name: Build WASM
-        run: let-go -w dist main.lg
+      - name: Install let-go binary
+        run: cd $HOME/let-go && go install .
+
+      - name: Build WASM (LETGO_SRC pins runtime to the fork)
+        run: LETGO_SRC=$HOME/let-go let-go -w dist main.lg
 
       - name: Stage shell.html for the bottom-bar host
         run: cp dev/shell.html dist/
