@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [experiment/mobile]
   workflow_dispatch:
 
 permissions:
@@ -26,13 +26,16 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
 
-      - name: Install let-go
-        run: go install github.com/nooga/let-go@latest
+      - name: Install let-go (from mparrett fork, play branch)
+        run: go install github.com/mparrett/let-go@play
 
       - name: Build WASM
         run: let-go -w dist main.lg
+
+      - name: Stage shell.html for the bottom-bar host
+        run: cp dev/shell.html dist/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
