@@ -183,6 +183,29 @@
   }
   body.force-touch #xsofy-shell .touch { display: grid; }
 
+  /* Landscape force-touch — the user is on desktop / tablet-landscape
+     and explicitly opted into the touch UI. Without orientation-specific
+     sizing the touch row spans the full 1024+ px width and buttons
+     stretch to ~200px each (unusable as a D-pad), plus the 55vh terminal
+     wastes the wide screen. Constrain the touch grid to D-pad-sized
+     proportions, center it horizontally, and give the terminal more
+     vertical room than portrait gets. */
+  @media (orientation: landscape) {
+    body.force-touch #terminal { height: calc(100vh - 260px); }
+    body.force-touch #xsofy-shell .touch {
+      max-width: 560px;
+      width: 100%;
+      margin-left: auto;
+      margin-right: auto;
+      flex: 0 0 auto;
+    }
+    body.force-touch #xsofy-shell .pad,
+    body.force-touch #xsofy-shell .actions {
+      grid-template-rows: repeat(3, 60px);
+      height: auto;
+    }
+  }
+
   #xsofy-shell button {
     font-family: inherit;
     font-size: 14px;
@@ -708,6 +731,11 @@
       forceTouchEnabled = !forceTouchEnabled;
       localStorage.setItem(FORCE_TOUCH_LS_KEY, forceTouchEnabled ? "1" : "0");
       paintForceTouchState();
+      // Tell xterm.js + let-go to refit — the class toggle changes
+      // #terminal's height via CSS, but FitAddon only recomputes cols/rows
+      // on window resize or explicit fit. rAF defers the dispatch to the
+      // next frame so the new layout is in place when fit runs.
+      requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     });
     touchToggleEl?.addEventListener("mousedown", (e) => e.preventDefault());
 
