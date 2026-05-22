@@ -72,6 +72,12 @@
   }
   #xsofy-shell .info .chips {
     grid-area: 1 / 2;
+    /* justify-self: end snaps the chips container to the right edge of
+       column 2. Without it, column 2 sizes to the widest of (chips, stats)
+       — in debug the perf stats are wider, so the chips sit left-aligned
+       inside a stats-sized column and visually float off the right edge.
+       Mirrors the .stats `justify-self: end` so both rows hug the right. */
+    justify-self: end;
     display: flex;
     align-items: center;
     gap: 0.4rem;
