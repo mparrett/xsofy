@@ -465,29 +465,39 @@
     // so giving up the D-pad on Pane 2 is fine: one nav tap restores it.
     const ESC = "\u001b";
 
-    // Right column — persistent across every pane. Slot 5 is BACK, slot 6
-    // is the pane-nav tile (rendered by code below, not in this array).
+    // Right column — persistent across every pane. BACK lives at slot 2
+    // so the thumb finds it without crossing the full column; INV moves
+    // down to slot 5 (rarely needed mid-action). Slot 6 is the pane-nav
+    // tile, rendered by code below — not in this array.
     const RIGHT_COLUMN = [
       { key: "g", glyph: "g", label: "GET" },
-      { key: "i", glyph: "i", label: "INV" },
+      { key: ESC, glyph: "esc", label: "BACK" },
       { key: ">", glyph: ">", label: "DESC" },
       { key: "f", glyph: "f", label: "FIRE" },
-      { key: ESC, glyph: "esc", label: "BACK" },
+      { key: "i", glyph: "i", label: "INV" },
     ];
 
     const PANES = [
       {
-        // Pane 1 — movement (3x3 D-pad)
+        // Pane 1 — movement D-pad with auto-explore at the center. The
+        // play loop tends to be "tap AUTO, watch terrain unfold, AUTO
+        // bails on contact, arrow around, tap AUTO again" — so the
+        // center slot (which can't be a direction) hosts AUTO instead
+        // of WAIT. WAIT moves to Pane 2 (still hold-repeats there for
+        // resting between turns). The 8 directional specs carry
+        // repeat:true so hold-to-rest^Wmove still works; AUTO does NOT
+        // — one tap starts the run, repeated firing would either no-op
+        // mid-run or bounce the auto on/off.
         pad: [
-          { key: "y", glyph: "↖" },
-          { key: "k", glyph: "↑" },
-          { key: "u", glyph: "↗" },
-          { key: "h", glyph: "←" },
-          { key: ".", glyph: "·", label: "WAIT" },
-          { key: "l", glyph: "→" },
-          { key: "b", glyph: "↙" },
-          { key: "j", glyph: "↓" },
-          { key: "n", glyph: "↘" },
+          { key: "y", glyph: "↖", repeat: true },
+          { key: "k", glyph: "↑", repeat: true },
+          { key: "u", glyph: "↗", repeat: true },
+          { key: "h", glyph: "←", repeat: true },
+          { key: "x", glyph: "x", label: "AUTO" },
+          { key: "l", glyph: "→", repeat: true },
+          { key: "b", glyph: "↙", repeat: true },
+          { key: "j", glyph: "↓", repeat: true },
+          { key: "n", glyph: "↘", repeat: true },
         ],
       },
       {
@@ -496,13 +506,15 @@
         // — those keys are also bound on the D-pad's NW/SE diagonals
         // but undiscoverable there; explicit YES/NO tiles make them
         // findable when the game asks "Dive into the depths? (y/n)".
+        // WAIT lives here now (with repeat:true so hold-to-rest still
+        // works); AUTO moved to Pane 1 center.
         pad: [
           { key: "a", glyph: "a", label: "USE" },
           { key: "e", glyph: "e", label: "EQUIP" },
           { key: "d", glyph: "d", label: "DROP" },
           { key: "m", glyph: "m", label: "MSG" },
           { key: "r", glyph: "r", label: "RUNES" },
-          { key: "x", glyph: "x", label: "AUTO" },
+          { key: ".", glyph: "·", label: "WAIT", repeat: true },
           { key: "<", glyph: "<", label: "ASCN" },
           { key: "y", glyph: "y", label: "YES" },
           { key: "n", glyph: "n", label: "NO" },
@@ -519,6 +531,11 @@
       }
       const btn = document.createElement("button");
       btn.dataset.key = spec.key;
+      // spec.repeat opts the tile into hold-to-repeat. Set per-instance
+      // rather than per-key because the same key can appear on multiple
+      // panes with different semantics (e.g. "y" is NW movement on Pane
+      // 1 — repeatable — and YES on Pane 2 — not).
+      if (spec.repeat) btn.dataset.repeat = "1";
       const labelHtml = spec.label ? `<span class="label">${spec.label}</span>` : "";
       btn.innerHTML = `<span class="glyph">${spec.glyph}</span>${labelHtml}`;
       bindButton(btn);
@@ -552,13 +569,14 @@
       actEl.appendChild(nav);
     }
 
-    // Hold-to-repeat for D-pad buttons. After REPEAT_INITIAL ms of hold,
-    // re-fire every REPEAT_INTERVAL ms until pointerup/cancel/leave. Scope
-    // is movement only — repeating GET/INV/FIRE/etc on a long press is a
-    // footgun (wasted spells, repeated menu opens). The gate checks both
-    // that the button is in .pad AND that we're on Pane 1; Pane 2 reuses
-    // the .pad slot for item/meta actions (USE/EQUIP/DROP/YES/NO/etc),
-    // none of which should auto-fire.
+    // Hold-to-repeat for tiles that opt in. After REPEAT_INITIAL ms of
+    // hold, re-fire every REPEAT_INTERVAL ms until pointerup/cancel/
+    // leave. The opt-in is per-tile-instance via spec.repeat (tileFor
+    // writes dataset.repeat="1"); repeating GET/INV/FIRE/USE/etc on a
+    // long press is a footgun (wasted spells, repeated menu opens),
+    // and "y"/"n" repeat semantics flip depending on whether the tile
+    // is a movement diagonal or a YES/NO prompt response, so a
+    // per-instance flag is the cleanest gate.
     const REPEAT_INITIAL = 150;
     const REPEAT_INTERVAL = 83;
     const REPEAT_LS_KEY = "xsofy/auto-repeat";
@@ -575,7 +593,7 @@
     let cancelHoldRepeat = null;
     function startHoldRepeat(btn) {
       if (cancelHoldRepeat) { cancelHoldRepeat(); cancelHoldRepeat = null; }
-      if (!repeatEnabled || !btn.closest(".pad") || currentPane !== 0) return;
+      if (!repeatEnabled || btn.dataset.repeat !== "1") return;
       let intervalId = null;
       const initialId = setTimeout(() => {
         intervalId = setInterval(() => press(btn), REPEAT_INTERVAL);
