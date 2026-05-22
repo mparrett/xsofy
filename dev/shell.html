@@ -198,6 +198,24 @@
   }
   #xsofy-shell .font-cycle .glyph { font-size: 12px; color: var(--bar-fg); }
 
+  /* Info-row mode-cycle chip. Same compact dimensions as the other chips
+     (it piggybacks on .font-cycle), but dashed border + dot glyph mirror
+     the action-grid nav tile so the swap affordance reads as chrome. */
+  #xsofy-shell .mode-cycle { border-style: dashed; }
+  #xsofy-shell .mode-cycle .glyph { letter-spacing: 0.15em; color: var(--bar-fg); }
+  #xsofy-shell .mode-cycle .label { color: var(--bar-accent); }
+
+  /* Info-bar mode visibility. The shell root carries .mode-play or
+     .mode-debug; tag stats / chips / quest with .play-only / .debug-only
+     and they vanish in the off mode. The play mode shows only the
+     gameplay-relevant trio (d, hp, t) and tucks the perf cluster +
+     bench + repeat-toggle into debug. Quest also folds away in debug
+     since debug eyeballs are usually on numbers, not the quest item. */
+  #xsofy-shell.mode-play .debug-only,
+  #xsofy-shell.mode-debug .play-only {
+    display: none;
+  }
+
   /* Bench results panel. Triggered by xsofy/bench events; tap to dismiss.
      Lives above the touch row so D-pad stays usable if the player wants
      to keep playing. */
@@ -223,28 +241,31 @@
   #xsofy-shell .bench .accent { color: var(--bar-accent); }
 </style>
 
-<div id="xsofy-shell">
+<div id="xsofy-shell" class="mode-play">
   <div class="row info">
     <span class="title" id="xs-title">—</span>
-    <span class="quest" id="xs-quest"></span>
+    <span class="quest play-only" id="xs-quest"></span>
     <span class="stats">
-      <span><span class="k">d</span> <span id="xs-depth">·</span></span>
-      <span><span class="k">hp</span> <span id="xs-hp">·</span>/<span id="xs-max">·</span></span>
-      <span><span class="k">t</span> <span id="xs-turn">·</span></span>
-      <span><span class="k">@t</span><span id="xs-perf-turn">·</span></span>
-      <span><span class="k">u</span><span id="xs-update">·</span><span class="k">ms</span></span>
-      <span><span class="k">r</span><span id="xs-render">·</span><span class="k">ms</span></span>
-      <span><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
-      <span><span class="k">c</span><span id="xs-cells">·</span></span>
+      <span class="play-only"><span class="k">d</span> <span id="xs-depth">·</span></span>
+      <span class="play-only"><span class="k">hp</span> <span id="xs-hp">·</span>/<span id="xs-max">·</span></span>
+      <span class="play-only"><span class="k">t</span> <span id="xs-turn">·</span></span>
+      <span class="debug-only"><span class="k">@t</span><span id="xs-perf-turn">·</span></span>
+      <span class="debug-only"><span class="k">u</span><span id="xs-update">·</span><span class="k">ms</span></span>
+      <span class="debug-only"><span class="k">r</span><span id="xs-render">·</span><span class="k">ms</span></span>
+      <span class="debug-only"><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
+      <span class="debug-only"><span class="k">c</span><span id="xs-cells">·</span></span>
     </span>
-    <button class="font-cycle" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
+    <button class="font-cycle debug-only" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
       <span class="glyph">⟳</span><span>bench</span>
     </button>
-    <button class="font-cycle" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
+    <button class="font-cycle debug-only" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
       <span class="glyph">↻</span><span id="xs-repeat-state">on</span>
     </button>
     <button class="font-cycle" id="xs-font-cycle" title="Cycle char size">
       <span class="glyph">A</span><span id="xs-font-px">22</span>
+    </button>
+    <button class="font-cycle mode-cycle" id="xs-mode-cycle" title="Toggle info-bar mode">
+      <span class="glyph" id="xs-mode-dots">● ○</span><span class="label" id="xs-mode-label">play</span>
     </button>
   </div>
 
@@ -595,5 +616,42 @@
     // the bundle (unusual), this still works via the persisted value
     // being re-applied on the next user interaction.
     initFontSize();
+
+    // Info-bar mode toggle. Two modes, mirroring the action-grid pane swap:
+    // - play  → title + quest + d/hp/t stats + font-cycle + mode chip.
+    // - debug → title + @t/u/r/i/c stats + bench + repeat-toggle +
+    //           font-cycle + mode chip. (Quest folds away since debug
+    //           eyeballs are on numbers, not the quest item.)
+    // The element visibility is pure CSS (.play-only / .debug-only gated
+    // by a .mode-* class on the shell root); JS only toggles the class +
+    // paints the chip glyph/label and persists the choice.
+    const MODE_LS_KEY = "xsofy/info-mode";
+    const MODES = ["play", "debug"];
+    const shellRoot = document.getElementById("xsofy-shell");
+    const modeCycleEl = $("xs-mode-cycle");
+    const modeDotsEl = $("xs-mode-dots");
+    const modeLabelEl = $("xs-mode-label");
+    let currentMode = localStorage.getItem(MODE_LS_KEY);
+    if (!MODES.includes(currentMode)) currentMode = "play";
+
+    function applyMode() {
+      shellRoot.classList.toggle("mode-play", currentMode === "play");
+      shellRoot.classList.toggle("mode-debug", currentMode === "debug");
+      if (modeDotsEl) {
+        modeDotsEl.textContent = MODES.map((m) => m === currentMode ? "●" : "○").join(" ");
+      }
+      if (modeLabelEl) modeLabelEl.textContent = currentMode;
+    }
+    applyMode();
+
+    modeCycleEl?.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();  // don't also fire the bindButton press path
+      const i = MODES.indexOf(currentMode);
+      currentMode = MODES[(i + 1) % MODES.length];
+      localStorage.setItem(MODE_LS_KEY, currentMode);
+      applyMode();
+    });
+    modeCycleEl?.addEventListener("mousedown", (e) => e.preventDefault());
   })();
 </script>
