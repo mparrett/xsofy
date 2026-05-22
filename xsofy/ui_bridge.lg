@@ -54,6 +54,14 @@
                     :depth  (or (:depth world) 1)
                     :turn   (or (:turn world) 0)}))))
 
+(defn emit-term-size
+  "Fired at game-loop entry and whenever the terminal reports a new size
+   (xsofy/main.lg detects resize via prev-size comparison each turn).
+   The HUD uses this to display cols×rows in debug mode — handy for
+   reproducing rendering bugs that only appear at certain dimensions."
+  [cols rows]
+  (emit :term-size {:cols cols :rows rows}))
+
 (defn emit-perf
   "Fired after each :game-screen iteration. Caller passes a map with
    timing in ms; minimum useful keys:

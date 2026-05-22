@@ -276,7 +276,7 @@
 
 <div id="xsofy-shell" class="mode-play">
   <div class="row info">
-    <span class="title" id="xs-title">—</span>
+    <span class="title play-only" id="xs-title">—</span>
     <span class="quest play-only" id="xs-quest"></span>
     <span class="stats">
       <span class="play-only"><span class="k">d</span> <span id="xs-depth">·</span></span>
@@ -287,6 +287,7 @@
       <span class="debug-only"><span class="k">r</span><span id="xs-render">·</span><span class="k">ms</span></span>
       <span class="debug-only"><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
       <span class="debug-only"><span class="k">c</span><span id="xs-cells">·</span></span>
+      <span class="debug-only"><span class="k">term</span> <span id="xs-cols">·</span>×<span id="xs-rows">·</span></span>
     </span>
     <div class="chips">
       <button class="font-cycle debug-only" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
@@ -353,6 +354,17 @@
       if (d["max-hp"] != null) maxEl.textContent = d["max-hp"];
       if (d.depth != null) depthEl.textContent = d.depth;
       if (d.turn != null) turnEl.textContent = d.turn;
+    });
+
+    // Terminal size — fired once on game-loop entry and on every resize.
+    // The debug bar shows current cols×rows so layout bugs that only
+    // surface at certain dimensions are reproducible without guesswork.
+    const colsEl = $("xs-cols");
+    const rowsEl = $("xs-rows");
+    window.addEventListener("xsofy/term-size", (e) => {
+      const d = e.detail || {};
+      if (d.cols != null && colsEl) colsEl.textContent = d.cols;
+      if (d.rows != null && rowsEl) rowsEl.textContent = d.rows;
     });
 
     // Per-turn engine vs render split. The total ms gauge in the map

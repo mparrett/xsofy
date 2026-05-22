@@ -325,7 +325,9 @@
 (defn game-loop
   ([world]
    (render/render-full world)
-   (game-loop world world (term/size)))
+   (let [[tw th] (term/size)]
+     (bridge/emit-term-size tw th)
+     (game-loop world world [tw th])))
   ([world prev-world prev-size]
    (if-not (:running world)
      world
@@ -493,7 +495,8 @@
                resized (not= cur-size prev-size)
                floor-changed (not= (:depth new-world) (:depth world))
                t-update (System/currentTimeMillis)
-               _ (bridge/emit-stats new-world)]
+               _ (bridge/emit-stats new-world)
+               _ (when resized (let [[tw th] cur-size] (bridge/emit-term-size tw th)))]
            (if (or floor-changed resized (:screen new-world))
              (do (when-not (:screen new-world)
                    (render/render-full new-world))
