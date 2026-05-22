@@ -299,7 +299,7 @@
         <span class="glyph">A</span><span id="xs-font-px">22</span>
       </button>
       <button class="font-cycle mode-cycle" id="xs-mode-cycle" title="Toggle info-bar mode">
-        <span class="glyph" id="xs-mode-dots">● ○</span><span class="label" id="xs-mode-label">play</span>
+        <span class="glyph" id="xs-mode-dots">● ○</span><span class="label" id="xs-mode-label">debug</span>
       </button>
     </div>
   </div>
@@ -555,7 +555,10 @@
       const nav = document.createElement("button");
       nav.className = "nav";
       const dots = PANES.map((_, i) => i === currentPane ? "●" : "○").join(" ");
-      const label = currentPane === 0 ? "MOVE" : "ITEMS";
+      // Label names the destination, not the current pane — reads as an
+      // action ("tap to go to ITEMS") rather than a status ("you are on
+      // ITEMS"). Dots stay as a position indicator; label is the verb.
+      const label = currentPane === 0 ? "ITEMS" : "MOVE";
       nav.innerHTML = `<span class="glyph">${dots}</span><span class="label">${label}</span>`;
       nav.addEventListener("pointerdown", (e) => {
         e.preventDefault();
@@ -693,7 +696,13 @@
       if (modeDotsEl) {
         modeDotsEl.textContent = MODES.map((m) => m === currentMode ? "●" : "○").join(" ");
       }
-      if (modeLabelEl) modeLabelEl.textContent = currentMode;
+      // Label names the destination — what tapping switches TO — matching
+      // the action-grid nav tile's convention. Dots show position; label
+      // reads as a verb.
+      if (modeLabelEl) {
+        const nextMode = MODES[(MODES.indexOf(currentMode) + 1) % MODES.length];
+        modeLabelEl.textContent = nextMode;
+      }
     }
     applyMode();
 
