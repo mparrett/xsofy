@@ -126,51 +126,62 @@
     #xsofy-shell .info .stats { display: none; }
   }
 
-  /* Portrait: relax the template's default 100:36 letterbox so the
-     terminal gets a useful number of rows at the chunkier font size we
-     apply via _lgSetFontSize below. ~55vh leaves the bar enough space
-     for the D-pad to stay thumb-sized. Overrides the template rule via
-     source order — shell.html is injected after the template's <style>. */
+  /* Portrait OR force-touch override: relax the template's default
+     100:36 letterbox so the terminal gets a useful number of rows at
+     the chunkier font size we apply via _lgSetFontSize below. ~55vh
+     leaves the bar enough space for the D-pad to stay thumb-sized.
+     Overrides the template rule via source order — shell.html is
+     injected after the template's <style>.
+     body.force-touch is set by the debug-mode "touch" toggle; lets a
+     desktop / tablet-landscape testing session reveal the same touch
+     UI a portrait phone gets. */
   @media (orientation: portrait) {
     body #terminal { height: 55vh; }
   }
+  body.force-touch #terminal { height: 55vh; }
+
+  /* Layout rules for .touch and its inner grids apply unconditionally;
+     they're harmless when display: none. The display switch (none ↔
+     grid) is the only thing the orientation / force-touch conditions
+     control. */
+  #xsofy-shell .touch {
+    /* Outer grid: D-pad on the left, action column on the right. The
+       3fr/2fr split fits both within viewport width on every phone size,
+       and the inner grids fill their cells exactly — no overflow. The
+       single-row template stretches the grid to the container's full
+       height so buttons fill all available space. */
+    grid-template-columns: 3fr 2fr;
+    grid-template-rows: 1fr;
+    gap: 0.5rem;
+    flex: 1;
+    min-height: 0;
+    padding: 0.5rem 0.6rem 0.7rem;
+  }
+
+  #xsofy-shell .pad,
+  #xsofy-shell .actions {
+    display: grid;
+    gap: 0.3rem;
+    min-width: 0;
+    min-height: 0;
+    /* Explicit 100% breaks the circular sizing: without it, 1fr rows
+       resolve against .pad's content size, which is itself determined
+       by the rows — so they collapse to button min-height. */
+    height: 100%;
+  }
+  #xsofy-shell .pad {
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+  }
+  #xsofy-shell .actions {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: repeat(3, 1fr);
+  }
 
   @media (orientation: portrait) {
-    #xsofy-shell .touch {
-      /* Outer grid: D-pad on the left, action column on the right. The
-         3fr/2fr split fits both within viewport width on every phone size,
-         and the inner grids fill their cells exactly — no overflow. The
-         single-row template stretches the grid to the container's full
-         height so buttons fill all available space. */
-      display: grid;
-      grid-template-columns: 3fr 2fr;
-      grid-template-rows: 1fr;
-      gap: 0.5rem;
-      flex: 1;
-      min-height: 0;
-      padding: 0.5rem 0.6rem 0.7rem;
-    }
-
-    #xsofy-shell .pad,
-    #xsofy-shell .actions {
-      display: grid;
-      gap: 0.3rem;
-      min-width: 0;
-      min-height: 0;
-      /* Explicit 100% breaks the circular sizing: without it, 1fr rows
-         resolve against .pad's content size, which is itself determined
-         by the rows — so they collapse to button min-height. */
-      height: 100%;
-    }
-    #xsofy-shell .pad {
-      grid-template-columns: repeat(3, 1fr);
-      grid-template-rows: repeat(3, 1fr);
-    }
-    #xsofy-shell .actions {
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: repeat(3, 1fr);
-    }
+    #xsofy-shell .touch { display: grid; }
   }
+  body.force-touch #xsofy-shell .touch { display: grid; }
 
   #xsofy-shell button {
     font-family: inherit;
@@ -295,6 +306,9 @@
       </button>
       <button class="font-cycle debug-only" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
         <span class="glyph">↻</span><span id="xs-repeat-state">on</span>
+      </button>
+      <button class="font-cycle debug-only" id="xs-touch-toggle" title="Force touch controls visible (overrides the landscape auto-hide)">
+        <span class="glyph">▦</span><span id="xs-touch-state">off</span>
       </button>
       <button class="font-cycle debug-only" id="xs-font-cycle" title="Cycle char size">
         <span class="glyph">Aa</span><span id="xs-font-px">22</span>
@@ -669,6 +683,33 @@
       stopHoldRepeat();
     });
     repeatToggleEl?.addEventListener("mousedown", (e) => e.preventDefault());
+
+    // Force-touch toggle. Default behavior hides the touch UI in
+    // landscape (desktop users have a real keyboard); flipping this on
+    // overrides that — useful for testing the touch layout on a desktop
+    // and as an escape hatch for tablet-landscape sessions without a
+    // keyboard. Class lives on <body> because it also retargets the
+    // terminal element (sibling of #xsofy-shell, not a descendant).
+    const FORCE_TOUCH_LS_KEY = "xsofy/force-touch";
+    const touchToggleEl = $("xs-touch-toggle");
+    const touchStateEl = $("xs-touch-state");
+    let forceTouchEnabled = localStorage.getItem(FORCE_TOUCH_LS_KEY) === "1";
+
+    function paintForceTouchState() {
+      document.body.classList.toggle("force-touch", forceTouchEnabled);
+      if (touchStateEl) touchStateEl.textContent = forceTouchEnabled ? "on" : "off";
+      if (touchToggleEl) touchToggleEl.style.opacity = forceTouchEnabled ? "" : "0.5";
+    }
+    paintForceTouchState();
+
+    touchToggleEl?.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      forceTouchEnabled = !forceTouchEnabled;
+      localStorage.setItem(FORCE_TOUCH_LS_KEY, forceTouchEnabled ? "1" : "0");
+      paintForceTouchState();
+    });
+    touchToggleEl?.addEventListener("mousedown", (e) => e.preventDefault());
 
     // Font-size cycle. xterm's default 14 is unreadable on a 375px
     // viewport; 22 gives ~12px-wide cells. Sizes are kept short so the
