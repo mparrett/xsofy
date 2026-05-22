@@ -1058,11 +1058,20 @@
           (term/write (if (> (count msg) (- tw 4))
                         (subs msg 0 (- tw 4))
                         msg)))))
-    ;; prompt
-    (term/move-cursor (max 1 (- cx 12)) (dec th))
-    (term/set-fg 80 70 60)
-    (term/set-bg 10 10 10)
-    (term/write "[esc] to exit    [j/k] scroll")
+    ;; prompt — escape verb depends on whether we can drop back to a
+    ;; shell. In WASM "exit" is a footgun (no way back without reload),
+    ;; so the ESC handler in main.lg starts a new game; reflect that
+    ;; here. Scroll hint shows both glyph forms because the D-pad sends
+    ;; "j"/"k" via ↓/↑ tiles AND physical arrow-key escapes ([A/B)
+    ;; both work — players coming from either pattern should recognize
+    ;; their binding.
+    (let [prompt (if *in-wasm*
+                   "[esc] restart    [↑↓/jk] scroll"
+                   "[esc] to exit    [↑↓/jk] scroll")]
+      (term/move-cursor (max 1 (- cx (quot (count prompt) 2))) (dec th))
+      (term/set-fg 80 70 60)
+      (term/set-bg 10 10 10)
+      (term/write prompt))
     (term/flush)))
 
 ;; --- Rune Codex Screen ---
