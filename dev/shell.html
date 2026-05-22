@@ -7,11 +7,12 @@
   same SAB path that real keystrokes use).
 
   Portrait: D-pad on the left, action column on the right. The action
-  column is a two-pane swappable grid: a persistent right column
+  column is a three-pane swappable grid: a persistent right column
   (GET/INV/DESC/FIRE/BACK plus the pane-nav tile) and a left grid that
-  swaps between movement (Pane 1) and item/meta actions (Pane 2). The
-  nav tile in the right column cycles panes. Hold-to-repeat is gated
-  to Pane 1's D-pad so Pane 2's item taps never auto-fire.
+  cycles through movement (MOVE), item/meta actions (ITEMS), and a
+  letter keypad (KEYS) for menu selection. The nav tile in the right
+  column cycles panes. Hold-to-repeat is opt-in per tile (spec.repeat),
+  so item/letter taps never auto-fire even though they share the pad.
 
   Landscape: collapses to a single info strip; physical keys do the work.
 -->
@@ -562,6 +563,7 @@
         // repeat:true so hold-to-rest^Wmove still works; AUTO does NOT
         // — one tap starts the run, repeated firing would either no-op
         // mid-run or bounce the auto on/off.
+        label: "MOVE",
         pad: [
           { key: "y", glyph: "↖", repeat: true },
           { key: "k", glyph: "↑", repeat: true },
@@ -582,6 +584,7 @@
         // findable when the game asks "Dive into the depths? (y/n)".
         // WAIT lives here now (with repeat:true so hold-to-rest still
         // works); AUTO moved to Pane 1 center.
+        label: "ITEMS",
         pad: [
           { key: "a", glyph: "a", label: "USE" },
           { key: "e", glyph: "e", label: "EQUIP" },
@@ -592,6 +595,33 @@
           { key: "<", glyph: "<", label: "ASCN" },
           { key: "y", glyph: "y", label: "YES" },
           { key: "n", glyph: "n", label: "NO" },
+        ],
+      },
+      {
+        // Pane 3 — straight letter keys for menu selection (inventory
+        // entries, rune inscription, item slots — the game indexes a-z
+        // for picks). Manual, always-on subset of the dynamic-prompt-
+        // slots backlog ticket (see docs/project_notes/incoming/) —
+        // remove this pane when that ships and the game emits per-
+        // prompt key lists. 4x3 packs a-l without dropping below the
+        // 44px tap-target guideline on typical phone widths. No
+        // hold-to-repeat: held letters would spam menu selections.
+        label: "KEYS",
+        padCols: 4,
+        padRows: 3,
+        pad: [
+          { key: "a", glyph: "a" },
+          { key: "b", glyph: "b" },
+          { key: "c", glyph: "c" },
+          { key: "d", glyph: "d" },
+          { key: "e", glyph: "e" },
+          { key: "f", glyph: "f" },
+          { key: "g", glyph: "g" },
+          { key: "h", glyph: "h" },
+          { key: "i", glyph: "i" },
+          { key: "j", glyph: "j" },
+          { key: "k", glyph: "k" },
+          { key: "l", glyph: "l" },
         ],
       },
     ];
@@ -619,9 +649,15 @@
     function renderTouch() {
       const padEl = $("xs-pad");
       const actEl = $("xs-actions");
+      const pane = PANES[currentPane];
       padEl.innerHTML = "";
       actEl.innerHTML = "";
-      for (const spec of PANES[currentPane].pad) padEl.appendChild(tileFor(spec));
+      // Per-pane grid override: panes with denser layouts (KEYS) opt into
+      // a non-3x3 pad. Clearing both properties when unset lets the CSS
+      // default win again on the next render.
+      padEl.style.gridTemplateColumns = pane.padCols ? `repeat(${pane.padCols}, 1fr)` : "";
+      padEl.style.gridTemplateRows = pane.padRows ? `repeat(${pane.padRows}, 1fr)` : "";
+      for (const spec of pane.pad) padEl.appendChild(tileFor(spec));
       for (const spec of RIGHT_COLUMN) actEl.appendChild(tileFor(spec));
       // Nav tile lives at slot 6 of the right column. Tap cycles forward.
       // Not routed through bindButton — it doesn't send a key, it swaps
@@ -632,7 +668,7 @@
       // Label names the destination, not the current pane — reads as an
       // action ("tap to go to ITEMS") rather than a status ("you are on
       // ITEMS"). Dots stay as a position indicator; label is the verb.
-      const label = currentPane === 0 ? "ITEMS" : "MOVE";
+      const label = PANES[(currentPane + 1) % PANES.length].label;
       nav.innerHTML = `<span class="glyph">${dots}</span><span class="label">${label}</span>`;
       nav.addEventListener("pointerdown", (e) => {
         e.preventDefault();
