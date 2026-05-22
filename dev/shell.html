@@ -45,9 +45,13 @@
 
   /* Two-row info bar. Single-row crammed title/quest/stats/chips into
      ~375px and lost the right half of both proper-noun strings on every
-     phone. Grid with two rows gives title the full left column on row 1
-     (only chips compete) and quest the full left column on row 2 (only
-     stats compete) — neither text element fights the other anymore.
+     phone. Grid layout:
+       row 1:  [ title ]   [ stats ]
+       row 2:  [ quest ]   [ chips ]
+     Stats sit next to the title because they're both gameplay info
+     (d/hp/turn-counter); the chip cluster sits bottom-right at thumb
+     reach. Each text element only competes with the small fixed-width
+     thing in its own row, so neither truncates the other.
      `minmax(0, 1fr)` lets the left column shrink below content width so
      text-overflow:ellipsis fires; without the explicit `0` minimum, grid
      would honor the auto track size and the ellipsis never triggers. */
@@ -71,7 +75,7 @@
     min-width: 0;
   }
   #xsofy-shell .info .chips {
-    grid-area: 1 / 2;
+    grid-area: 2 / 2;
     /* justify-self: end snaps the chips container to the right edge of
        column 2. Without it, column 2 sizes to the widest of (chips, stats)
        — in debug the perf stats are wider, so the chips sit left-aligned
@@ -93,12 +97,15 @@
     /* Ellipsize from the LEFT so the meaningful suffix (the proper-noun
        item name) survives truncation. "seeking Codpiece of Borrowed
        Confidence" → "…of Borrowed Confidence" rather than "seeking C…".
-       direction:rtl flips truncation direction; the text content still
-       reads LTR because English content isn't a single RTL run. */
+       direction:rtl flips the inline-end (where text-overflow:ellipsis
+       fires) onto the left edge; text-align:left then pulls the visible
+       text back to the left side so it doesn't right-hug when it fits.
+       English content still reads LTR because it isn't a single RTL run. */
     direction: rtl;
+    text-align: left;
   }
   #xsofy-shell .info .stats {
-    grid-area: 2 / 2;
+    grid-area: 1 / 2;
     justify-self: end;
     color: var(--bar-accent);
     display: flex;
