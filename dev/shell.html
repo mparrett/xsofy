@@ -43,28 +43,47 @@
     flex-shrink: 0;
   }
 
+  /* Two-row info bar. Single-row crammed title/quest/stats/chips into
+     ~375px and lost the right half of both proper-noun strings on every
+     phone. Grid with two rows gives title the full left column on row 1
+     (only chips compete) and quest the full left column on row 2 (only
+     stats compete) — neither text element fights the other anymore.
+     `minmax(0, 1fr)` lets the left column shrink below content width so
+     text-overflow:ellipsis fires; without the explicit `0` minimum, grid
+     would honor the auto track size and the ellipsis never triggers. */
   #xsofy-shell .info {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    column-gap: 0.6rem;
+    row-gap: 0.15rem;
+    align-items: center;
     border-bottom: 1px solid var(--bar-rule);
-    justify-content: space-between;
-    gap: 0.4rem;
-    min-height: 28px;
+    min-height: 46px;
   }
   #xsofy-shell .info .title {
+    grid-area: 1 / 1;
     color: var(--bar-fg);
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1 1 auto;
     min-width: 0;
   }
+  #xsofy-shell .info .chips {
+    grid-area: 1 / 2;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
   #xsofy-shell .info .quest {
+    grid-area: 2 / 1;
     color: var(--bar-dim);
     font-size: 11px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 0 1 auto;
+    min-width: 0;
     /* Ellipsize from the LEFT so the meaningful suffix (the proper-noun
        item name) survives truncation. "seeking Codpiece of Borrowed
        Confidence" → "…of Borrowed Confidence" rather than "seeking C…".
@@ -73,8 +92,9 @@
     direction: rtl;
   }
   #xsofy-shell .info .stats {
+    grid-area: 2 / 2;
+    justify-self: end;
     color: var(--bar-accent);
-    flex: 0 0 auto;
     display: flex;
     gap: 0.7rem;
     font-variant-numeric: tabular-nums;
@@ -255,18 +275,20 @@
       <span class="debug-only"><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
       <span class="debug-only"><span class="k">c</span><span id="xs-cells">·</span></span>
     </span>
-    <button class="font-cycle debug-only" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
-      <span class="glyph">⟳</span><span>bench</span>
-    </button>
-    <button class="font-cycle debug-only" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
-      <span class="glyph">↻</span><span id="xs-repeat-state">on</span>
-    </button>
-    <button class="font-cycle" id="xs-font-cycle" title="Cycle char size">
-      <span class="glyph">A</span><span id="xs-font-px">22</span>
-    </button>
-    <button class="font-cycle mode-cycle" id="xs-mode-cycle" title="Toggle info-bar mode">
-      <span class="glyph" id="xs-mode-dots">● ○</span><span class="label" id="xs-mode-label">play</span>
-    </button>
+    <div class="chips">
+      <button class="font-cycle debug-only" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
+        <span class="glyph">⟳</span><span>bench</span>
+      </button>
+      <button class="font-cycle debug-only" id="xs-repeat-toggle" title="Toggle hold-to-repeat">
+        <span class="glyph">↻</span><span id="xs-repeat-state">on</span>
+      </button>
+      <button class="font-cycle" id="xs-font-cycle" title="Cycle char size">
+        <span class="glyph">A</span><span id="xs-font-px">22</span>
+      </button>
+      <button class="font-cycle mode-cycle" id="xs-mode-cycle" title="Toggle info-bar mode">
+        <span class="glyph" id="xs-mode-dots">● ○</span><span class="label" id="xs-mode-label">play</span>
+      </button>
+    </div>
   </div>
 
   <div class="bench" id="xs-bench" title="Tap to dismiss"></div>
