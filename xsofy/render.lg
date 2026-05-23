@@ -705,7 +705,8 @@
 
 (defn render-status [world r]
   (ui/write-line r 0 (str " yuhjklbn/1-9:move  .:wait  5/Z:rest  eUda:item  i:inv  <>:stairs  m:log  "
-                          (input/action-key-labels :help) ":help  esc:quit")
+                          (input/action-key-labels :help) ":help  esc:"
+                          (if *in-wasm* "restart" "quit"))
                  [60 60 60] ui/bg))
 
 ;; --- Quick Menu Overlay ---
@@ -1128,14 +1129,15 @@
                         msg)))))
     ;; prompt — escape verb depends on whether we can drop back to a
     ;; shell. In WASM "exit" is a footgun (no way back without reload),
-    ;; so the ESC handler in main.lg starts a new game; reflect that
-    ;; here. Scroll hint shows both glyph forms because the D-pad sends
-    ;; "j"/"k" via ↓/↑ tiles AND physical arrow-key escapes ([A/B)
-    ;; both work — players coming from either pattern should recognize
-    ;; their binding.
+    ;; so the ESC handler in main.lg starts a new game via a confirm
+    ;; prompt (a stray escape shouldn't restart). n/enter/space bypass
+    ;; the confirm. Scroll hint shows both glyph forms because the
+    ;; D-pad sends "j"/"k" via ↓/↑ tiles AND physical arrow-key
+    ;; escapes ([A/B) both work — players coming from either pattern
+    ;; should recognize their binding.
     (let [prompt (if *in-wasm*
-                   "[esc] restart    [↑↓/jk] scroll"
-                   "[esc] to exit    [↑↓/jk] scroll")]
+                   "[n/enter] new game    [esc] confirm restart    [↑↓/jk] scroll"
+                   "[n/enter] new game    [esc] exit    [↑↓/jk] scroll")]
       (term/move-cursor (max 1 (- cx (quot (count prompt) 2))) (dec th))
       (term/set-fg 80 70 60)
       (term/set-bg 10 10 10)

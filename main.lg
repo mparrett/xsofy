@@ -436,19 +436,34 @@
          ;; Track last-rendered alongside scroll so a no-op recur does
          ;; nothing visible.
          ;;
-         ;; ESC starts a new game when *in-wasm* — same pattern as
-         ;; :confirm-quit. On mobile there's no shell to drop back to
-         ;; ("program exited" with no way back except a full tab reload).
-         ;; On terminal, ESC still exits and the user gets their shell.
-         (loop [scroll 0 last-rendered nil]
-           (when (not= scroll last-rendered)
-             (render/render-death-screen world scroll))
-           (let [k (term/read-key)]
-             (cond
-               (= k "\u001b") (if *in-wasm* (new-game) (assoc world :running false))
-               (or (= k "j") (= k "\u001b[B")) (recur (max 0 (dec scroll)) scroll)
-               (or (= k "k") (= k "\u001b[A")) (recur (inc scroll) scroll)
-               :else (recur scroll scroll))))
+         ;; ESC starts a new game when *in-wasm* (no shell to drop back
+         ;; to on mobile) but via a confirm-prompt to avoid accidental
+         ;; restart from a stray escape. On terminal, ESC still exits.
+         ;; n / Enter / Space all trigger new-game unconditionally.
+         (let [result (loop [scroll 0 last-rendered nil]
+                        (when (not= scroll last-rendered)
+                          (render/render-death-screen world scroll))
+                        (let [k (term/read-key)]
+                          (cond
+                            (or (= k "n") (= k "\r") (= k "\n") (= k " "))
+                            :new-game
+                            (= k "")
+                            (if *in-wasm*
+                              (do
+                                (render/render-hazard-prompt world "Start a new game?")
+                                (let [confirm (term/read-key)]
+                                  (if (= confirm "y")
+                                    :new-game
+                                    (recur scroll scroll))))
+                              (assoc world :running false))
+                            (or (= k "j") (= k "[B")) (recur (max 0 (dec scroll)) scroll)
+                            (or (= k "k") (= k "[A")) (recur (inc scroll) scroll)
+                            :else (recur scroll scroll))))]
+           (if (= result :new-game)
+             (let [w (new-game)]
+               (render/render-full w)
+               (recur w w (term/size)))
+             result))
 
          :confirm-hazard
          (do
