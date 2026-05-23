@@ -48,6 +48,9 @@ jobs:
       - name: Stage shell.html for the bottom-bar host
         run: cp dev/shell.html dist/
 
+      - name: Patch COI startup guard
+        run: let-go tools/patch_wasm_coi.lg
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
