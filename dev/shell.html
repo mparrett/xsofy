@@ -668,7 +668,9 @@
       // Label names the destination, not the current pane — reads as an
       // action ("tap to go to ITEMS") rather than a status ("you are on
       // ITEMS"). Dots stay as a position indicator; label is the verb.
-      const label = PANES[(currentPane + 1) % PANES.length].label;
+      // Trailing arrow reinforces "tap to advance to <X>" — useful once
+      // there are 3+ dots and the label isn't visually obvious from them.
+      const label = PANES[(currentPane + 1) % PANES.length].label + " →";
       nav.innerHTML = `<span class="glyph">${dots}</span><span class="label">${label}</span>`;
       nav.addEventListener("pointerdown", (e) => {
         e.preventDefault();
