@@ -133,16 +133,22 @@
                             (center-camera ww wh rw rh px py))
         rel-x (- px prev-cx)
         rel-y (- py prev-cy)
+        ;; Clamp margin so the dead-zone never inverts on small viewports.
+        ;; When rw < 2*camera-margin the two cond branches below overlap;
+        ;; without this clamp the camera oscillates by (2m - rw) cells per
+        ;; turn, leaving a 1-row ghost behind the incremental render.
+        mx (min camera-margin (quot rw 2))
+        my (min camera-margin (quot rh 2))
         new-cx (cond
-                 (<= ww rw)                   0
-                 (< rel-x camera-margin)      (max 0 (- px camera-margin))
-                 (>= rel-x (- rw camera-margin)) (min (- ww rw) (- (+ px camera-margin) rw))
-                 :else                        prev-cx)
+                 (<= ww rw)             0
+                 (< rel-x mx)           (max 0 (- px mx))
+                 (>= rel-x (- rw mx))   (min (- ww rw) (- (+ px mx) rw))
+                 :else                  prev-cx)
         new-cy (cond
-                 (<= wh rh)                   0
-                 (< rel-y camera-margin)      (max 0 (- py camera-margin))
-                 (>= rel-y (- rh camera-margin)) (min (- wh rh) (- (+ py camera-margin) rh))
-                 :else                        prev-cy)]
+                 (<= wh rh)             0
+                 (< rel-y my)           (max 0 (- py my))
+                 (>= rel-y (- rh my))   (min (- wh rh) (- (+ py my) rh))
+                 :else                  prev-cy)]
     [new-cx new-cy]))
 
 (defn with-camera
