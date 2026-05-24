@@ -1,0 +1,6 @@
+# Expected let-go fork commit at ~/projects-new/3p/let-go.
+# Branch: experiment/js-bridge
+# Bump after intentional fork rebase; see:
+#   docs/project_notes/upstream-let-go-audit.md
+# Verify: `just check-letgo`
+baf383ebfb0375aaa41917d213b29afa4c926c47
