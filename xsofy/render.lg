@@ -1298,15 +1298,20 @@
 (defn render-dirty [world prev-world]
   (let [[tw th] (term/size)
         panels (ui/layout tw th)
-        ;; If the player moved, the camera may shift too — and that turns
-        ;; a "dirty" tile-by-tile pass into a misleading patch on top of
-        ;; stale geometry. Force a full repaint on camera change.
-        prev-mr (with-camera prev-world (:map panels))
-        mr      (with-camera world      (:map panels))
-        old-fov (:fov prev-world)
-        new-fov (:fov world)]
-    (if (or (not= (:cx prev-mr) (:cx mr))
-            (not= (:cy prev-mr) (:cy mr)))
+        ;; Camera-change detection must compare against the camera that
+        ;; was actually drawn last frame (@last-camera), not a recomputed
+        ;; one from prev-world: with-camera prev-world and with-camera
+        ;; world both call camera-for against the same atom and yield
+        ;; identical results when the dead-zone returns the same answer
+        ;; for both player positions — so the original comparison never
+        ;; fired across real camera shifts, leaving a 1-row ghost behind
+        ;; the incremental render.
+        mr       (with-camera world (:map panels))
+        old-fov  (:fov prev-world)
+        new-fov  (:fov world)
+        prev-cam (or @last-camera mr)]
+    (if (or (not= (:cx prev-cam) (:cx mr))
+            (not= (:cy prev-cam) (:cy mr)))
       (do (render-map world mr)
           (render-map-entities world mr)
           (render-sidebar world (:sidebar panels))
