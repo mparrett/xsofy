@@ -3,4 +3,4 @@
 # Bump after intentional fork rebase; see:
 #   docs/project_notes/upstream-let-go-audit.md
 # Verify: `just check-letgo`
-baf383ebfb0375aaa41917d213b29afa4c926c47
+5a61177d2ee8a23012519ca2299974555b7f2eee
