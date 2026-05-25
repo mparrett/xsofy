@@ -91,14 +91,17 @@
            (nth end-parts 1)))))
 
 (defn replace-exact [s needle replacement]
-  (let [idx (str/index-of s needle)]
-    (if (nil? idx)
-      (if (str/includes? s replacement)
-        s
-        (abort! "missing main-thread entry guard"))
-      (str (subs s 0 idx)
-           replacement
-           (subs s (+ idx (count needle)))))))
+  ;; Use string/replace rather than (subs + index-of arithmetic): let-go's
+  ;; string/index-of returns an offset that doesn't agree with subs's
+  ;; indexing when the input has UTF-8 multibyte characters earlier in the
+  ;; file (xsofy ships runic glyphs in the inline source, so the bundle
+  ;; hits this). string/replace handles the substitution atomically and
+  ;; correctly across the whole string.
+  (if (str/includes? s needle)
+    (str/replace s needle replacement)
+    (if (str/includes? s replacement)
+      s
+      (abort! "missing main-thread entry guard"))))
 
 (let [html (slurp index-path)
       html (replace-range html coi-start-marker wasm-marker coi-block)
