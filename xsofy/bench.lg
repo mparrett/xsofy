@@ -1,5 +1,6 @@
 (ns xsofy.bench
   (:require [xsofy.world :as world]
+            [xsofy.entities :as ent]
             [xsofy.input :as input]
             [xsofy.ui-bridge :as bridge]))
 
@@ -36,7 +37,7 @@
    [:descend (fn [n] (if (zero? n) ">" ".")) 40]
    [:busy    (fn [n] (if (zero? n) "x" ".")) 80]])
 
-(def TRIALS 1)
+(def TRIALS 3)
 
 (defn- time-turn
   [world key-str]
@@ -46,8 +47,30 @@
         dt (- (System/currentTimeMillis) t0)]
     [w dt]))
 
+;; Deterministic seeds for the bench. Reseeding at the start of every
+;; trial guarantees identical worlds + AI/effects RNG draws so two runs
+;; (same bundle) and two bundles (different runtimes) are bit-comparable
+;; on the timings. Requires the fork's set-rand-seed primitive — Go 1.20+
+;; ignores rand.Seed against the global Source, so set-rand-seed reseeds
+;; a let-go-side *rand.Rand instead.
+;;
+;; The vec is multi-seed-capable: each fixture runs under each seed and
+;; the aggregate summary spans all samples. Default is single-seed
+;; ([42] × TRIALS) because averaging across heterogeneous worlds washes
+;; out runtime-side variance signals — but expand the vec to e.g.
+;; [42 123 1337] for a seed-pathology sanity check when you want one.
+(def bench-seeds [42])
+
 (defn- run-trial
-  [keystroke-fn n]
+  [keystroke-fn n seed]
+  ;; Reset both the RNG and the entity-id counter so trial N gets the
+  ;; same world as trial 1. The id-counter is a global atom in
+  ;; xsofy.entities that monotonically increments via next-id —
+  ;; without resetting it, world 2's entity IDs continue from where
+  ;; world 1 left off, which changes map iteration order and downstream
+  ;; placement even though the RNG produces the same draws.
+  (set-rand-seed seed)
+  (reset! ent/id-counter 0)
   (loop [w (world/make-world 79 30)
          i 0
          samples (transient [])]
@@ -73,12 +96,30 @@
      :p95 (percentile sorted 0.95)
      :max (if (pos? n) (last sorted) 0)}))
 
-(defn- run-fixture [[name keystroke-fn turn-count] trials]
-  (let [all (loop [i 0 acc []]
-              (if (= i trials)
-                acc
-                (recur (inc i) (into acc (run-trial keystroke-fn turn-count)))))]
-    (assoc (summarize all) :name name)))
+(defn- run-fixture
+  "Run one fixture under each seed in bench-seeds. trials applies per seed.
+   Returns {:name kw :aggregate {...} :per-seed [{:seed N :avg ...} ...]}.
+   Aggregate stats span all samples across all seeds — useful as a headline
+   number; per-seed breakdown surfaces seed-specific variance."
+  [[name keystroke-fn turn-count] trials]
+  (let [seed-samples (mapv (fn [seed]
+                             {:seed    seed
+                              :samples (loop [i 0 acc []]
+                                         (if (= i trials)
+                                           acc
+                                           (recur (inc i)
+                                                  (into acc (run-trial keystroke-fn turn-count seed)))))})
+                           bench-seeds)
+        per-seed    (mapv (fn [{:keys [seed samples]}]
+                            (assoc (summarize samples) :seed seed))
+                          seed-samples)
+        all-samples (vec (mapcat :samples seed-samples))]
+    ;; Splice aggregate stats at top level so the existing HTML shell
+    ;; renders the headline numbers unchanged; :per-seed sits alongside
+    ;; for callers that want the breakdown.
+    (merge (summarize all-samples)
+           {:name     name
+            :per-seed per-seed})))
 
 (defn run-and-emit
   "Run all fixtures TRIALS times each. Emit results via the bridge as
@@ -89,7 +130,7 @@
    can show 'running…' immediately — without it, the engine is locked
    in this loop for several seconds and the screen looks frozen."
   []
-  (bridge/emit :bench-start {:fixtures (mapv first fixtures) :trials TRIALS})
+  (bridge/emit :bench-start {:fixtures (mapv first fixtures) :trials TRIALS :seeds bench-seeds})
   (let [t0 (System/currentTimeMillis)
         results (mapv #(run-fixture % TRIALS) fixtures)
         elapsed (- (System/currentTimeMillis) t0)]
