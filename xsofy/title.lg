@@ -222,25 +222,19 @@
     ;; clear
     (clear-screen tw th)
     ;; animate — runes drift upward, erase old position each frame.
-    ;; 44 frames × 60ms = 2.64s total, in four phases:
-    ;;   Phase A (frames 0-19):  runes at full brightness, normal anim
-    ;;   Phase B (frames 20-29): glide 1.0 → 0.15 — sinusoidal ease-in-out
-    ;;                           rather than linear so the fade reads as
-    ;;                           a settled glide, not a ramp
-    ;;   Phase C (frames 30-37): hold steady at 0.08 — 0.07 below the
-    ;;                           fade endpoint so the runes settle even
-    ;;                           further before the flare lands
-    ;;   Phase D (frames 38-43): one dramatic final pulse —
-    ;;                           30 → 80 → 70 → 60 → 15 → 0
-    ;; Hard-coded brightness vectors — easier to retune by eye than
-    ;; equivalent trig, and the runtime has no inline trig anyway.
-    (dotimes [frame 44]
-      (let [fade-out (cond
-                       (< frame 20) 1.0
-                       (< frame 30) (nth [1.00 0.97 0.90 0.79 0.65 0.50 0.36 0.25 0.18 0.15]
-                                         (- frame 20))
-                       (< frame 38) 0.08
-                       :else (nth [0.30 0.80 0.70 0.60 0.15 0.00] (- frame 38)))]
+    ;; 24 frames × 60ms = 1.44s total. Single gesture, no flare. The
+    ;; per-rune phase oscillation provides shimmer; one quadratic
+    ;; ease-in multiplier dims the whole scene — sits near full for
+    ;; the first third, then drops smoothly to dark. Brightness curve:
+    ;;   frame  0   →  1.00
+    ;;   frame  8   →  0.89
+    ;;   frame 16   →  0.56
+    ;;   frame 23   →  0.08
+    ;; Drift + per-rune pulse unchanged from upstream's 15-frame
+    ;; version; only the global fade-out shape + duration differ.
+    (dotimes [frame 24]
+      (let [t        (/ (float frame) 24.0)
+            fade-out (- 1.0 (* t t))]
         (doseq [r runes]
           (let [;; current y drifts upward (subtract), wrap around
                 cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
