@@ -105,6 +105,20 @@
     direction: rtl;
     text-align: left;
   }
+  /* Build-provenance chip — debug-mode only. Sits in the same grid slot
+     as .quest (row 2 / col 1), since .quest is play-only the two never
+     collide. Single line, dimmed; ellipsizes from the right if a wide
+     SHA + suffix overflows on small screens. */
+  #xsofy-shell .info .build {
+    grid-area: 2 / 1;
+    color: var(--bar-dim);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    font-variant-numeric: tabular-nums;
+  }
   #xsofy-shell .info .stats {
     grid-area: 1 / 2;
     justify-self: end;
@@ -313,6 +327,7 @@
   <div class="row info">
     <span class="title play-only" id="xs-title">—</span>
     <span class="quest play-only" id="xs-quest"></span>
+    <span class="build debug-only" id="xs-build" title="Build provenance — written by local-scripts/deploy.sh"></span>
     <span class="stats">
       <span class="play-only"><span class="k">d</span> <span id="xs-depth">·</span></span>
       <span class="play-only"><span class="k">hp</span> <span id="xs-hp">·</span>/<span id="xs-max">·</span></span>
@@ -323,7 +338,6 @@
       <span class="debug-only"><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
       <span class="debug-only"><span class="k">c</span><span id="xs-cells">·</span></span>
       <span class="debug-only"><span id="xs-cols">·</span>×<span id="xs-rows">·</span></span>
-      <span class="debug-only" id="xs-build" title="Build provenance — written by local-scripts/deploy.sh"></span>
     </span>
     <div class="chips">
       <button class="font-cycle debug-only" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
