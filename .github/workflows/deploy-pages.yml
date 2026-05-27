@@ -48,6 +48,9 @@ jobs:
       - name: Stage shell.html for the bottom-bar host
         run: cp dev/shell.html dist/
 
+      - name: Stage build-info.json (written by deploy.sh)
+        run: cp dev/build-info.json dist/ 2>/dev/null || true
+
       - name: Patch COI startup guard
         run: let-go tools/patch_wasm_coi.lg
 

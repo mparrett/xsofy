@@ -323,6 +323,7 @@
       <span class="debug-only"><span class="k">i</span><span id="xs-input-lag">·</span><span class="k">ms</span></span>
       <span class="debug-only"><span class="k">c</span><span id="xs-cells">·</span></span>
       <span class="debug-only"><span id="xs-cols">·</span>×<span id="xs-rows">·</span></span>
+      <span class="debug-only" id="xs-build" title="Build provenance — written by local-scripts/deploy.sh"></span>
     </span>
     <div class="chips">
       <button class="font-cycle debug-only" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
@@ -373,6 +374,23 @@
       // Quest may be the item map directly (has :name) or a wrapper.
       const n = q.name || q[":name"] || q[":item"]?.name;
       return n ? `seeking ${n}` : "";
+    }
+
+    // Build provenance chip: fetch the JSON dropped in by deploy.sh and
+    // render it dim in the debug-mode info bar. Silently no-ops in local
+    // dev where the file isn't generated.
+    const buildEl = $("xs-build");
+    if (buildEl) {
+      fetch("build-info.json", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!d) return;
+          const xs = (d.xsofy || "").slice(0, 7);
+          const lg = (d["let-go"] || "").slice(0, 7);
+          const dt = d.date || "";
+          buildEl.textContent = `${xs}·lg ${lg}·${dt}`;
+        })
+        .catch(() => {});
     }
 
     window.addEventListener("xsofy/startup", (e) => {
