@@ -1,0 +1,63 @@
+name: PR Preview
+
+# Publishes a self-contained WASM build of a PR to gh-pages/pr-<N>/, served at
+#   https://<owner>.github.io/xsofy/pr-<N>/
+# and removes it when the PR closes. Same build as the tag deploy (reusable
+# workflow), so a preview is byte-for-byte what a release would ship.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, closed]
+
+# pull_request_target runs in the BASE-repo context with a write token, which is
+# what lets it publish previews for fork PRs. To keep that token away from
+# untrusted PR code, the build/publish only runs once a maintainer applies the
+# 'deploy-preview' label (the if: gates below). Removal on close runs regardless.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build:
+    if: >
+      github.event.action != 'closed' &&
+      contains(github.event.pull_request.labels.*.name, 'deploy-preview')
+    uses: ./.github/workflows/_build-wasm.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+      run-e2e: false   # boot smoke still gates; skip the slower e2e for previews
+
+  deploy:
+    needs: build
+    if: >
+      github.event.action != 'closed' &&
+      contains(github.event.pull_request.labels.*.name, 'deploy-preview')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages-publish      # shared with the tag deploy — serialize gh-pages writes
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download built bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-dist
+          path: dist
+      - name: Deploy preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: dist
+          action: deploy
+
+  remove:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          action: remove
