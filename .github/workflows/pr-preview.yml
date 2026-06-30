@@ -9,13 +9,22 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, closed]
 
+# One run per PR; a newer event (e.g. label after open, or a new push) cancels
+# the in-flight one. Without this, 'opened' + 'labeled' both fire and race on the
+# shared artifact, and the loser dies on a ListArtifacts 403.
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 # pull_request_target runs in the BASE-repo context with a write token, which is
 # what lets it publish previews for fork PRs. To keep that token away from
 # untrusted PR code, the build/publish only runs once a maintainer applies the
 # 'deploy-preview' label (the if: gates below). Removal on close runs regardless.
+# actions: read lets the deploy job's download-artifact reach the build artifact.
 permissions:
   contents: write
   pull-requests: write
+  actions: read
 
 jobs:
   build:
