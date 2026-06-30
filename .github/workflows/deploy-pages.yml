@@ -5,98 +5,37 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Branch publishing only needs write to contents (push to gh-pages). The old
+# pages:/id-token: perms + the github-pages environment belonged to the
+# Actions-deployment model we moved off of — which also sidesteps the
+# environment protection rule that blocked tag deploys (#58).
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
+  contents: write
 
 jobs:
-  build-and-deploy:
+  build:
+    uses: ./.github/workflows/_build-wasm.yml
+
+  publish:
+    needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    # Serialize every gh-pages write (root deploys + PR previews share the
+    # branch); never cancel a publish midway.
+    concurrency:
+      group: gh-pages-publish
+      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-
-      # Single-source the let-go version from .let-go-version (the repo's
-      # declared pin), so the deploy and the test floor can't drift apart.
-      # The pinned release ships the client-shell WASM glue (-w-shell none, #245)
-      # and the js/url-param host seam (#339) the bundle needs, so the
-      # ?seed=/?replay= bridge is native — no glue patch.
-      - name: Resolve let-go version
-        id: letgo
-        run: echo "version=$(grep -v '^#' .let-go-version | grep . | head -1 | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
-
-      - name: Check out let-go (pinned)
-        uses: actions/checkout@v4
+      - name: Download built bundle
+        uses: actions/download-artifact@v4
         with:
-          repository: nooga/let-go
-          ref: ${{ steps.letgo.outputs.version }}
-          path: let-go-src
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-
-      - name: Install let-go
-        run: go install github.com/nooga/let-go@${{ steps.letgo.outputs.version }}
-
-      # LETGO_SRC pins the WASM *runtime* to the same release as the binary above;
-      # without it `lg -w` compiles the runtime from let-go@latest, which can drift
-      # from the binary's worker protocol.
-      - name: Build WASM
-        env:
-          LETGO_SRC: ${{ github.workspace }}/let-go-src
-        run: let-go -w dist main.lg
-
-      - name: Patch COI startup guard
-        run: let-go tools/patch_wasm_coi.lg
-
-      - name: Set up Node (smoke gate)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install smoke dependencies
-        working-directory: tests/browser
-        run: |
-          npm ci --no-audit --no-fund
-          npx playwright install --with-deps chromium
-
-      - name: Browser smoke (must boot to title screen)
-        working-directory: tests/browser
-        run: node smoke.mjs --dir ../../dist
-
-      # Seeded determinism regression: boots /?seed=12345 and asserts the
-      # seed-derived title — proving the ?seed= bridge AND wasm==native xxh3.
-      # (The title-animation gate is the separate `smoke.mjs` step above /
-      # the fixme test, pending nooga/xsofy#61.)
-      - name: E2E seeded regression (@playwright/test)
-        working-directory: tests/e2e
-        run: |
-          npm install --no-audit --no-fund
-          npx playwright install chromium
-          DIST="$GITHUB_WORKSPACE/dist" npx playwright test
-
-      - name: Upload smoke failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-failure
-          path: tests/browser/smoke-failure.png
-          if-no-files-found: ignore
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
+          name: wasm-dist
           path: dist
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish to gh-pages root
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist
+          # keep_files so deploying the root site does NOT wipe live /pr-N/
+          # previews or pinned /vX.Y.Z/ version dirs (the kitten-game switcher).
+          keep_files: true
