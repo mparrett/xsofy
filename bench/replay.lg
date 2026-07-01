@@ -1,0 +1,137 @@
+;; bench/replay.lg — Tier-1 replay benchmark.
+;;
+;; Drives world/update-world headlessly: no render, no bridge, no xterm,
+;; no terminal. Measures the engine's per-turn cost in isolation so we
+;; can attribute later overheads (WASM/JS bridge/xterm canvas) by delta.
+;;
+;; Run:
+;;     lg bench/replay.lg
+;;
+;; Output: a small table to stdout. n = total samples across trials;
+;; ms columns are wall-clock cost of (world/update-world world key)
+;; per turn.
+;;
+;; ---- Caveat on determinism ----
+;; let-go's rand-int uses Go's global rand source, which is auto-seeded
+;; per process and not exposed to user code. So world generation and AI
+;; choices differ run-to-run. We compensate by averaging across `trials`
+;; fresh worlds per fixture — the per-turn means stabilize quickly. If
+;; you ever need bit-identical reproduction (e.g. to diff a single turn
+;; before/after a refactor), the fix is a `set-rand-seed` primitive in
+;; the let-go fork; not needed for hotspot identification.
+;;
+;; ---- Adding fixtures ----
+;; A fixture is [name keystroke-fn turn-count]. The keystroke-fn takes
+;; the current turn index (0-based) and returns the *string* form of a
+;; key. Keep them simple — replay should be a black box: same fn → same
+;; observed cost shape, run-over-run.
+
+;; Deliberately no (ns ...) form: lg evaluates a file with a namespace
+;; declaration TWICE (once as a script, once as a namespace load), which
+;; would double-run the bench. tests/run.lg uses the same trick.
+;;
+;; Top-level require here uses bare-symbol form (the vector :as form
+;; only works inside a (ns ...) declaration in current let-go); aliases
+;; come from separate (alias ...) calls.
+
+(require 'xsofy.world)
+(require 'xsofy.input)
+(alias 'world 'xsofy.world)
+(alias 'input 'xsofy.input)
+
+;; ---- Scenarios ----
+
+(def fixtures
+  [;; baseline: 60 wait turns. Entity AI runs but the player doesn't
+   ;; move, so combat is incidental. Floor effects (fire, water drift,
+   ;; lighting) still tick. Closest thing we have to a "what does an
+   ;; empty turn cost?" reading.
+   [:wait    (fn [_] ".") 60]
+
+   ;; autoexplore: kick off once, then let the engine drive via the
+   ;; auto-action path (still routed through update-world). Surfaces
+   ;; the BFS pathfinder + render-full cadence as the camera shifts.
+   [:autoex  (fn [n] (if (zero? n) "x" ".")) 60]
+
+   ;; descend-then-wait: try to get to deeper floors where more
+   ;; entities + lighting + fire effects compound. The '>' will be a
+   ;; no-op unless the player is on a down-stair; that's fine, fixture
+   ;; cost just reflects "what if we try."
+   [:descend (fn [n] (if (zero? n) ">" ".")) 60]
+
+   ;; busy-explore: long autoexplore. Drives the player through varied
+   ;; terrain (water, doors, items, enemies) across many floors. Higher
+   ;; entity count + more movement amplifies per-turn pattern costs that
+   ;; the short fixtures don't surface. Used for allocator attribution.
+   [:busy    (fn [n] (if (zero? n) "x" ".")) 300]])
+
+(def TRIALS 5)
+(def PROFILE? false)  ;; set true to write /tmp/cpu.out for `go tool pprof`
+
+;; ---- Timing primitive ----
+
+(defn time-turn
+  "Run one turn; return [new-world ms]."
+  [world key-str]
+  (let [k  (input/parse-key key-str)
+        t0 (System/currentTimeMillis)
+        w  (world/update-world world k)
+        dt (- (System/currentTimeMillis) t0)]
+    [w dt]))
+
+(defn run-trial
+  "Run one trial: fresh world, n turns (or until player dies). Returns
+   a vector of per-turn ms."
+  [keystroke-fn n seed]
+  (loop [w (world/make-world 79 30 seed)
+         i 0
+         samples (transient [])]
+    (cond
+      (= i n)                                  (persistent! samples)
+      (nil? (get-in w [:entities :player]))    (persistent! samples)
+      :else
+      (let [[w' dt] (time-turn w (keystroke-fn i))]
+        (recur w' (inc i) (conj! samples dt))))))
+
+;; ---- Stats ----
+
+(defn percentile [sorted p]
+  (let [n (count sorted)
+        idx (min (dec n) (int (* (dec n) p)))]
+    (nth sorted idx)))
+
+(defn summarize [samples]
+  (let [n (count samples)
+        sorted (vec (sort samples))
+        sum (reduce + samples)]
+    {:n   n
+     :avg (if (pos? n) (quot sum n) 0)
+     :p50 (percentile sorted 0.50)
+     :p95 (percentile sorted 0.95)
+     :max (if (pos? n) (last sorted) 0)}))
+
+;; ---- Driver ----
+
+(defn run-fixture [[name keystroke-fn turn-count] trials]
+  (let [all (loop [i 0 acc []]
+              (if (= i trials)
+                acc
+                (recur (inc i) (into acc (run-trial keystroke-fn turn-count i)))))]
+    [name (summarize all)]))
+
+(defn -main []
+  (println "=== xsofy replay benchmark (native engine) ===")
+  (println (format "trials per fixture: %d, turns per trial: 60 (or until death)" TRIALS))
+  (println)
+  (println (format "%-12s %6s %6s %6s %6s %6s" "fixture" "n" "avg" "p50" "p95" "max"))
+  (println (format "%-12s %6s %6s %6s %6s %6s" "--------" "------" "------" "------" "------" "------"))
+  ;; Flip PROFILE? to capture a Go CPU profile of the run (/tmp/cpu.out).
+  ;; Leave false for timing runs — profiling sampling skews wall-clock.
+  (when PROFILE? (profile/cpu-start! "/tmp/cpu.out"))
+  (doseq [f fixtures]
+    (let [[name s] (run-fixture f TRIALS)]
+      (println (format "%-12s %6d %5dms %5dms %5dms %5dms"
+                       (str name) (:n s) (:avg s) (:p50 s) (:p95 s) (:max s)))))
+  (when PROFILE? (profile/cpu-stop!) (println "wrote /tmp/cpu.out")))
+
+(-main)

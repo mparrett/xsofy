@@ -28,7 +28,11 @@
    {:action :rune-codex  :category :information :label "Open rune codex"  :keys ["r"] :help-keys ["r"]}
    {:action :messages    :category :information :label "Open message log" :keys ["m"] :help-keys ["m"]}
    {:action :help        :category :information :label "Open keybindings" :keys ["?"] :help-keys ["?"]}
-   {:action :quit        :category :system     :label "Quit"              :keys ["\u001b" (str (char 3))] :help-keys ["Esc" "Ctrl-C"]}])
+   {:action :quit        :category :system     :label "Quit"              :keys ["\u001b" (str (char 3))] :help-keys ["Esc" "Ctrl-C"]}
+   ;; :hidden — the help overlay only walks the public categories, but
+   ;; parse-key still maps "B" -> :bench via binding-for-key. Runs the
+   ;; in-bundle WASM bench (xsofy.bench), intercepted in play/play-advance.
+   {:action :bench       :category :hidden     :label "Run benchmark"     :keys ["B"] :help-keys ["B"]}])
 
 (defn key-matches? [k binding]
   (some (fn [key] (= k key)) (:keys binding)))

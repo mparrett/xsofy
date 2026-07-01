@@ -1,0 +1,135 @@
+(ns xsofy.bench
+  (:require [xsofy.world :as world]
+            [xsofy.input :as input]
+            [xsofy.ui-bridge :as bridge]))
+
+;; In-bundle replay benchmark, callable from the running WASM game.
+;;
+;; The native bench (bench/replay.lg) drives world/update-world headlessly
+;; against the same lg binary that runs the game. It tells us "what does
+;; the engine cost natively." But on WASM we go through the same engine
+;; *interpreted by a different runtime* — and the WASM runtime can have
+;; very different perf characteristics (different GC, no native code-gen
+;; for hot paths, etc.). This namespace runs the same fixtures inside the
+;; bundle so we get a directly comparable WASM-engine number.
+;;
+;; Triggered from main.lg when the player presses :bench (key B). The
+;; running game loop pauses while the fixtures execute (~few seconds);
+;; results flow out via (bridge/emit-bench ...) and are also returned
+;; from run-and-emit for native callers / REPL use.
+;;
+;; Deliberately mirrors bench/replay.lg's shape so we can diff the
+;; native and WASM numbers side-by-side. Fixtures, TRIALS, and stats
+;; formulas are copied verbatim. Two intentional differences:
+;;   - No top-level (-main) invocation — caller drives via run-and-emit.
+;;   - No printlns; structured output via bridge for the HTML shell.
+
+;; Fixture sizes tuned for WASM runtime. The native bench uses
+;; 5 trials × up to 300 turns because each turn is ~3ms there
+;; (total ~7s). WASM is ~10-50× slower per turn, so equivalent
+;; trial counts take minutes. Cut to a quick diagnostic instead:
+;; 1 trial of each fixture is enough to read engine order-of-
+;; magnitude; we re-run if a deeper sample is needed.
+(def fixtures
+  [[:wait    (fn [_] ".") 40]
+   [:autoex  (fn [n] (if (zero? n) "x" ".")) 40]
+   [:descend (fn [n] (if (zero? n) ">" ".")) 40]
+   [:busy    (fn [n] (if (zero? n) "x" ".")) 80]])
+
+;; 1, per the quick-diagnostic note above: at WASM turn costs, 3 trials ×
+;; ~200 fixture-turns is a ~2-minute freeze. One trial reads engine
+;; order-of-magnitude; bump for a deeper sample when you actually want it.
+(def TRIALS 1)
+
+(defn- time-turn
+  [world key-str]
+  (let [k  (input/parse-key key-str)
+        t0 (System/currentTimeMillis)
+        w  (world/update-world world k)
+        dt (- (System/currentTimeMillis) t0)]
+    [w dt]))
+
+;; Deterministic seeds for the bench. make-world takes the seed and threads
+;; it through the world's det state (RNG + :next-id), so each trial builds an
+;; identical world + identical AI/effects draws — two runs (same bundle) and
+;; two bundles (different runtimes) are bit-comparable on the timings.
+;;
+;; The vec is multi-seed-capable: each fixture runs under each seed and
+;; the aggregate summary spans all samples. Default is single-seed
+;; ([42] × TRIALS) because averaging across heterogeneous worlds washes
+;; out runtime-side variance signals — but expand the vec to e.g.
+;; [42 123 1337] for a seed-pathology sanity check when you want one.
+(def bench-seeds [42])
+
+(defn- run-trial
+  [keystroke-fn n seed]
+  ;; make-world seeds the world's deterministic state (det RNG + :next-id
+  ;; entity counter) from `seed`, so trial N gets the same world as trial 1 —
+  ;; no global reseed or id-counter reset needed. v0.0.2 threads determinism
+  ;; through the world (det/next-id, :seed), not a global atom; mirrors
+  ;; bench/replay.lg's run-trial so native and WASM numbers stay diffable.
+  (loop [w (world/make-world 79 30 seed)
+         i 0
+         samples (transient [])]
+    (cond
+      (= i n)                                  (persistent! samples)
+      (nil? (get-in w [:entities :player]))    (persistent! samples)
+      :else
+      (let [[w' dt] (time-turn w (keystroke-fn i))]
+        (recur w' (inc i) (conj! samples dt))))))
+
+(defn- percentile [sorted p]
+  (let [n (count sorted)
+        idx (min (dec n) (int (* (dec n) p)))]
+    (nth sorted idx)))
+
+(defn- summarize [samples]
+  (let [n (count samples)
+        sorted (vec (sort samples))
+        sum (reduce + samples)]
+    {:n   n
+     :avg (if (pos? n) (quot sum n) 0)
+     :p50 (percentile sorted 0.50)
+     :p95 (percentile sorted 0.95)
+     :max (if (pos? n) (last sorted) 0)}))
+
+(defn- run-fixture
+  "Run one fixture under each seed in bench-seeds. trials applies per seed.
+   Returns {:name kw :aggregate {...} :per-seed [{:seed N :avg ...} ...]}.
+   Aggregate stats span all samples across all seeds — useful as a headline
+   number; per-seed breakdown surfaces seed-specific variance."
+  [[name keystroke-fn turn-count] trials]
+  (let [seed-samples (mapv (fn [seed]
+                             {:seed    seed
+                              :samples (loop [i 0 acc []]
+                                         (if (= i trials)
+                                           acc
+                                           (recur (inc i)
+                                                  (into acc (run-trial keystroke-fn turn-count seed)))))})
+                           bench-seeds)
+        per-seed    (mapv (fn [{:keys [seed samples]}]
+                            (assoc (summarize samples) :seed seed))
+                          seed-samples)
+        all-samples (vec (mapcat :samples seed-samples))]
+    ;; Splice aggregate stats at top level so the existing HTML shell
+    ;; renders the headline numbers unchanged; :per-seed sits alongside
+    ;; for callers that want the breakdown.
+    (merge (summarize all-samples)
+           {:name     name
+            :per-seed per-seed})))
+
+(defn run-and-emit
+  "Run all fixtures TRIALS times each. Emit results via the bridge as
+   a single {:bench/results [...]} event the HTML shell can render.
+   Returns the same vector for REPL/native callers.
+
+   Also emits a :bench-start event before any work, so the HTML shell
+   can show 'running…' immediately — without it, the engine is locked
+   in this loop for several seconds and the screen looks frozen."
+  []
+  (bridge/emit :bench-start {:fixtures (mapv first fixtures) :trials TRIALS :seeds bench-seeds})
+  (let [t0 (System/currentTimeMillis)
+        results (mapv #(run-fixture % TRIALS) fixtures)
+        elapsed (- (System/currentTimeMillis) t0)]
+    (bridge/emit :bench {:results results :trials TRIALS :elapsed-ms elapsed})
+    results))

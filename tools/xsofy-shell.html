@@ -155,6 +155,7 @@
      changes needed. */
   #xsofy-shell .chips[data-page="play"]    [data-chip-page] { display: none; }
   #xsofy-shell .chips[data-page="toggles"] [data-chip-page]:not([data-chip-page="toggles"]) { display: none; }
+  #xsofy-shell .chips[data-page="tools"]   [data-chip-page]:not([data-chip-page="tools"])   { display: none; }
   /* Shell-cycle reuses .font-cycle's compact sizing so it sits flush in
      the row; dashed border mirrors the action grid's .nav tile so the
      swap affordance reads as chrome, not content. */
@@ -362,13 +363,36 @@
      + toggles into debug. Quest also folds away in debug since debug
      eyeballs are usually on numbers, not the quest item.
      The mode class + the chip-strip data-page are driven from a single
-     .shell-cycle tile (2 states: play / toggles); see the chip-paging
+     .shell-cycle tile (3 states: play / toggles / tools); see the chip-paging
      CSS block above and the cycle handler below. */
   #xsofy-shell.mode-play .debug-only,
   #xsofy-shell.mode-debug .play-only {
     display: none;
   }
 
+  /* Bench results panel. Triggered by xsofy/bench events; tap to dismiss.
+     Lives above the touch row so the pad stays usable if the player wants
+     to keep playing. */
+  #xsofy-shell .bench {
+    display: none;
+    background: rgba(20, 16, 10, 0.95);
+    border-top: 1px solid var(--bar-rule);
+    border-bottom: 1px solid var(--bar-rule);
+    padding: 0.5rem 0.75rem;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--bar-fg);
+    cursor: pointer;
+  }
+  #xsofy-shell .bench.show { display: block; }
+  #xsofy-shell .bench pre {
+    margin: 0;
+    font-family: inherit;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  #xsofy-shell .bench .label { color: var(--bar-dim); font-size: 11px; }
+  #xsofy-shell .bench .accent { color: var(--bar-accent); }
 </style>
 
 <div id="xsofy-shell" class="mode-play">
@@ -397,16 +421,21 @@
       <button class="font-cycle debug-only" data-chip-page="toggles" id="xs-font-cycle" title="Cycle char size">
         <span class="glyph">Aa</span><span id="xs-font-px">22</span>
       </button>
+      <button class="font-cycle debug-only" data-chip-page="tools" id="xs-bench-trigger" title="Run in-bundle WASM bench" data-key="B">
+        <span class="glyph">⟳</span><span>bench</span>
+      </button>
       <!-- Shell cycle. Single tile drives BOTH the body mode class
            (.mode-play in "play" state, .mode-debug everywhere else) AND
-           the chip-strip data-page. 2 states cycle: play → toggles → play.
+           the chip-strip data-page. 3 states cycle: play → toggles → tools → play.
            Persistent (no data-chip-page) so it shows in every state — it's
            the only way back out of debug. -->
-      <button class="font-cycle shell-cycle" id="xs-shell-cycle" title="Cycle shell state (play / toggles)">
-        <span class="glyph" id="xs-shell-cycle-dots">● ○</span><span class="label" id="xs-shell-cycle-label">TOGGLES →</span>
+      <button class="font-cycle shell-cycle" id="xs-shell-cycle" title="Cycle shell state (play / toggles / tools)">
+        <span class="glyph" id="xs-shell-cycle-dots">● ○ ○</span><span class="label" id="xs-shell-cycle-label">TOGGLES →</span>
       </button>
     </div>
   </div>
+
+  <div class="bench" id="xs-bench" title="Tap to dismiss"></div>
 
   <div class="row touch">
     <!-- Both grids are populated by the script below from PANES.
@@ -613,6 +642,39 @@
     const inputLagEl = $("xs-input-lag");
     const perfTurnEl = $("xs-perf-turn");
     const cellsEl = $("xs-cells");
+
+    // Bench results panel — triggered by xsofy/bench from xsofy.bench's
+    // run-and-emit. Tap to dismiss. Formatted as a small monospaced table
+    // matching bench/replay.lg's native output so the two are diffable.
+    const benchEl = $("xs-bench");
+    function formatBench(detail) {
+      const trials = detail.trials ?? "?";
+      const elapsed = detail["elapsed-ms"] ?? 0;
+      const rows = (detail.results || []).map((r) => {
+        const pad = (s, w) => String(s).padStart(w);
+        return `${pad(":" + r.name, 9)} ${pad(r.n, 5)} ${pad(r.avg, 4)}ms ${pad(r.p50, 4)}ms ${pad(r.p95, 4)}ms ${pad(r.max, 4)}ms`;
+      });
+      const header = `${"fixture".padStart(9)} ${"n".padStart(5)} ${"avg".padStart(6)} ${"p50".padStart(6)} ${"p95".padStart(6)} ${"max".padStart(6)}`;
+      const meta = `<div class="label">WASM bench · trials=${trials} · ran in ${elapsed}ms · tap to dismiss</div>`;
+      return `${meta}<pre>${header}\n${rows.join("\n")}</pre>`;
+    }
+    window.addEventListener("xsofy/bench-start", (e) => {
+      // Fired before the bench loop runs; the engine is locked in the
+      // loop for several seconds after this. Important to repaint so
+      // the user sees something instead of a frozen screen.
+      const d = e.detail || {};
+      const fixtures = (d.fixtures || []).map(f => ":" + f).join(", ");
+      benchEl.innerHTML = `<div class="label">WASM bench running — ${fixtures} × ${d.trials ?? "?"} trials. Engine is locked until done; screen will look frozen.</div>`;
+      benchEl.classList.add("show");
+    });
+    window.addEventListener("xsofy/bench", (e) => {
+      benchEl.innerHTML = formatBench(e.detail || {});
+      benchEl.classList.add("show");
+    });
+    benchEl?.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      benchEl.classList.remove("show");
+    });
 
     let pendingPerf = null;
     window.addEventListener("xsofy/perf", (e) => {
@@ -958,15 +1020,16 @@
     // Shell-state cycle. One tile drives BOTH the body mode class
     // (.mode-play / .mode-debug — gates .play-only / .debug-only visibility)
     // AND the chip-strip data-page (which group of debug chips is showing).
-    // States cycle: play → toggles → play.
+    // States cycle: play → toggles → tools → play.
     //   - play     → mode-play; debug-only stuff hidden; chip strip shows
     //                only the cycle tile itself.
     //   - toggles  → mode-debug + chips data-page=toggles  (repeat/touch/font)
+    //   - tools    → mode-debug + chips data-page=tools    (bench)
     // Persisted under one key so pulling debug back up resumes on whichever
     // group the player was last looking at. Old keys (xsofy/info-mode,
     // xsofy/chip-page) are intentionally ignored — small UI, fine to reset.
     const SHELL_LS_KEY = "xsofy/shell-state";
-    const SHELL_STATES = ["play", "toggles"];
+    const SHELL_STATES = ["play", "toggles", "tools"];
     const shellRoot = document.getElementById("xsofy-shell");
     const chipsEl = document.querySelector("#xsofy-shell .chips");
     const cycleEl_ = $("xs-shell-cycle");
@@ -985,7 +1048,7 @@
       }
       // Label names the destination — what tapping switches TO — matching
       // the action-grid nav tile's convention. Dots show position; label
-      // reads as a verb (PLAY → / TOGGLES →).
+      // reads as a verb (PLAY → / TOGGLES → / TOOLS →).
       if (cycleLabelEl) {
         const next = SHELL_STATES[(SHELL_STATES.indexOf(currentShellState) + 1) % SHELL_STATES.length];
         cycleLabelEl.textContent = next.toUpperCase() + " →";
