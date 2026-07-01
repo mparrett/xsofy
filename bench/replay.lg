@@ -11,14 +11,16 @@
 ;; ms columns are wall-clock cost of (world/update-world world key)
 ;; per turn.
 ;;
-;; ---- Caveat on determinism ----
-;; let-go's rand-int uses Go's global rand source, which is auto-seeded
-;; per process and not exposed to user code. So world generation and AI
-;; choices differ run-to-run. We compensate by averaging across `trials`
-;; fresh worlds per fixture — the per-turn means stabilize quickly. If
-;; you ever need bit-identical reproduction (e.g. to diff a single turn
-;; before/after a refactor), the fix is a `set-rand-seed` primitive in
-;; the let-go fork; not needed for hotspot identification.
+;; ---- Determinism ----
+;; Gameplay is deterministic from the seed: make-world(seed) + update-world
+;; ride the world-threaded det system (:seed + action-log, det/next-id), so a
+;; given seed replays bit-identically run-to-run. `trials` here each use a
+;; distinct seed (the trial index), so we sample a spread of worlds rather than
+;; re-time one — and averaging also smooths timing noise (GC, scheduling), which
+;; is the only run-to-run variance left. rand-int is used ONLY for cosmetics
+;; (render colours, screenfx, runes, title) and never touches gameplay state; it
+;; is seedable via set-rand-seed! (upstream in v1.11.1) if you ever need to pin
+;; the cosmetic draws too — not needed for hotspot timing.
 ;;
 ;; ---- Adding fixtures ----
 ;; A fixture is [name keystroke-fn turn-count]. The keystroke-fn takes
@@ -121,7 +123,7 @@
 
 (defn -main []
   (println "=== xsofy replay benchmark (native engine) ===")
-  (println (format "trials per fixture: %d, turns per trial: 60 (or until death)" TRIALS))
+  (println (format "trials per fixture: %d (each a distinct seed); turns per fixture vary — see the n column" TRIALS))
   (println)
   (println (format "%-12s %6s %6s %6s %6s %6s" "fixture" "n" "avg" "p50" "p95" "max"))
   (println (format "%-12s %6s %6s %6s %6s %6s" "--------" "------" "------" "------" "------" "------"))
