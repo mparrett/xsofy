@@ -1,25 +1,26 @@
-name: Deploy to GitHub Pages
+name: Deploy play to /play/ subpath
 
+# Rebuilds the original fork `play` bundle and publishes it under the
+# gh-pages `play/` subdirectory only. The live root site (deployed from
+# `main`) and the `pr-preview/` dirs are never touched: peaceiris scopes
+# every write to destination_dir, so it can only add/replace files under
+# gh-pages/play/. Manual dispatch only.
 on:
-  push:
-    branches: [play]
   workflow_dispatch:
 
+# peaceiris pushes to gh-pages; only contents:write is needed (the old
+# pages:/id-token: perms belonged to the actions/deploy-pages@v4 model,
+# which is incompatible with this fork's gh-pages Pages source).
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: gh-pages-publish
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,11 +55,9 @@ jobs:
       - name: Patch COI startup guard
         run: let-go tools/patch_wasm_coi.lg
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Publish to gh-pages/play/ (scoped write; root + pr-preview untouched)
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: dist
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist
+          destination_dir: play
