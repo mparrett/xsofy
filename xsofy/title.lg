@@ -1,5 +1,6 @@
 (ns xsofy.title
-  (:require [term]
+  (:require [os]
+            [term]
             [xsofy.screenfx :as sfx]
             [xsofy.ui :as ui]
             [xsofy.det :as det]))
@@ -218,7 +219,10 @@
 (defn show-descending-screen
   "Display a brief animated descending screen. Runes rise and fade."
   [depth scheme]
-  (when (term/size)            ;; no-op headless (balance harness / tests)
+  ;; No-op headless (balance harness / tests) AND under the GL frontend —
+  ;; main_gl sets XSOFY_GL_FRONTEND; drawing to the launching terminal there
+  ;; would spew escape codes and stall the GL window mid-descent.
+  (when (and (term/size) (nil? (os/getenv "XSOFY_GL_FRONTEND")))
    (let [[tw th] (term/size)
          cx (quot tw 2)
          cy (quot th 2)

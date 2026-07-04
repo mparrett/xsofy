@@ -28,6 +28,8 @@
             [xsofy.test.menu-dispatch-test]
             [xsofy.test.input-test]
             [xsofy.test.console-test]
+            [xsofy.test.vfx-test]
+            [xsofy.test.hud-test]
             [xsofy.test.grid-test]
             [xsofy.test.mat4-test]
             [xsofy.test.fall-test]))
