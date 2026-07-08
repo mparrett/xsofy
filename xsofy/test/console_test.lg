@@ -1,0 +1,100 @@
+(ns xsofy.test.console-test
+  "Tests for xsofy.console — the dev REPL eval bridge and the line editor.
+   The submit/enter path renders the game beneath the panel (needs a terminal),
+   so it is exercised in the native/web manual run; here we test the pure pieces:
+   eval-line (what submit wraps) and the render-free editing keys."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.console :as console]
+            [xsofy.replay :as replay]))
+
+(def world
+  {:entities {:player {:body {:hp 5 :max-hp 20} :pos [3 4]}}
+   :turn 0 :depth 1 :log []})
+
+(def ESC (str (char 27)))
+(def DEL (str (char 127)))
+
+;; --- eval bridge ----------------------------------------------------------
+
+(deftest eval-pure-expression
+  (testing "a pure form evaluates and prints its value, no taint"
+    (let [r (console/eval-line world "(+ 1 2)")]
+      (is (:ok r))
+      (is (= "3" (:val r)))
+      (is (not (:tainted? r)))
+      (is (= world (:world r))))))
+
+(deftest eval-mutation-stages-world-and-taints
+  (testing "a mutator (hp!) stages the new world and flags the run tainted"
+    (let [r (console/eval-line world "(hp! 100)")]
+      (is (:ok r))
+      (is (:tainted? r))
+      (is (= 100 (get-in (:world r) [:entities :player :body :hp]))))))
+
+(deftest eval-world-access-taints
+  (testing "any live-world access taints — we can't tell a read from an in-place
+            mutation, so (w) / (player) are conservatively non-deterministic"
+    (is (:tainted? (console/eval-line world "(w)")))
+    (is (:tainted? (console/eval-line world "(player)"))))
+  (testing "a pure form that never touches the world stays clean"
+    (is (not (:tainted? (console/eval-line world "(* 6 7)"))))))
+
+(deftest eval-error-is-caught-not-thrown
+  (testing "an unresolved symbol reports :ok false instead of killing the loop"
+    (let [r (console/eval-line world "(no-such-fn-xyz)")]
+      (is (not (:ok r))))))
+
+;; --- determinism sentinel -------------------------------------------------
+
+(deftest close-appends-taint-sentinel-once
+  (testing "closing a tainted console appends :console-taint at the turn boundary"
+    (let [tw (assoc world :console-tainted? true :action-log [:up :down])
+          st (assoc (console/init-state world [80 24]) :world tw)
+          r  (console/handle-key st [:action ESC])]
+      (is (reduced? r))
+      (is (= [:up :down :console-taint] (:action-log (deref r))))))
+  (testing "an untouched console leaves the log alone"
+    (let [st (assoc (console/init-state world [80 24])
+                    :world (assoc world :action-log [:up]))
+          r  (console/handle-key st [:action ESC])]
+      (is (= [:up] (:action-log (deref r)))))))
+
+(deftest replay-code-stops-at-sentinel
+  (testing "encode keeps the sentinel + drops the tail; decode truncates there"
+    (let [w (assoc world :seed-input 42 :action-log [:up :down :console-taint :left])
+          decoded (replay/decode (replay/encode-run w))]
+      (is (:console-truncated? decoded))
+      (is (= [:up :down] (:actions decoded))))))
+
+;; --- line editor ----------------------------------------------------------
+
+(deftest typing-inserts-at-cursor
+  (let [st (-> (console/init-state world [80 24])
+               (console/handle-key [:action "a"])
+               (console/handle-key [:action "b"]))]
+    (is (= "ab" (:input st)))
+    (is (= 2 (:cursor st)))))
+
+(deftest backspace-deletes-before-cursor
+  (let [st (-> (console/init-state world [80 24])
+               (console/handle-key [:action "x"])
+               (console/handle-key [:action "y"])
+               (console/handle-key [:action DEL]))]
+    (is (= "x" (:input st)))
+    (is (= 1 (:cursor st)))))
+
+(deftest history-up-recalls-the-last-line
+  (testing "Up (ESC[A) with populated history restores the newest entry"
+    (let [st (-> (assoc (console/init-state world [80 24]) :history ["(foo)" "(bar)"])
+                 (console/handle-key [:action (str ESC "[A")]))]
+      (is (= "(bar)" (:input st)))
+      (is (= 5 (:cursor st))))))
+
+(deftest esc-and-backtick-close-returning-the-world
+  (testing "either close key exits the loop, handing the world back"
+    (let [st (console/init-state world [80 24])
+          r1 (console/handle-key st [:action ESC])
+          r2 (console/handle-key st [:action "`"])]
+      (is (reduced? r1))
+      (is (reduced? r2))
+      (is (= world (deref r1))))))
