@@ -47,20 +47,23 @@ on the pin it moves to.
 
 ## Two traps
 
-**1. `main` is deliberately one commit ahead of upstream.** It carries
-`.github/workflows/lab-deploy.yml`, and it has to: `workflow_dispatch` only
-fires when the workflow file is on the repository's default branch, so it can't
-live on a side branch. It's a *new file that edits nothing*, so resyncing never
-conflicts:
+**1. `main` deliberately sits ahead of upstream.** It carries fork-only
+commits — currently `.github/workflows/lab-deploy.yml` and this file. The
+workflow *has* to live here: `workflow_dispatch` only fires when the workflow
+file is on the repository's default branch, so it can't go on a side branch.
+
+Every fork-only commit here is a *new file that edits nothing*, which is
+deliberate: it means a resync can never conflict.
 
 ```
 git fetch origin
-git rebase origin/main lab-deploy-commit   # or cherry-pick it onto origin/main
-git push play --force-with-lease HEAD:main
+git rebase --onto origin/main <last-synced-upstream-sha> main
+git push play --force-with-lease main
 ```
 
-Resync by rebasing that commit. **Don't reset `main` to `origin/main`** — that
-silently drops the lab deploy and the workflow disappears from the Actions tab.
+Resync by rebasing those commits. **Don't reset `main` to `origin/main`** —
+that silently drops the lab deploy, and the workflow vanishes from the Actions
+tab with no error to explain why.
 
 **2. This fork must never run `deploy-pages.yml`.** That workflow hardcodes
 `cname: xsofy.quest`, a domain owned by `nooga/xsofy`. Publishing it from here
