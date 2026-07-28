@@ -1,0 +1,170 @@
+name: Lab Deploy
+
+# Fork-only. Publishes any ref to gh-pages under lab/<name>/, served at
+#   https://mparrett.github.io/xsofy/lab/<name>/
+# so an experiment or integration branch gets a playable URL WITHOUT a PR and
+# without a branch on upstream nooga/xsofy. Upstream should only ever see a
+# branch when we're actually proposing a change.
+#
+# workflow_dispatch only fires when the workflow file is on the DEFAULT branch,
+# so this lives on fork main. It adds no edits to existing files — a new file
+# alone — so re-syncing fork main to upstream never conflicts: rebase this one
+# commit and force-push.
+#
+# NOT for upstream. The upstream deploy (deploy-pages.yml) pins
+# `cname: xsofy.quest`; publishing that from the fork would collide with the
+# domain owned by nooga/xsofy. This workflow deliberately sets no CNAME.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag, or SHA to build'
+        required: true
+        default: main
+      name:
+        description: 'Subpath under /lab/ (a-z, 0-9, dash, underscore)'
+        required: true
+      action:
+        description: 'deploy = build and publish; remove = delete lab/<name>/'
+        required: true
+        default: deploy
+        type: choice
+        options: [deploy, remove]
+      skip_smoke:
+        description: 'Publish even if the browser smoke gate fails'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+# Serialize with every other gh-pages write (root deploy, pr-preview) — they
+# all push to the same branch.
+concurrency:
+  group: gh-pages-publish
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: inputs.action == 'deploy'
+    runs-on: ubuntu-latest
+    steps:
+      # Reject path traversal and anything that would escape lab/ — `name` is
+      # free text from the dispatch form and lands in a filesystem path.
+      - name: Validate name
+        run: |
+          case "${{ inputs.name }}" in
+            *[!a-zA-Z0-9_-]*|'')
+              echo "::error::name must match [a-zA-Z0-9_-]+ (got '${{ inputs.name }}')"
+              exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Build the ref exactly as it would ship: its own .let-go-version pin and
+      # its own build-wasm composite, not main's. An experiment that moves the
+      # pin should be playtested against the pin it moves to.
+      - name: Resolve let-go version
+        id: letgo
+        run: echo "version=$(grep -v '^#' .let-go-version | grep . | head -1 | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Check out let-go (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: nooga/let-go
+          ref: ${{ steps.letgo.outputs.version }}
+          path: let-go-src
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install let-go
+        run: go install github.com/nooga/let-go@${{ steps.letgo.outputs.version }}
+
+      - name: Build WASM bundle
+        uses: ./.github/actions/build-wasm
+        with:
+          dist: dist
+          letgo-src: ${{ github.workspace }}/let-go-src
+
+      - name: Set up Node (smoke gate)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install smoke dependencies
+        working-directory: tests/browser
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      # A lab build is allowed to be broken on purpose (that can be the point of
+      # the experiment), so the gate is skippable — but it runs by default so a
+      # bundle that never boots doesn't get handed to playtesters silently.
+      - name: Browser smoke (must boot to title screen)
+        id: smoke
+        continue-on-error: ${{ inputs.skip_smoke }}
+        working-directory: tests/browser
+        run: node smoke.mjs --dir ../../dist
+
+      - name: Publish to gh-pages lab/${{ inputs.name }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist
+          destination_dir: lab/${{ inputs.name }}
+          # Scoped to destination_dir, but keep_files guards the rest of the
+          # branch (root deploy, /play/, /pr-preview/, sibling labs) anyway.
+          keep_files: true
+          commit_message: 'lab: ${{ inputs.name }} @ ${{ inputs.ref }}'
+
+      - name: Summary
+        run: |
+          {
+            echo "### Lab build published"
+            echo
+            echo "**https://mparrett.github.io/xsofy/lab/${{ inputs.name }}/**"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| ref | \`${{ inputs.ref }}\` |"
+            echo "| commit | \`$(git rev-parse --short HEAD)\` |"
+            echo "| let-go | \`${{ steps.letgo.outputs.version }}\` |"
+            echo "| smoke | ${{ steps.smoke.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  remove:
+    if: inputs.action == 'remove'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate name
+        run: |
+          case "${{ inputs.name }}" in
+            *[!a-zA-Z0-9_-]*|'')
+              echo "::error::name must match [a-zA-Z0-9_-]+ (got '${{ inputs.name }}')"
+              exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      # Without this, /lab/ accretes forever — the same drift ADR-015 fixed for
+      # worktrees. Removal is a first-class action, not a manual cleanup chore.
+      - name: Remove lab/${{ inputs.name }}
+        run: |
+          if [ ! -d "lab/${{ inputs.name }}" ]; then
+            echo "::notice::lab/${{ inputs.name }} does not exist; nothing to do"
+            exit 0
+          fi
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git rm -rq "lab/${{ inputs.name }}"
+          git commit -m 'lab: remove ${{ inputs.name }}'
+          git push origin gh-pages
