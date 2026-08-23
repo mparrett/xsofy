@@ -24,7 +24,11 @@
                 must land in key (the pickup chime). The module resolves
                 note = root + 12*octave + scale[degree], from the same
                 derivation that pitched the music — in key by construction.
-     :gain :pan :delay-ms :seed  as in the prototype's sfx.lg"
+     :gain :pan :delay-ms        as in the prototype's sfx.lg
+     :seed      a DECIMAL STRING, parsed back to int64 by the module. The
+                frame travels as JSON and JS numbers are f64, which silently
+                rounds anything past 2^53 — an int64 seed does not survive
+                the trip as a number. (Caught by the browser probe.)"
   (:require [xsofy.music :as music]
             [xsofy.det :as det]))
 
@@ -70,14 +74,14 @@
     :note (+ 43 (jit seed :note 2))
     :gain (* 0.32 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
-    :seed seed}])
+    :seed (str seed)}])
 
 (defn- combat-hit-shots [ev seed]
   [{:shot :hit
     :note (+ 45 (jit seed :note 3))
     :gain (* 0.9 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
-    :seed seed}])
+    :seed (str seed)}])
 
 (defn- pickup-shots
   "Two plucks a fifth apart, high register, 70 ms apart. Pitch crosses as
@@ -85,9 +89,9 @@
    own scale (the same derivation that pitched the music), so the chime is
    in key by construction — the trick a sample library can't do."
   [ev seed]
-  [{:shot :pluck :degree 0 :octave 2 :gain 0.65 :pan 0.45 :seed seed}
+  [{:shot :pluck :degree 0 :octave 2 :gain 0.65 :pan 0.45 :seed (str seed)}
    {:shot :pluck :degree 4 :octave 2 :gain 0.55 :pan 0.55 :delay-ms 70
-    :seed (det/combine seed [:second])}])
+    :seed (str (det/combine seed [:second]))}])
 
 (defn for-event
   "One event descriptor -> a vector of trigger maps."
@@ -126,7 +130,7 @@
                    (if stepped (conj base {:kind :footstep}) base))
         salt     (or (:turn new-world) 0)]
     {:mood           :dungeon ; no overworld yet — single mood until there is
-     :seed           (music/music-seed new-world)
+     :seed           (str (music/music-seed new-world))
      :depth          (or (:depth new-world) 1)
      :tension-target (music/tension-target new-world)
      :triggers       (for-events new-world salt evs)}))
