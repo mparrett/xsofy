@@ -76,12 +76,54 @@
     :pan  (pan-of (:dir ev))
     :seed (str seed)}])
 
-(defn- combat-hit-shots [ev seed]
+(defn- combat-hit-shots
+  "Fighting you can hear but are not part of — creature versus creature.
+   Spatial, and deliberately plain: it is scenery, not feedback."
+  [ev seed]
   [{:shot :hit
     :note (+ 45 (jit seed :note 3))
     :gain (* 0.9 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed (str seed)}])
+
+(defn severity
+  "0..1 — how big a bite the blow took out of its target. A FRACTION of the
+   target's max hp rather than raw damage, so the scale means the same thing
+   against a rat and against something enormous. Producers compute it; the
+   default is a mid-weight blow for any producer that does not."
+  [ev]
+  (max 0.0 (min 1.0 (double (or (:severity ev) 0.3)))))
+
+(defn- hit-dealt-shots
+  "Damage YOU deal. Severity drives pitch and level together: a glancing blow
+   is a high quick tick, a heavy one drops nearly an octave and hits harder —
+   the standard bigger-is-lower-and-louder mapping, which is what makes a
+   heavy hit read as heavy without needing a separate sound for it.
+
+   A kill adds a second, lower shot just behind the first, so 'it went down'
+   is audible as a fall rather than announced by an unrelated noise."
+  [ev seed]
+  (let [s    (severity ev)
+        note (- 48 (int (* 11.0 s)) (jit seed :note 1))
+        gain (+ 0.55 (* 0.5 s))
+        base {:shot :hit :note note :gain gain :pan 0.5 :seed (str seed)}]
+    (if (:killed ev)
+      [base
+       {:shot :thud :note (- note 12) :gain (* gain 0.8) :pan 0.5
+        :delay-ms 90 :seed (str (det/combine seed [:kill]))}]
+      [base])))
+
+(defn- hit-taken-shots
+  "Damage you TAKE — its own patch (dull and low, no bright crack) rather than
+   a louder copy of the blow you land. Same severity curve, so a scratch and a
+   near-fatal blow are told apart by ear before the log is read."
+  [ev seed]
+  (let [s (severity ev)]
+    [{:shot :thud
+      :note (- 45 (int (* 9.0 s)))
+      :gain (+ 0.6 (* 0.4 s))
+      :pan  0.5
+      :seed (str seed)}]))
 
 (defn- pickup-shots
   "Two plucks a fifth apart, high register, 70 ms apart. Pitch crosses as
@@ -98,6 +140,8 @@
   [ev seed]
   (case (:kind ev)
     :footstep   (footstep-shots ev seed)
+    :hit-dealt  (hit-dealt-shots ev seed)
+    :hit-taken  (hit-taken-shots ev seed)
     :combat-hit (combat-hit-shots ev seed)
     :pickup     (pickup-shots ev seed)
     []))
