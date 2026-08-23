@@ -1,0 +1,83 @@
+(ns xsofy.test.music-test
+  "The tension model. The cases are chosen adversarially: each one is a
+   moment a plausible-looking formula gets audibly wrong — a product/geomean
+   zeroes both of the genre's tensest situations, a linear hurt curve panics
+   at a scratch, a raw creature count pegs tension on sleeping mobs across
+   the map."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.music :as music]))
+
+(def base
+  {:seed-input 42 :depth 3 :fov #{}
+   :entities {:player {:id :player :body {:hp 20 :max-hp 20}}}})
+
+(defn- at-hp [w hp] (assoc-in w [:entities :player :body :hp] hp))
+
+(defn- with-mobs
+  "n creatures with the given ai states, all placed in fov."
+  [w & states]
+  (let [ids  (map (fn [i] (keyword (str "m" i))) (range (count states)))
+        poss (map (fn [i] [i i]) (range (count states)))]
+    (assoc w
+      :fov (set poss)
+      :entities (merge (:entities w)
+                       (zipmap ids (map (fn [id st pos] {:id id :ai {:state st} :pos pos})
+                                        ids states poss))))))
+
+(defn- unseen-mobs [w & states]
+  (let [ids (map (fn [i] (keyword (str "u" i))) (range (count states)))]
+    (assoc w
+      :fov #{}
+      :entities (merge (:entities w)
+                       (zipmap ids (map (fn [id st i] {:id id :ai {:state st} :pos [i i]})
+                                        ids states (range (count states))))))))
+
+(deftest either-source-alone-raises-tension
+  (testing "full health, three hunting mobs in view — a product/geomean scores this 0"
+    (is (> (music/tension-target (with-mobs base :hunt :hunt :hunt)) 0)))
+  (testing "2/20 hp, nothing in view — likewise must not be 0"
+    (is (> (music/tension-target (at-hp base 2)) 0)))
+  (testing "together they exceed either alone, without leaving 0..1"
+    (let [swarmed (music/tension-target (with-mobs base :hunt :hunt :hunt))
+          dying   (music/tension-target (at-hp base 2))
+          both    (music/tension-target (at-hp (with-mobs base :hunt :hunt :hunt) 2))]
+      (is (> both swarmed))
+      (is (> both dying))
+      (is (<= both 1.0)))))
+
+(deftest only-visible-and-engaged-hostiles-count
+  (is (= 0 (music/engaged-hostiles base)) "empty floor")
+  (is (= 2 (music/engaged-hostiles (with-mobs base :hunt :hunt))) "two hunting, in view")
+  (is (= 1 (music/engaged-hostiles (with-mobs base :hunt :wander :sleep)))
+      "wander and sleep are not engaged")
+  (is (= 2 (music/engaged-hostiles (with-mobs base :investigate :flee)))
+      "investigate and flee are engaged")
+  (is (= 0 (music/engaged-hostiles (unseen-mobs base :hunt :hunt :hunt)))
+      "hunting but out of view"))
+
+(deftest curve-shapes
+  (testing "half health is a murmur (~0.25), not half panic"
+    (is (<= (music/hurt (at-hp base 10)) 0.3)))
+  (testing "hurt is monotonic as hp falls"
+    (let [vals (map (fn [hp] (music/hurt (at-hp base hp))) [20 15 10 5 1])]
+      (is (apply <= vals))))
+  (testing "the first hostile is the biggest single jump, and pressed never saturates"
+    (let [p (fn [n] (music/pressed (apply with-mobs base (repeat n :hunt))))
+          steps (map (fn [n] (- (p n) (p (dec n)))) [1 2 3 4])]
+      (is (every? (fn [s] (< s (first steps))) (rest steps)))
+      (is (< (p 4) 1.0)))))
+
+(deftest missing-player-pins-tension-high
+  (testing "death: every lookup falls through to its default, landing at max
+            tension by construction rather than by a forgettable special case"
+    (is (>= (music/tension-target (assoc base :entities {})) 0.99))))
+
+(deftest music-seed-stable-per-floor
+  (let [s (music/music-seed base)]
+    (testing "damage, a fight, time passing, and the rng head advancing all leave it alone"
+      (is (= s (music/music-seed (at-hp base 3))))
+      (is (= s (music/music-seed (with-mobs base :hunt :hunt))))
+      (is (= s (music/music-seed (assoc base :turn 900))))
+      (is (= s (music/music-seed (assoc base :seed 123456789)))))
+    (testing "a different depth sounds like itself"
+      (is (not= s (music/music-seed (assoc base :depth 4)))))))

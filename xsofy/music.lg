@@ -1,0 +1,98 @@
+(ns xsofy.music
+  "The world -> tension map for the audio lane.
+
+   Everything here is a PURE function of the world: no state, no I/O, no rng.
+   The audio surface is write-only (a consumer renders sound from what we
+   emit; nothing ever reads audio state back), so none of this can touch
+   replay or the deterministic chain — and because the values are pure reads,
+   replay reproduces them exactly without a single new world field.
+
+   The tension ENVELOPE (instant attack, exponential release,
+   max(target, prev*decay)) deliberately does NOT live here or anywhere in
+   the game: it carries memory, and a world field for it would need
+   construction + transition + serialization answers for a value only the
+   speakers read. The game emits the instantaneous target each turn
+   (xsofy.sfx/audio-frame); the audio module holds the accumulator and decays
+   it per frame received — one message per turn, so the half-life stays in
+   game-clock units.
+
+   Prototyped and parity-tested against the undertone engine in
+   joint-xsofy/dev/undertone (lg/music.lg there is the reference; this is the
+   integration with the real det/combine)."
+  (:require [xsofy.det :as det]))
+
+;; ---- the two tension sources ----
+
+(defn engaged-hostiles
+  "Count of creatures that are both VISIBLE (in :fov) and have noticed you
+   (:ai :state one of hunt/investigate/flee).
+
+   This is deliberately the same predicate play/apply-auto-stops uses to
+   break auto-explore. Reusing it means the music tightens exactly when the
+   game itself decides something is worth stopping for — one definition of
+   danger instead of two that drift. Raw creature count on the floor is the
+   wrong signal: most are asleep across the map and irrelevant to how the
+   moment feels."
+  [world]
+  (let [fov (or (:fov world) #{})]
+    (count (filter (fn [e]
+                     (and (:ai e)
+                          (not= :player (:id e))
+                          (:pos e)
+                          (contains? fov (:pos e))
+                          (contains? #{:hunt :investigate :flee}
+                                     (get-in e [:ai :state]))))
+                   (vals (or (:entities world) {}))))))
+
+(defn hurt
+  "0..1 from the player's wounds. Squared, so half health is a murmur (0.25)
+   rather than half panic: linear over-reacts to a scratch and leaves no
+   headroom for the genuinely dire. A missing player (death) reads 1.0
+   through the hp default — intended, and needs no special case."
+  [world]
+  (let [hp     (get-in world [:entities :player :body :hp] 0)
+        max-hp (max 1 (get-in world [:entities :player :body :max-hp] 1))
+        f      (- 1.0 (/ (double hp) (double max-hp)))]
+    (* f f)))
+
+(defn pressed
+  "0..1 from how many engaged hostiles can see you. Hyperbolic (n/(n+k))
+   rather than a clamped ratio: the first hostile is the largest single jump
+   — going from alone to not-alone is the event — and a swarm still reads
+   worse than a pair instead of flattening against a ceiling."
+  [world]
+  (let [n (double (engaged-hostiles world))]
+    (/ n (+ n 2.0))))
+
+;; ---- combining them ----
+
+(defn any-of
+  "Probabilistic OR over 0..1 values: 1 - prod(1 - x).
+
+   NOT a product or a geometric mean. Those are ANDs, and they zero out when
+   either input does, which silently mutes the two tensest situations in the
+   genre: untouched but swarmed, and nearly dead but alone. These are
+   independent sources of dread, so the combinator has to be an OR. Adding a
+   third signal later is one more argument, not a reweighting."
+  [& xs]
+  (- 1.0 (reduce * 1.0 (map (fn [x] (- 1.0 x)) xs))))
+
+(defn tension-target
+  "0..1 — the instantaneous tension the world implies. The audio module
+   applies the envelope; this is the pure target it decays toward."
+  [world]
+  (any-of (hurt world) (pressed world)))
+
+;; ---- the seed ----
+
+(defn music-seed
+  "Stable for a whole floor.
+
+   Emphatically NOT (:seed world): that is the head of the RNG chain and
+   advances every single turn, so feeding it to the derivation would re-pick
+   the lead instrument and re-roll the pattern content constantly.
+   :seed-input is run-scoped (it survives a descent) and depth names the
+   floor. det/combine keeps the music on a lineage separate from worldgen,
+   so deriving it can never perturb the floor."
+  [world]
+  (det/combine (or (:seed-input world) 0) [:music (or (:depth world) 1)]))
