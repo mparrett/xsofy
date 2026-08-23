@@ -7,6 +7,7 @@
             [xsofy.render :as render]
             [xsofy.ui :as ui]
             [xsofy.ui-bridge :as bridge]
+            [xsofy.sfx :as sfx]
             [xsofy.dispatch :as dispatch]))
 
 ;; --- Play loop (poll-based; #56) ------------------------------------------
@@ -81,11 +82,17 @@
         new-world (apply-auto-stops (dispatch/dispatch world key) world)
         _ (bridge/emit-stats new-world)
         _ (bridge/emit-replay-code new-world)
+        ;; The audio frame drains the :sfx outbox (and infers the player's
+        ;; own footstep from the pos change), so it must see the pre-dissoc
+        ;; world; both exits below then dissoc :sfx alongside :vfx so the
+        ;; outbox never survives the turn — that dissoc is what keeps it out
+        ;; of saves, the hash chain, and replay.
+        _ (bridge/emit-audio (sfx/audio-frame new-world world))
         cur-size (term/size)
         resized (not= cur-size (:size state))
         floor-changed (not= (:depth new-world) (:depth prev))]
     (if (or (not (:running new-world)) (:screen new-world))
-      (reduced new-world)
+      (reduced (dissoc new-world :sfx))
       (do
         (if (or floor-changed resized)
           (render/render-full new-world)
@@ -94,7 +101,7 @@
                 (let [[tw th] cur-size
                       panels (ui/layout tw th)]
                   (render/animate-vfx! new-world (:map panels))))))
-        (assoc state :world (dissoc new-world :vfx) :size cur-size)))))
+        (assoc state :world (dissoc new-world :vfx :sfx) :size cur-size)))))
 
 (defn play-step
   "The play loop's scan. [:action] dispatches an explicit key (cancelling any
