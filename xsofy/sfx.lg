@@ -1,0 +1,132 @@
+(ns xsofy.sfx
+  "The one-shot sfx vocabulary: event descriptors -> engine trigger maps,
+   plus the per-turn audio frame the presentation seam emits.
+
+   This is the SINGLE frontend-agnostic home for the vocabulary — the :vfx
+   seam's one thinness is a lifecycle copied per consumer, kept in sync by a
+   docstring, and audio does not repeat that. Every frontend that plays
+   sound consumes this namespace's output; none reimplements it.
+
+   Descriptors say WHAT HAPPENED ({:kind :combat-hit :dist 3 :dir 0.5}),
+   never how it sounds; producers append them to the :sfx outbox (see
+   xsofy.sound/deliver-sound and the cue helper), and the outbox is drained
+   and dissoc'd at the presentation seam every turn, exactly like :vfx — so
+   it can never reach saves, the hash chain, or replay. Everything here is
+   pure, consumes no rng, and the emitted frame is fire-and-forget: a
+   dropped or divergent sound can never touch world state.
+
+   Trigger-map contract (consumed by the undertone host's audio/trigger —
+   see joint-xsofy/dev/undertone):
+     :shot      engine patch name (:footstep :hit :pluck)
+     :note      absolute MIDI-ish note — used when pitch has no musical
+                context (impacts, steps)
+     :degree    scale degree + :octave INSTEAD of :note, for shots that
+                must land in key (the pickup chime). The module resolves
+                note = root + 12*octave + scale[degree], from the same
+                derivation that pitched the music — in key by construction.
+     :gain :pan :delay-ms :seed  as in the prototype's sfx.lg"
+  (:require [xsofy.music :as music]
+            [xsofy.det :as det]))
+
+;; ---- spatial model ----
+
+(defn attenuate
+  "Distance -> gain scale, hyperbolic like `pressed`: adjacent is nearly
+   full, six tiles is a murmur, and it never quite reaches zero — the
+   audibility cutoff is the producer's (deliver-sound's radius), not the
+   mix's."
+  [dist]
+  (/ 1.0 (+ 1.0 (* 0.3 (max 0.0 (double (or dist 0)))))))
+
+(defn pan-of
+  "Direction -1..1 (left..right) -> pan 0..1, kept off the hard edges: a
+   fully one-eared sound reads as a headphone glitch, not a position."
+  [dir]
+  (+ 0.5 (* 0.35 (max -1.0 (min 1.0 (double (or dir 0)))))))
+
+;; ---- per-event seed ----
+
+(defn- shot-seed
+  "Seeds the engine-side humanize jitter. Salted per turn and per event so
+   two footsteps in a row differ — the point — while the same replay step
+   still yields the same seed. On the det/combine lineage, separate from
+   worldgen and the gameplay chain both."
+  [world salt i]
+  (det/combine (or (:seed-input world) 0) [:sfx salt i]))
+
+(defn- jit
+  "Small deterministic offset in [-n, n], folded off the shot seed."
+  [seed k n]
+  (- (mod (bit-and (det/combine seed [k]) 0xffffff) (+ (* 2 n) 1)) n))
+
+;; ---- the vocabulary ----
+;; One function per voiced kind. Gains are relative to the music bed: the
+;; footstep is quiet BY DESIGN — it plays every turn. Unvoiced kinds
+;; (:door :idle :death today) fall through to [] — producers may emit kinds
+;; a consumer does not voice yet, and silence is the correct rendering.
+
+(defn- footstep-shots [ev seed]
+  [{:shot :footstep
+    :note (+ 43 (jit seed :note 2))
+    :gain (* 0.32 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+(defn- combat-hit-shots [ev seed]
+  [{:shot :hit
+    :note (+ 45 (jit seed :note 3))
+    :gain (* 0.9 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+(defn- pickup-shots
+  "Two plucks a fifth apart, high register, 70 ms apart. Pitch crosses as
+   scale DEGREES, not notes: the module resolves them against the floor's
+   own scale (the same derivation that pitched the music), so the chime is
+   in key by construction — the trick a sample library can't do."
+  [ev seed]
+  [{:shot :pluck :degree 0 :octave 2 :gain 0.65 :pan 0.45 :seed seed}
+   {:shot :pluck :degree 4 :octave 2 :gain 0.55 :pan 0.55 :delay-ms 70
+    :seed (det/combine seed [:second])}])
+
+(defn for-event
+  "One event descriptor -> a vector of trigger maps."
+  [ev seed]
+  (case (:kind ev)
+    :footstep   (footstep-shots ev seed)
+    :combat-hit (combat-hit-shots ev seed)
+    :pickup     (pickup-shots ev seed)
+    []))
+
+(defn for-events
+  "The turn's event list -> one flat trigger vector. `salt` names the turn."
+  [world salt evs]
+  (vec (mapcat (fn [i ev] (for-event ev (shot-seed world salt i)))
+               (range (count evs)) evs)))
+
+;; ---- the per-turn frame ----
+
+(defn audio-frame
+  "Everything the audio module needs for one turn, in one map:
+
+     :mood :seed :depth   the derivation inputs (module derives parameters
+                          via the engine's parity-tested Go derivation)
+     :tension-target      instantaneous; the module applies the envelope
+     :triggers            resolved one-shot trigger maps
+
+   The player's own footstep is INFERRED here — position changed across the
+   turn — rather than produced in world code: it needs no world change at
+   all, which keeps the busiest producer entirely presentation-side.
+   NPC/world events arrive via the :sfx outbox (xsofy.sound)."
+  [new-world prev-world]
+  (let [pos      (get-in new-world [:entities :player :pos])
+        prev-pos (get-in prev-world [:entities :player :pos])
+        stepped  (and pos prev-pos (not= pos prev-pos))
+        evs      (let [base (vec (or (:sfx new-world) []))]
+                   (if stepped (conj base {:kind :footstep}) base))
+        salt     (or (:turn new-world) 0)]
+    {:mood           :dungeon ; no overworld yet — single mood until there is
+     :seed           (music/music-seed new-world)
+     :depth          (or (:depth new-world) 1)
+     :tension-target (music/tension-target new-world)
+     :triggers       (for-events new-world salt evs)}))

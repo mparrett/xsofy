@@ -1,0 +1,112 @@
+(ns xsofy.test.sfx-test
+  "The :sfx outbox and the trigger vocabulary. Three contracts:
+   producers append descriptors without consuming rng, the vocabulary maps
+   descriptors to trigger maps deterministically (salted per turn so
+   consecutive footsteps differ), and the per-turn audio frame drains the
+   outbox and infers the player's own footstep from the position change."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.sound :as snd]
+            [xsofy.sfx :as sfx]))
+
+(def base
+  {:seed-input 42 :seed 777 :depth 3 :fov #{}
+   :entities {:player {:id :player :pos [5 5] :body {:hp 20 :max-hp 20}}}})
+
+;; ---- the outbox (deliver-sound + cue) ----
+
+(deftest deliver-sound-appends-a-descriptor
+  (let [w (snd/deliver-sound base (snd/combat-hit [8 5] "orc" "rat"))
+        ev (first (:sfx w))]
+    (is (= 1 (count (:sfx w))))
+    (is (= :combat-hit (:kind ev)))
+    (is (= 3.0 (double (:dist ev))))
+    (testing "dir points right (source east of player), normalized to -1..1"
+      (is (> (:dir ev) 0.9)))))
+
+(deftest deliver-sound-respects-the-radius
+  (testing "beyond the sound's radius nothing is appended (combat-hit radius 12)"
+    (is (nil? (:sfx (snd/deliver-sound base (snd/combat-hit [30 5] "orc" "rat")))))))
+
+(deftest deliver-sound-consumes-no-rng
+  (testing "appending is pure bookkeeping: the deterministic chain must not move"
+    (let [w (snd/deliver-sound base (snd/combat-hit [8 5] "orc" "rat"))]
+      (is (= (:seed base) (:seed w))))))
+
+(deftest deliver-sound-text-behavior-unchanged
+  (testing "the same call still logs its near/mid/far message"
+    (let [w (snd/deliver-sound base (snd/death-cry [8 5] "orc"))]
+      (is (= "You hear a shriek!" (last (:log w)))))))
+
+(deftest cue-appends-a-centered-event
+  (let [w (snd/cue base :pickup)]
+    (is (= [{:kind :pickup :dist 0}] (vec (:sfx w))))
+    (is (= (:seed base) (:seed w)))))
+
+;; ---- the vocabulary ----
+
+(defn- triggers [& evs] (sfx/for-events base 1 (vec evs)))
+
+(deftest gain-hierarchy-and-attenuation
+  (testing "the every-turn sound is the quiet one"
+    (is (< (:gain (first (triggers {:kind :footstep})))
+           (:gain (first (triggers {:kind :combat-hit}))))))
+  (testing "distance attenuates without ever muting"
+    (let [near (:gain (first (triggers {:kind :combat-hit :dist 0})))
+          far  (:gain (first (triggers {:kind :combat-hit :dist 6})))]
+      (is (< far near))
+      (is (> far 0)))))
+
+(deftest pan-follows-direction-off-the-hard-edges
+  (let [pan (fn [dir] (:pan (first (triggers {:kind :footstep :dist 4 :dir dir}))))]
+    (is (< (pan -1) (pan 0) (pan 1)))
+    (is (> (pan -1) 0.05))
+    (is (< (pan 1) 0.95))))
+
+(deftest pickup-is-a-staggered-in-key-dyad
+  (let [[a b] (triggers {:kind :pickup})]
+    (is (= 2 (count (triggers {:kind :pickup}))))
+    (testing "pitch crosses as scale degrees, resolved by the module against
+              the floor's own scale — in key by construction"
+      (is (= 0 (:degree a)))
+      (is (= 4 (:degree b)))
+      (is (nil? (:note a))))
+    (testing "the second note is the arpeggio stagger"
+      (is (> (:delay-ms b) 0)))))
+
+(deftest unknown-kinds-render-as-silence
+  (testing "producers may emit kinds a consumer does not voice yet (:door,
+            :idle, :death today)"
+    (is (= [] (triggers {:kind :thunderclap})))
+    (is (= [] (triggers {:kind :door :dist 5})))))
+
+(deftest triggers-are-salted-but-deterministic
+  (testing "same world, same turn: identical trigger maps (replay-stable)"
+    (is (= (sfx/for-events base 7 [{:kind :footstep}])
+           (sfx/for-events base 7 [{:kind :footstep}]))))
+  (testing "different turns vary the seed, so consecutive footsteps differ"
+    (let [seeds (set (map (fn [salt]
+                            (:seed (first (sfx/for-events base salt [{:kind :footstep}]))))
+                          (range 6)))]
+      (is (= 6 (count seeds))))))
+
+;; ---- the per-turn frame ----
+
+(deftest audio-frame-infers-the-players-footstep
+  (let [moved (assoc-in base [:entities :player :pos] [6 5])]
+    (testing "position changed across the turn -> one footstep trigger, with
+              no world change anywhere"
+      (is (= 1 (count (:triggers (sfx/audio-frame moved base))))))
+    (testing "stationary turn -> none"
+      (is (= 0 (count (:triggers (sfx/audio-frame base base))))))))
+
+(deftest audio-frame-drains-the-outbox
+  (let [w (snd/cue (assoc-in base [:entities :player :pos] [6 5]) :pickup)
+        frame (sfx/audio-frame w base)]
+    (testing "outbox events plus the inferred step, flattened to triggers
+              (pickup is a dyad, so 2 + 1)"
+      (is (= 3 (count (:triggers frame)))))
+    (testing "the frame carries the derivation inputs and the pure target"
+      (is (= :dungeon (:mood frame)))
+      (is (= 3 (:depth frame)))
+      (is (= 0.0 (double (:tension-target frame))))
+      (is (some? (:seed frame))))))
