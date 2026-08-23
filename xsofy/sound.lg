@@ -29,9 +29,21 @@
 
 (defn cue
   "Append a non-spatial audio event (the player's own action — a pickup, a
-   hit landing on them). dist 0, centered."
-  [world kind]
-  (update world :sfx #(conj (or % []) {:kind kind :dist 0})))
+   blow landing). dist 0, centered. The optional map carries whatever the
+   event needs beyond its kind: `:severity` (0..1 fraction of the target's
+   max hp) and `:killed` for blows."
+  ([world kind] (cue world kind {}))
+  ([world kind extra]
+   (update world :sfx #(conj (or % []) (merge {:kind kind :dist 0} extra)))))
+
+(defn blow-severity
+  "How big a bite `dmg` took out of a target — a fraction of its max hp, so
+   the same number means the same thing whatever it landed on. Guards a
+   missing or zero max-hp, which would otherwise divide by zero on a
+   template that never declared one."
+  [target dmg]
+  (let [max-hp (max 1 (get-in target [:body :max-hp] 1))]
+    (max 0.0 (min 1.0 (/ (double (or dmg 0)) (double max-hp))))))
 
 (defn- audio-event
   "The outbox append for a spatial sound, from the delivery math."

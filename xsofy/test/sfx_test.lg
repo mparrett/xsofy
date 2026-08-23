@@ -7,7 +7,9 @@
   (:require [test :refer [deftest is testing]]
             [xsofy.sound :as snd]
             [xsofy.music :as music]
-            [xsofy.sfx :as sfx]))
+            [xsofy.sfx :as sfx]
+            [xsofy.world :as w]
+            [xsofy.check-gen :as g]))
 
 (def base
   {:seed-input 42 :seed 777 :depth 3 :fov #{}
@@ -74,6 +76,53 @@
     (testing "the second note is the arpeggio stagger"
       (is (> (:delay-ms b) 0)))))
 
+;; ---- dealt vs taken damage ----
+
+(deftest dealt-and-taken-damage-are-different-sounds
+  (testing "they use different patches — taken damage is not a louder copy of
+            the blow you land"
+    (let [dealt (first (triggers {:kind :hit-dealt :severity 0.5}))
+          taken (first (triggers {:kind :hit-taken :severity 0.5}))]
+      (is (= :hit (:shot dealt)))
+      (is (= :thud (:shot taken))))))
+
+(deftest severity-drives-pitch-and-level-together
+  (testing "a heavier blow is lower AND louder — the mapping that makes a big
+            hit read as big without a second sound for it"
+    (let [light (first (triggers {:kind :hit-dealt :severity 0.05}))
+          heavy (first (triggers {:kind :hit-dealt :severity 1.0}))]
+      (is (< (:note heavy) (:note light)))
+      (is (> (:gain heavy) (:gain light)))))
+  (testing "taken damage follows the same curve"
+    (let [light (first (triggers {:kind :hit-taken :severity 0.05}))
+          heavy (first (triggers {:kind :hit-taken :severity 1.0}))]
+      (is (< (:note heavy) (:note light)))
+      (is (> (:gain heavy) (:gain light)))))
+  (testing "severity is clamped, so a producer that overshoots cannot send the
+            note out of range"
+    (is (= (:note (first (triggers {:kind :hit-dealt :severity 4.0})))
+           (:note (first (triggers {:kind :hit-dealt :severity 1.0})))))
+    (is (>= (:gain (first (triggers {:kind :hit-dealt :severity -1.0}))) 0))))
+
+(deftest a-kill-adds-a-lower-shot-behind-the-blow
+  (let [shots (triggers {:kind :hit-dealt :severity 0.6 :killed true})]
+    (is (= 2 (count shots)))
+    (testing "the second is lower and lands just behind the first, so a kill
+              reads as a fall rather than as an unrelated noise"
+      (is (< (:note (second shots)) (:note (first shots))))
+      (is (> (:delay-ms (second shots)) 0))))
+  (testing "a non-fatal blow is a single shot"
+    (is (= 1 (count (triggers {:kind :hit-dealt :severity 0.6}))))))
+
+(deftest blow-severity-is-a-fraction-of-max-hp
+  (testing "the same damage means more against a frailer target"
+    (let [rat  {:body {:hp 4 :max-hp 4}}
+          boss {:body {:hp 60 :max-hp 60}}]
+      (is (> (snd/blow-severity rat 3) (snd/blow-severity boss 3)))))
+  (testing "clamped to 1, and a missing max-hp does not divide by zero"
+    (is (= 1.0 (snd/blow-severity {:body {:max-hp 4}} 99)))
+    (is (= 1.0 (snd/blow-severity {} 5)))))
+
 (deftest unknown-kinds-render-as-silence
   (testing "producers may emit kinds a consumer does not voice yet (:door,
             :idle, :death today)"
@@ -122,3 +171,49 @@
       (is (= 3 (:depth frame)))
       (is (= 0.0 (double (:tension-target frame))))
       (is (some? (:seed frame))))))
+
+;; ---- producers, through the real combat path ----
+;; The vocabulary tests above use hand-built descriptors. These drive
+;; w/melee-attack itself, so they catch the wiring going missing — a cue
+;; deleted at the call site leaves every vocabulary test passing.
+
+(deftest melee-cues-dealt-damage-through-the-real-path
+  (let [base (g/minimal-stone-room)
+        world (-> base
+                  (assoc-in [:entities :player]
+                    {:id :player :template :player :pos [2 2]
+                     :ticks 0 :status {} :statuses {} :inventory []
+                     :body {:hp 30 :max-hp 30 :strength 5 :armor 0}})
+                  (assoc-in [:entities :rat-1]
+                    {:id :rat-1 :template :rat :pos [3 2]
+                     :ticks 0 :status {} :statuses {}
+                     :body {:hp 6 :max-hp 6 :strength 1 :armor 0}}))
+        ;; Hit or miss is RNG; try a few seeds so at least one lands.
+        worlds (map (fn [s] (w/melee-attack (assoc world :seed s) :player :rat-1))
+                    (range 12))
+        kinds  (set (map :kind (mapcat :sfx worlds)))]
+    (testing "a landed blow cues :hit-dealt, carrying severity for the mix"
+      (is (contains? kinds :hit-dealt))
+      (let [ev (first (filter (fn [e] (= :hit-dealt (:kind e)))
+                              (mapcat :sfx worlds)))]
+        (is (number? (:severity ev)))
+        (is (> (:severity ev) 0))))
+    (testing "the player's own blow is never voiced as damage taken"
+      (is (not (contains? kinds :hit-taken))))))
+
+(deftest melee-cues-taken-damage-when-the-player-is-the-target
+  (let [base (g/minimal-stone-room)
+        world (-> base
+                  (assoc-in [:entities :player]
+                    {:id :player :template :player :pos [2 2]
+                     :ticks 0 :status {} :statuses {} :inventory []
+                     :body {:hp 30 :max-hp 30 :strength 5 :armor 0}})
+                  (assoc-in [:entities :rat-1]
+                    {:id :rat-1 :template :rat :pos [3 2]
+                     :ticks 0 :status {} :statuses {}
+                     :body {:hp 6 :max-hp 6 :strength 3 :armor 0}}))
+        worlds (map (fn [s] (w/melee-attack (assoc world :seed s) :rat-1 :player))
+                    (range 12))
+        kinds  (set (map :kind (mapcat :sfx worlds)))]
+    (is (contains? kinds :hit-taken))
+    (is (not (contains? kinds :hit-dealt)))))
