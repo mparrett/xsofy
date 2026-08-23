@@ -6,6 +6,7 @@
    outbox and infers the player's own footstep from the position change."
   (:require [test :refer [deftest is testing]]
             [xsofy.sound :as snd]
+            [xsofy.music :as music]
             [xsofy.sfx :as sfx]))
 
 (def base
@@ -78,6 +79,17 @@
             :idle, :death today)"
     (is (= [] (triggers {:kind :thunderclap})))
     (is (= [] (triggers {:kind :door :dist 5})))))
+
+(deftest seeds-cross-the-wire-as-strings
+  (testing "the frame travels as JSON and JS numbers are f64, so an int64
+            seed silently rounds past 2^53 — seeds must cross as decimal
+            strings for the module to parse back. Caught by the browser
+            probe: a rendered seed came back ...335000, tail zeroed."
+    (is (string? (:seed (first (sfx/for-events base 1 [{:kind :footstep}])))))
+    (is (string? (:seed (sfx/audio-frame base base))))
+    (testing "and the string is the full-precision integer, not truncated"
+      (let [s (:seed (sfx/audio-frame base base))]
+        (is (= s (str (music/music-seed base))))))))
 
 (deftest triggers-are-salted-but-deterministic
   (testing "same world, same turn: identical trigger maps (replay-stable)"
