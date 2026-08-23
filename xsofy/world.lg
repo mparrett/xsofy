@@ -909,11 +909,15 @@
                                     (snd/creature-death target-pos def-name target-sounds)
                                     (snd/death-cry target-pos def-name))]
                   (cond
-                    ;; player attacking
+                    ;; player attacking. The audio cue rides the same :sfx
+                    ;; outbox as deliver-sound's spatial events, but as a
+                    ;; non-spatial cue: the text is already logged above, and
+                    ;; your own blow lands centered.
                     (= attacker-id :player)
                     (let [w (if killed
                               (log-msg w (str "You kill the " def-name "!" sneak-txt))
-                              (log-msg w (str "You hit the " def-name " for " dmg "." sneak-txt)))]
+                              (log-msg w (str "You hit the " def-name " for " dmg "." sneak-txt)))
+                          w (snd/cue w :combat-hit)]
                       (if killed
                         (snd/deliver-sound w death-sound)
                         w))
@@ -921,7 +925,7 @@
                     (= target-id :player)
                     (if killed
                       (log-msg w (str "The " atk-name " kills you!"))
-                      (log-msg w (str "The " atk-name " hits you for " dmg ".")))
+                      (snd/cue (log-msg w (str "The " atk-name " hits you for " dmg ".")) :combat-hit))
                     ;; creature vs creature
                     :else
                     (let [w (if killed
@@ -1140,7 +1144,7 @@
                       (name (or (:template item) (:id item))))
             result (ent/pickup-item world (:id item) :player)]
         (if result
-          (log-msg result (str "You pick up the " iname "."))
+          (snd/cue (log-msg result (str "You pick up the " iname ".")) :pickup)
           (log-msg world "Your inventory is full.")))
       (log-msg world "Nothing here to pick up."))))
 
@@ -1379,14 +1383,15 @@
           (recur (-> w
                      (update :gold #(+ (or % 0) 1))
                      (ent/remove-entity (:id item))
-                     (log-msg "You pick up gold."))
+                     (log-msg "You pick up gold.")
+                     (snd/cue :pickup))
                  (rest items))
           (if (= :runestone (:template item))
-            (recur (consume-runestone w item)
+            (recur (snd/cue (consume-runestone w item) :pickup)
                    (rest items))
           (let [result (ent/pickup-item w (:id item) :player)]
             (if result
-              (recur (log-msg result (str "You pick up the " iname "."))
+              (recur (snd/cue (log-msg result (str "You pick up the " iname ".")) :pickup)
                      (rest items))
               (-> w
                   (log-msg "Your inventory is full.")
