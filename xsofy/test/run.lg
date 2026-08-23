@@ -25,6 +25,7 @@
             [xsofy.test.scenariotest-test]
             [xsofy.test.menu-dispatch-test]
             [xsofy.test.input-test]
-            [xsofy.test.console-test]))
+            [xsofy.test.console-test]
+            [xsofy.test.music-test]))
 
 (run-tests)
