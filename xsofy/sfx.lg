@@ -65,9 +65,12 @@
 
 ;; ---- the vocabulary ----
 ;; One function per voiced kind. Gains are relative to the music bed: the
-;; footstep is quiet BY DESIGN — it plays every turn. Unvoiced kinds
-;; (:door :idle :death today) fall through to [] — producers may emit kinds
-;; a consumer does not voice yet, and silence is the correct rendering.
+;; footstep is quiet BY DESIGN — it plays every turn. An unvoiced kind falls
+;; through to [] rather than erroring: producers may emit kinds a consumer
+;; does not render yet, and silence is the correct rendering for those.
+;; :idle is the one kind that is unvoiced on PURPOSE — every sleeping creature
+;; in earshot emits it every turn, so voicing it is a decision about the noise
+;; floor, not about coverage.
 
 (defn- footstep-shots [ev seed]
   [{:shot :footstep
@@ -125,6 +128,74 @@
       :pan  0.5
       :seed (str seed)}]))
 
+(defn- door-shots
+  "A door swinging. Spatial and unhurried: it is almost always something else
+   moving through the level, and it is the main way a closed map tells you it
+   is not empty."
+  [ev seed]
+  [{:shot :creak
+    :note (+ 40 (jit seed :note 3))
+    :gain (* 0.5 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed (str seed)}])
+
+(defn- death-shots
+  "Something died. Louder than the blow that killed it and longer than any
+   impact, because it is the outcome rather than the exchange — and spatial,
+   so a death out in the dark still tells you where."
+  [ev seed]
+  [{:shot :cry
+    :note (+ 52 (jit seed :note 4))
+    :gain (* 0.8 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed (str seed)}])
+
+(defn- floor-shots
+  "Changing floor — the longest sound in the game, because it scores a
+   transition rather than an action. Pitch crosses as a scale DEGREE so it
+   lands in the key of the floor you are arriving on, not the one you left:
+   the module resolves degrees against its staged parameters, which by this
+   point are already the new floor's."
+  [ev seed]
+  [{:shot   (if (= (:dir-of-travel ev) :up) :lift :sink)
+    :degree 0
+    :octave (if (= (:dir-of-travel ev) :up) 1 0)
+    :gain   0.7
+    :pan    0.5
+    :seed   (str seed)}])
+
+(defn- blocked-shots
+  "The game said no — you walked into water, or the edge of the world, and it
+   wants confirmation. Quiet and unmusical on purpose: it fires on mistakes,
+   so it must not be satisfying to trigger."
+  [ev seed]
+  [{:shot :thunk
+    :note 40
+    :gain 0.45
+    :pan  0.5
+    :seed (str seed)}])
+
+(defn- web-shots
+  "A web: tearing free is a sharp snap, still being stuck is the same sound
+   held back. One patch, two gains — the difference the player needs to hear
+   is whether they got out, and level says that without a second sound."
+  [ev seed]
+  [{:shot :snap
+    :note (+ 55 (jit seed :note 4))
+    :gain (if (:broke ev) 0.6 0.3)
+    :pan  0.5
+    :seed (str seed)}])
+
+(defn- shoot-shots
+  "A bow releasing. Spatial, because being shot AT from somewhere is the
+   information — a shot you cannot place is just a noise."
+  [ev seed]
+  [{:shot :twang
+    :note (+ 57 (jit seed :note 3))
+    :gain (* 0.55 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed (str seed)}])
+
 (defn- pickup-shots
   "Two plucks a fifth apart, high register, 70 ms apart. Pitch crosses as
    scale DEGREES, not notes: the module resolves them against the floor's
@@ -144,6 +215,12 @@
     :hit-taken  (hit-taken-shots ev seed)
     :combat-hit (combat-hit-shots ev seed)
     :pickup     (pickup-shots ev seed)
+    :door       (door-shots ev seed)
+    :death      (death-shots ev seed)
+    :floor      (floor-shots ev seed)
+    :blocked    (blocked-shots ev seed)
+    :web        (web-shots ev seed)
+    :shoot      (shoot-shots ev seed)
     []))
 
 (defn for-events
@@ -162,17 +239,32 @@
      :tension-target      instantaneous; the module applies the envelope
      :triggers            resolved one-shot trigger maps
 
-   The player's own footstep is INFERRED here — position changed across the
-   turn — rather than produced in world code: it needs no world change at
-   all, which keeps the busiest producer entirely presentation-side.
+   Three events are INFERRED here from the two worlds rather than produced in
+   world code — the step (position changed), the floor change (depth changed),
+   and a blocked move (a hazard prompt opened). None needs a world change or a
+   producer call, which keeps the busiest sources entirely presentation-side.
    NPC/world events arrive via the :sfx outbox (xsofy.sound)."
   [new-world prev-world]
-  (let [pos      (get-in new-world [:entities :player :pos])
-        prev-pos (get-in prev-world [:entities :player :pos])
-        stepped  (and pos prev-pos (not= pos prev-pos))
-        evs      (let [base (vec (or (:sfx new-world) []))]
-                   (if stepped (conj base {:kind :footstep}) base))
-        salt     (or (:turn new-world) 0)]
+  (let [pos        (get-in new-world [:entities :player :pos])
+        prev-pos   (get-in prev-world [:entities :player :pos])
+        stepped    (and pos prev-pos (not= pos prev-pos))
+        depth      (:depth new-world)
+        prev-depth (:depth prev-world)
+        moved-floor (and depth prev-depth (not= depth prev-depth))
+        ;; A prompt that was not open and now is. The world field is the whole
+        ;; signal, so a refusal needs no producer and no world change — the
+        ;; same trick the player's own footstep uses.
+        blocked    (and (:hazard-prompt new-world)
+                        (not (:hazard-prompt prev-world)))
+        evs        (let [base (vec (or (:sfx new-world) []))
+                         base (if stepped (conj base {:kind :footstep}) base)
+                         base (if moved-floor
+                                (conj base {:kind :floor
+                                            :dir-of-travel (if (< depth prev-depth) :up :down)})
+                                base)
+                         base (if blocked (conj base {:kind :blocked}) base)]
+                     base)
+        salt       (or (:turn new-world) 0)]
     {:mood           :dungeon ; no overworld yet — single mood until there is
      :seed           (str (music/music-seed new-world))
      :depth          (or (:depth new-world) 1)
