@@ -124,10 +124,13 @@
     (is (= 1.0 (snd/blow-severity {} 5)))))
 
 (deftest unknown-kinds-render-as-silence
-  (testing "producers may emit kinds a consumer does not voice yet (:door,
-            :idle, :death today)"
+  (testing "producers may emit kinds a consumer does not voice yet, and
+            silence is the correct rendering rather than an error"
     (is (= [] (triggers {:kind :thunderclap})))
-    (is (= [] (triggers {:kind :door :dist 5})))))
+    ;; :idle is deliberately unvoiced rather than merely unwritten: every
+    ;; sleeping creature in earshot emits it every turn, so voicing it is a
+    ;; decision about the noise floor, not about coverage.
+    (is (= [] (triggers {:kind :idle :dist 5})))))
 
 (deftest seeds-cross-the-wire-as-strings
   (testing "the frame travels as JSON and JS numbers are f64, so an int64
@@ -171,6 +174,43 @@
       (is (= 3 (:depth frame)))
       (is (= 0.0 (double (:tension-target frame))))
       (is (some? (:seed frame))))))
+
+(deftest audio-frame-infers-the-floor-change
+  (let [deeper  (assoc base :depth 4)
+        shallow (assoc base :depth 2)]
+    (testing "descending scores the transition, and says which way"
+      (let [t (first (:triggers (sfx/audio-frame deeper base)))]
+        (is (= 1 (count (:triggers (sfx/audio-frame deeper base)))))
+        (is (= :sink (:shot t)))))
+    (testing "ascending is the mirror, a different patch not a flag"
+      (is (= :lift (:shot (first (:triggers (sfx/audio-frame shallow base)))))))
+    (testing "pitch crosses as a degree so it lands in the key of the floor
+              you are ARRIVING on, which the module resolves"
+      (is (some? (:degree (first (:triggers (sfx/audio-frame deeper base)))))))
+    (testing "same floor -> nothing"
+      (is (= 0 (count (:triggers (sfx/audio-frame base base))))))))
+
+(deftest audio-frame-infers-a-blocked-move
+  (let [opened (assoc base :hazard-prompt "Really swim?")]
+    (testing "a hazard prompt that was not open and now is"
+      (is (= 1 (count (:triggers (sfx/audio-frame opened base))))))
+    (testing "it fires on the EDGE, not every turn the prompt stays up —
+              otherwise standing at the water repeats it forever"
+      (is (= 0 (count (:triggers (sfx/audio-frame opened opened))))))))
+
+(deftest new-kinds-are-voiced
+  (testing "the kinds producers already emitted but nothing rendered"
+    (is (= :creak (:shot (first (triggers {:kind :door :dist 4 :dir 0.5})))))
+    (is (= :cry   (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
+    (is (= :twang (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
+    (is (= :thunk (:shot (first (triggers {:kind :blocked}))))))
+  (testing "spatial kinds attenuate with distance like every other one"
+    (is (> (:gain (first (triggers {:kind :death :dist 1})))
+           (:gain (first (triggers {:kind :death :dist 9}))))))
+  (testing "tearing free from a web is louder than still being stuck — one
+            patch, and level carries the only difference that matters"
+    (is (> (:gain (first (triggers {:kind :web :broke true})))
+           (:gain (first (triggers {:kind :web :broke false})))))))
 
 ;; ---- producers, through the real combat path ----
 ;; The vocabulary tests above use hand-built descriptors. These drive
