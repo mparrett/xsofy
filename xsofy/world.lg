@@ -1017,7 +1017,12 @@
                  :step 0 :glyph glyph :color color}
             flash {:type :flash :pos hit-pos
                    :color (if did-hit flash-color [80 80 80]) :decay 2}
-            w (update world :vfx #(into (or % []) [vfx flash]))]
+            ;; The release, not the arrival: it fires whether or not the shot
+            ;; lands, and it is spatial, so being shot at out of the dark
+            ;; still tells you from where. deliver-sound with no :msg-* keys
+            ;; is audio only — the log already narrates the hit.
+            w (-> (update world :vfx #(into (or % []) [vfx flash]))
+                  (snd/deliver-sound {:kind :shoot :pos origin :radius 14}))]
         (let [w (if (and did-hit (> dmg 0))
                   (let [hp-before (get-in hit-entity [:body :hp] 0)
                         w2 (opctx/with-context {:source launcher-id :reason :ranged}
@@ -1593,13 +1598,18 @@
     ;; webbed: struggle to break free instead of moving
     (if webbed
       (let [ttl (get-in world [:entities :player :statuses :webbed :ttl] 1)
+            ;; One sound either way, held back while you are still stuck: what
+            ;; the player needs to hear is whether they got out, and level
+            ;; says that without a second patch.
             w (if (<= ttl 1)
                 ;; break free — trample the web
                 (-> (fire/trample-web! world px py)
                     (status/remove-status :player :webbed)
+                    (snd/cue :web {:broke true})
                     (log-msg "You tear free from the web!"))
                 ;; still stuck — decrement
                 (-> (assoc-in world [:entities :player :statuses :webbed :ttl] (dec ttl))
+                    (snd/cue :web {:broke false})
                     (log-msg "You struggle against the web...")))]
         (-> w
             (add-ticks :player move-cost)
