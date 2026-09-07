@@ -1,0 +1,259 @@
+(ns xsofy.test.sfx-test
+  "The :sfx outbox and the trigger vocabulary. Three contracts:
+   producers append descriptors without consuming rng, the vocabulary maps
+   descriptors to trigger maps deterministically (salted per turn so
+   consecutive footsteps differ), and the per-turn audio frame drains the
+   outbox and infers the player's own footstep from the position change."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.sound :as snd]
+            [xsofy.music :as music]
+            [xsofy.sfx :as sfx]
+            [xsofy.world :as w]
+            [xsofy.check-gen :as g]))
+
+(def base
+  {:seed-input 42 :seed 777 :depth 3 :fov #{}
+   :entities {:player {:id :player :pos [5 5] :body {:hp 20 :max-hp 20}}}})
+
+;; ---- the outbox (deliver-sound + cue) ----
+
+(deftest deliver-sound-appends-a-descriptor
+  (let [w (snd/deliver-sound base (snd/combat-hit [8 5] "orc" "rat"))
+        ev (first (:sfx w))]
+    (is (= 1 (count (:sfx w))))
+    (is (= :combat-hit (:kind ev)))
+    (is (= 3.0 (double (:dist ev))))
+    (testing "dir points right (source east of player), normalized to -1..1"
+      (is (> (:dir ev) 0.9)))))
+
+(deftest deliver-sound-respects-the-radius
+  (testing "beyond the sound's radius nothing is appended (combat-hit radius 12)"
+    (is (nil? (:sfx (snd/deliver-sound base (snd/combat-hit [30 5] "orc" "rat")))))))
+
+(deftest deliver-sound-consumes-no-rng
+  (testing "appending is pure bookkeeping: the deterministic chain must not move"
+    (let [w (snd/deliver-sound base (snd/combat-hit [8 5] "orc" "rat"))]
+      (is (= (:seed base) (:seed w))))))
+
+(deftest deliver-sound-text-behavior-unchanged
+  (testing "the same call still logs its near/mid/far message"
+    (let [w (snd/deliver-sound base (snd/death-cry [8 5] "orc"))]
+      (is (= "You hear a shriek!" (last (:log w)))))))
+
+(deftest cue-appends-a-centered-event
+  (let [w (snd/cue base :pickup)]
+    (is (= [{:kind :pickup :dist 0}] (vec (:sfx w))))
+    (is (= (:seed base) (:seed w)))))
+
+;; ---- the vocabulary ----
+
+(defn- triggers [& evs] (sfx/for-events base 1 (vec evs)))
+
+(deftest gain-hierarchy-and-attenuation
+  (testing "the every-turn sound is the quiet one"
+    (is (< (:gain (first (triggers {:kind :footstep})))
+           (:gain (first (triggers {:kind :combat-hit}))))))
+  (testing "distance attenuates without ever muting"
+    (let [near (:gain (first (triggers {:kind :combat-hit :dist 0})))
+          far  (:gain (first (triggers {:kind :combat-hit :dist 6})))]
+      (is (< far near))
+      (is (> far 0)))))
+
+(deftest pan-follows-direction-off-the-hard-edges
+  (let [pan (fn [dir] (:pan (first (triggers {:kind :footstep :dist 4 :dir dir}))))]
+    (is (< (pan -1) (pan 0) (pan 1)))
+    (is (> (pan -1) 0.05))
+    (is (< (pan 1) 0.95))))
+
+(deftest pickup-is-a-staggered-in-key-dyad
+  (let [[a b] (triggers {:kind :pickup})]
+    (is (= 2 (count (triggers {:kind :pickup}))))
+    (testing "pitch crosses as scale degrees, resolved by the module against
+              the floor's own scale — in key by construction"
+      (is (= 0 (:degree a)))
+      (is (= 4 (:degree b)))
+      (is (nil? (:note a))))
+    (testing "the second note is the arpeggio stagger"
+      (is (> (:delay-ms b) 0)))))
+
+;; ---- dealt vs taken damage ----
+
+(deftest dealt-and-taken-damage-are-different-sounds
+  (testing "they use different patches — taken damage is not a louder copy of
+            the blow you land"
+    (let [dealt (first (triggers {:kind :hit-dealt :severity 0.5}))
+          taken (first (triggers {:kind :hit-taken :severity 0.5}))]
+      (is (= :hit (:shot dealt)))
+      (is (= :thud (:shot taken))))))
+
+(deftest severity-drives-pitch-and-level-together
+  (testing "a heavier blow is lower AND louder — the mapping that makes a big
+            hit read as big without a second sound for it"
+    (let [light (first (triggers {:kind :hit-dealt :severity 0.05}))
+          heavy (first (triggers {:kind :hit-dealt :severity 1.0}))]
+      (is (< (:note heavy) (:note light)))
+      (is (> (:gain heavy) (:gain light)))))
+  (testing "taken damage follows the same curve"
+    (let [light (first (triggers {:kind :hit-taken :severity 0.05}))
+          heavy (first (triggers {:kind :hit-taken :severity 1.0}))]
+      (is (< (:note heavy) (:note light)))
+      (is (> (:gain heavy) (:gain light)))))
+  (testing "severity is clamped, so a producer that overshoots cannot send the
+            note out of range"
+    (is (= (:note (first (triggers {:kind :hit-dealt :severity 4.0})))
+           (:note (first (triggers {:kind :hit-dealt :severity 1.0})))))
+    (is (>= (:gain (first (triggers {:kind :hit-dealt :severity -1.0}))) 0))))
+
+(deftest a-kill-adds-a-lower-shot-behind-the-blow
+  (let [shots (triggers {:kind :hit-dealt :severity 0.6 :killed true})]
+    (is (= 2 (count shots)))
+    (testing "the second is lower and lands just behind the first, so a kill
+              reads as a fall rather than as an unrelated noise"
+      (is (< (:note (second shots)) (:note (first shots))))
+      (is (> (:delay-ms (second shots)) 0))))
+  (testing "a non-fatal blow is a single shot"
+    (is (= 1 (count (triggers {:kind :hit-dealt :severity 0.6}))))))
+
+(deftest blow-severity-is-a-fraction-of-max-hp
+  (testing "the same damage means more against a frailer target"
+    (let [rat  {:body {:hp 4 :max-hp 4}}
+          boss {:body {:hp 60 :max-hp 60}}]
+      (is (> (snd/blow-severity rat 3) (snd/blow-severity boss 3)))))
+  (testing "clamped to 1, and a missing max-hp does not divide by zero"
+    (is (= 1.0 (snd/blow-severity {:body {:max-hp 4}} 99)))
+    (is (= 1.0 (snd/blow-severity {} 5)))))
+
+(deftest unknown-kinds-render-as-silence
+  (testing "producers may emit kinds a consumer does not voice yet, and
+            silence is the correct rendering rather than an error"
+    (is (= [] (triggers {:kind :thunderclap})))
+    ;; :idle is deliberately unvoiced rather than merely unwritten: every
+    ;; sleeping creature in earshot emits it every turn, so voicing it is a
+    ;; decision about the noise floor, not about coverage.
+    (is (= [] (triggers {:kind :idle :dist 5})))))
+
+(deftest seeds-cross-the-wire-as-strings
+  (testing "the frame travels as JSON and JS numbers are f64, so an int64
+            seed silently rounds past 2^53 — seeds must cross as decimal
+            strings for the module to parse back. Caught by the browser
+            probe: a rendered seed came back ...335000, tail zeroed."
+    (is (string? (:seed (first (sfx/for-events base 1 [{:kind :footstep}])))))
+    (is (string? (:seed (sfx/audio-frame base base))))
+    (testing "and the string is the full-precision integer, not truncated"
+      (let [s (:seed (sfx/audio-frame base base))]
+        (is (= s (str (music/music-seed base))))))))
+
+(deftest triggers-are-salted-but-deterministic
+  (testing "same world, same turn: identical trigger maps (replay-stable)"
+    (is (= (sfx/for-events base 7 [{:kind :footstep}])
+           (sfx/for-events base 7 [{:kind :footstep}]))))
+  (testing "different turns vary the seed, so consecutive footsteps differ"
+    (let [seeds (set (map (fn [salt]
+                            (:seed (first (sfx/for-events base salt [{:kind :footstep}]))))
+                          (range 6)))]
+      (is (= 6 (count seeds))))))
+
+;; ---- the per-turn frame ----
+
+(deftest audio-frame-infers-the-players-footstep
+  (let [moved (assoc-in base [:entities :player :pos] [6 5])]
+    (testing "position changed across the turn -> one footstep trigger, with
+              no world change anywhere"
+      (is (= 1 (count (:triggers (sfx/audio-frame moved base))))))
+    (testing "stationary turn -> none"
+      (is (= 0 (count (:triggers (sfx/audio-frame base base))))))))
+
+(deftest audio-frame-drains-the-outbox
+  (let [w (snd/cue (assoc-in base [:entities :player :pos] [6 5]) :pickup)
+        frame (sfx/audio-frame w base)]
+    (testing "outbox events plus the inferred step, flattened to triggers
+              (pickup is a dyad, so 2 + 1)"
+      (is (= 3 (count (:triggers frame)))))
+    (testing "the frame carries the derivation inputs and the pure target"
+      (is (= :dungeon (:mood frame)))
+      (is (= 3 (:depth frame)))
+      (is (= 0.0 (double (:tension-target frame))))
+      (is (some? (:seed frame))))))
+
+(deftest audio-frame-infers-the-floor-change
+  (let [deeper  (assoc base :depth 4)
+        shallow (assoc base :depth 2)]
+    (testing "descending scores the transition, and says which way"
+      (let [t (first (:triggers (sfx/audio-frame deeper base)))]
+        (is (= 1 (count (:triggers (sfx/audio-frame deeper base)))))
+        (is (= :sink (:shot t)))))
+    (testing "ascending is the mirror, a different patch not a flag"
+      (is (= :lift (:shot (first (:triggers (sfx/audio-frame shallow base)))))))
+    (testing "pitch crosses as a degree so it lands in the key of the floor
+              you are ARRIVING on, which the module resolves"
+      (is (some? (:degree (first (:triggers (sfx/audio-frame deeper base)))))))
+    (testing "same floor -> nothing"
+      (is (= 0 (count (:triggers (sfx/audio-frame base base))))))))
+
+(deftest audio-frame-infers-a-blocked-move
+  (let [opened (assoc base :hazard-prompt "Really swim?")]
+    (testing "a hazard prompt that was not open and now is"
+      (is (= 1 (count (:triggers (sfx/audio-frame opened base))))))
+    (testing "it fires on the EDGE, not every turn the prompt stays up —
+              otherwise standing at the water repeats it forever"
+      (is (= 0 (count (:triggers (sfx/audio-frame opened opened))))))))
+
+(deftest new-kinds-are-voiced
+  (testing "the kinds producers already emitted but nothing rendered"
+    (is (= :creak (:shot (first (triggers {:kind :door :dist 4 :dir 0.5})))))
+    (is (= :cry   (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
+    (is (= :twang (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
+    (is (= :thunk (:shot (first (triggers {:kind :blocked}))))))
+  (testing "spatial kinds attenuate with distance like every other one"
+    (is (> (:gain (first (triggers {:kind :death :dist 1})))
+           (:gain (first (triggers {:kind :death :dist 9}))))))
+  (testing "tearing free from a web is louder than still being stuck — one
+            patch, and level carries the only difference that matters"
+    (is (> (:gain (first (triggers {:kind :web :broke true})))
+           (:gain (first (triggers {:kind :web :broke false})))))))
+
+;; ---- producers, through the real combat path ----
+;; The vocabulary tests above use hand-built descriptors. These drive
+;; w/melee-attack itself, so they catch the wiring going missing — a cue
+;; deleted at the call site leaves every vocabulary test passing.
+
+(deftest melee-cues-dealt-damage-through-the-real-path
+  (let [base (g/minimal-stone-room)
+        world (-> base
+                  (assoc-in [:entities :player]
+                    {:id :player :template :player :pos [2 2]
+                     :ticks 0 :status {} :statuses {} :inventory []
+                     :body {:hp 30 :max-hp 30 :strength 5 :armor 0}})
+                  (assoc-in [:entities :rat-1]
+                    {:id :rat-1 :template :rat :pos [3 2]
+                     :ticks 0 :status {} :statuses {}
+                     :body {:hp 6 :max-hp 6 :strength 1 :armor 0}}))
+        ;; Hit or miss is RNG; try a few seeds so at least one lands.
+        worlds (map (fn [s] (w/melee-attack (assoc world :seed s) :player :rat-1))
+                    (range 12))
+        kinds  (set (map :kind (mapcat :sfx worlds)))]
+    (testing "a landed blow cues :hit-dealt, carrying severity for the mix"
+      (is (contains? kinds :hit-dealt))
+      (let [ev (first (filter (fn [e] (= :hit-dealt (:kind e)))
+                              (mapcat :sfx worlds)))]
+        (is (number? (:severity ev)))
+        (is (> (:severity ev) 0))))
+    (testing "the player's own blow is never voiced as damage taken"
+      (is (not (contains? kinds :hit-taken))))))
+
+(deftest melee-cues-taken-damage-when-the-player-is-the-target
+  (let [base (g/minimal-stone-room)
+        world (-> base
+                  (assoc-in [:entities :player]
+                    {:id :player :template :player :pos [2 2]
+                     :ticks 0 :status {} :statuses {} :inventory []
+                     :body {:hp 30 :max-hp 30 :strength 5 :armor 0}})
+                  (assoc-in [:entities :rat-1]
+                    {:id :rat-1 :template :rat :pos [3 2]
+                     :ticks 0 :status {} :statuses {}
+                     :body {:hp 6 :max-hp 6 :strength 3 :armor 0}}))
+        worlds (map (fn [s] (w/melee-attack (assoc world :seed s) :rat-1 :player))
+                    (range 12))
+        kinds  (set (map :kind (mapcat :sfx worlds)))]
+    (is (contains? kinds :hit-taken))
+    (is (not (contains? kinds :hit-dealt)))))

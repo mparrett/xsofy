@@ -1,0 +1,272 @@
+(ns xsofy.sfx
+  "The one-shot sfx vocabulary: event descriptors -> engine trigger maps,
+   plus the per-turn audio frame the presentation seam emits.
+
+   This is the SINGLE frontend-agnostic home for the vocabulary — the :vfx
+   seam's one thinness is a lifecycle copied per consumer, kept in sync by a
+   docstring, and audio does not repeat that. Every frontend that plays
+   sound consumes this namespace's output; none reimplements it.
+
+   Descriptors say WHAT HAPPENED ({:kind :combat-hit :dist 3 :dir 0.5}),
+   never how it sounds; producers append them to the :sfx outbox (see
+   xsofy.sound/deliver-sound and the cue helper), and the outbox is drained
+   and dissoc'd at the presentation seam every turn, exactly like :vfx — so
+   it can never reach saves, the hash chain, or replay. Everything here is
+   pure, consumes no rng, and the emitted frame is fire-and-forget: a
+   dropped or divergent sound can never touch world state.
+
+   Trigger-map contract (consumed by the undertone host's audio/trigger —
+   see joint-xsofy/dev/undertone):
+     :shot      engine patch name (:footstep :hit :pluck)
+     :note      absolute MIDI-ish note — used when pitch has no musical
+                context (impacts, steps)
+     :degree    scale degree + :octave INSTEAD of :note, for shots that
+                must land in key (the pickup chime). The module resolves
+                note = root + 12*octave + scale[degree], from the same
+                derivation that pitched the music — in key by construction.
+     :gain :pan :delay-ms        as in the prototype's sfx.lg
+     :seed      a DECIMAL STRING, parsed back to int64 by the module. The
+                frame travels as JSON and JS numbers are f64, which silently
+                rounds anything past 2^53 — an int64 seed does not survive
+                the trip as a number. (Caught by the browser probe.)"
+  (:require [xsofy.music :as music]
+            [xsofy.det :as det]))
+
+;; ---- spatial model ----
+
+(defn attenuate
+  "Distance -> gain scale, hyperbolic like `pressed`: adjacent is nearly
+   full, six tiles is a murmur, and it never quite reaches zero — the
+   audibility cutoff is the producer's (deliver-sound's radius), not the
+   mix's."
+  [dist]
+  (/ 1.0 (+ 1.0 (* 0.3 (max 0.0 (double (or dist 0)))))))
+
+(defn pan-of
+  "Direction -1..1 (left..right) -> pan 0..1, kept off the hard edges: a
+   fully one-eared sound reads as a headphone glitch, not a position."
+  [dir]
+  (+ 0.5 (* 0.35 (max -1.0 (min 1.0 (double (or dir 0)))))))
+
+;; ---- per-event seed ----
+
+(defn- shot-seed
+  "Seeds the engine-side humanize jitter. Salted per turn and per event so
+   two footsteps in a row differ — the point — while the same replay step
+   still yields the same seed. On the det/combine lineage, separate from
+   worldgen and the gameplay chain both."
+  [world salt i]
+  (det/combine (or (:seed-input world) 0) [:sfx salt i]))
+
+(defn- jit
+  "Small deterministic offset in [-n, n], folded off the shot seed."
+  [seed k n]
+  (- (mod (bit-and (det/combine seed [k]) 0xffffff) (+ (* 2 n) 1)) n))
+
+;; ---- the vocabulary ----
+;; One function per voiced kind. Gains are relative to the music bed: the
+;; footstep is quiet BY DESIGN — it plays every turn. An unvoiced kind falls
+;; through to [] rather than erroring: producers may emit kinds a consumer
+;; does not render yet, and silence is the correct rendering for those.
+;; :idle is the one kind that is unvoiced on PURPOSE — every sleeping creature
+;; in earshot emits it every turn, so voicing it is a decision about the noise
+;; floor, not about coverage.
+
+(defn- footstep-shots [ev seed]
+  [{:shot :footstep
+    :note (+ 43 (jit seed :note 2))
+    :gain (* 0.32 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed (str seed)}])
+
+(defn- combat-hit-shots
+  "Fighting you can hear but are not part of — creature versus creature.
+   Spatial, and deliberately plain: it is scenery, not feedback."
+  [ev seed]
+  [{:shot :hit
+    :note (+ 45 (jit seed :note 3))
+    :gain (* 0.9 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed (str seed)}])
+
+(defn severity
+  "0..1 — how big a bite the blow took out of its target. A FRACTION of the
+   target's max hp rather than raw damage, so the scale means the same thing
+   against a rat and against something enormous. Producers compute it; the
+   default is a mid-weight blow for any producer that does not."
+  [ev]
+  (max 0.0 (min 1.0 (double (or (:severity ev) 0.3)))))
+
+(defn- hit-dealt-shots
+  "Damage YOU deal. Severity drives pitch and level together: a glancing blow
+   is a high quick tick, a heavy one drops nearly an octave and hits harder —
+   the standard bigger-is-lower-and-louder mapping, which is what makes a
+   heavy hit read as heavy without needing a separate sound for it.
+
+   A kill adds a second, lower shot just behind the first, so 'it went down'
+   is audible as a fall rather than announced by an unrelated noise."
+  [ev seed]
+  (let [s    (severity ev)
+        note (- 48 (int (* 11.0 s)) (jit seed :note 1))
+        gain (+ 0.55 (* 0.5 s))
+        base {:shot :hit :note note :gain gain :pan 0.5 :seed (str seed)}]
+    (if (:killed ev)
+      [base
+       {:shot :thud :note (- note 12) :gain (* gain 0.8) :pan 0.5
+        :delay-ms 90 :seed (str (det/combine seed [:kill]))}]
+      [base])))
+
+(defn- hit-taken-shots
+  "Damage you TAKE — its own patch (dull and low, no bright crack) rather than
+   a louder copy of the blow you land. Same severity curve, so a scratch and a
+   near-fatal blow are told apart by ear before the log is read."
+  [ev seed]
+  (let [s (severity ev)]
+    [{:shot :thud
+      :note (- 45 (int (* 9.0 s)))
+      :gain (+ 0.6 (* 0.4 s))
+      :pan  0.5
+      :seed (str seed)}]))
+
+(defn- door-shots
+  "A door swinging. Spatial and unhurried: it is almost always something else
+   moving through the level, and it is the main way a closed map tells you it
+   is not empty."
+  [ev seed]
+  [{:shot :creak
+    :note (+ 40 (jit seed :note 3))
+    :gain (* 0.5 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed (str seed)}])
+
+(defn- death-shots
+  "Something died. Louder than the blow that killed it and longer than any
+   impact, because it is the outcome rather than the exchange — and spatial,
+   so a death out in the dark still tells you where."
+  [ev seed]
+  [{:shot :cry
+    :note (+ 52 (jit seed :note 4))
+    :gain (* 0.8 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed (str seed)}])
+
+(defn- floor-shots
+  "Changing floor — the longest sound in the game, because it scores a
+   transition rather than an action. Pitch crosses as a scale DEGREE so it
+   lands in the key of the floor you are arriving on, not the one you left:
+   the module resolves degrees against its staged parameters, which by this
+   point are already the new floor's."
+  [ev seed]
+  [{:shot   (if (= (:dir-of-travel ev) :up) :lift :sink)
+    :degree 0
+    :octave (if (= (:dir-of-travel ev) :up) 1 0)
+    :gain   0.7
+    :pan    0.5
+    :seed   (str seed)}])
+
+(defn- blocked-shots
+  "The game said no — you walked into water, or the edge of the world, and it
+   wants confirmation. Quiet and unmusical on purpose: it fires on mistakes,
+   so it must not be satisfying to trigger."
+  [ev seed]
+  [{:shot :thunk
+    :note 40
+    :gain 0.45
+    :pan  0.5
+    :seed (str seed)}])
+
+(defn- web-shots
+  "A web: tearing free is a sharp snap, still being stuck is the same sound
+   held back. One patch, two gains — the difference the player needs to hear
+   is whether they got out, and level says that without a second sound."
+  [ev seed]
+  [{:shot :snap
+    :note (+ 55 (jit seed :note 4))
+    :gain (if (:broke ev) 0.6 0.3)
+    :pan  0.5
+    :seed (str seed)}])
+
+(defn- shoot-shots
+  "A bow releasing. Spatial, because being shot AT from somewhere is the
+   information — a shot you cannot place is just a noise."
+  [ev seed]
+  [{:shot :twang
+    :note (+ 57 (jit seed :note 3))
+    :gain (* 0.55 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed (str seed)}])
+
+(defn- pickup-shots
+  "Two plucks a fifth apart, high register, 70 ms apart. Pitch crosses as
+   scale DEGREES, not notes: the module resolves them against the floor's
+   own scale (the same derivation that pitched the music), so the chime is
+   in key by construction — the trick a sample library can't do."
+  [ev seed]
+  [{:shot :pluck :degree 0 :octave 2 :gain 0.65 :pan 0.45 :seed (str seed)}
+   {:shot :pluck :degree 4 :octave 2 :gain 0.55 :pan 0.55 :delay-ms 70
+    :seed (str (det/combine seed [:second]))}])
+
+(defn for-event
+  "One event descriptor -> a vector of trigger maps."
+  [ev seed]
+  (case (:kind ev)
+    :footstep   (footstep-shots ev seed)
+    :hit-dealt  (hit-dealt-shots ev seed)
+    :hit-taken  (hit-taken-shots ev seed)
+    :combat-hit (combat-hit-shots ev seed)
+    :pickup     (pickup-shots ev seed)
+    :door       (door-shots ev seed)
+    :death      (death-shots ev seed)
+    :floor      (floor-shots ev seed)
+    :blocked    (blocked-shots ev seed)
+    :web        (web-shots ev seed)
+    :shoot      (shoot-shots ev seed)
+    []))
+
+(defn for-events
+  "The turn's event list -> one flat trigger vector. `salt` names the turn."
+  [world salt evs]
+  (vec (mapcat (fn [i ev] (for-event ev (shot-seed world salt i)))
+               (range (count evs)) evs)))
+
+;; ---- the per-turn frame ----
+
+(defn audio-frame
+  "Everything the audio module needs for one turn, in one map:
+
+     :mood :seed :depth   the derivation inputs (module derives parameters
+                          via the engine's parity-tested Go derivation)
+     :tension-target      instantaneous; the module applies the envelope
+     :triggers            resolved one-shot trigger maps
+
+   Three events are INFERRED here from the two worlds rather than produced in
+   world code — the step (position changed), the floor change (depth changed),
+   and a blocked move (a hazard prompt opened). None needs a world change or a
+   producer call, which keeps the busiest sources entirely presentation-side.
+   NPC/world events arrive via the :sfx outbox (xsofy.sound)."
+  [new-world prev-world]
+  (let [pos        (get-in new-world [:entities :player :pos])
+        prev-pos   (get-in prev-world [:entities :player :pos])
+        stepped    (and pos prev-pos (not= pos prev-pos))
+        depth      (:depth new-world)
+        prev-depth (:depth prev-world)
+        moved-floor (and depth prev-depth (not= depth prev-depth))
+        ;; A prompt that was not open and now is. The world field is the whole
+        ;; signal, so a refusal needs no producer and no world change — the
+        ;; same trick the player's own footstep uses.
+        blocked    (and (:hazard-prompt new-world)
+                        (not (:hazard-prompt prev-world)))
+        evs        (let [base (vec (or (:sfx new-world) []))
+                         base (if stepped (conj base {:kind :footstep}) base)
+                         base (if moved-floor
+                                (conj base {:kind :floor
+                                            :dir-of-travel (if (< depth prev-depth) :up :down)})
+                                base)
+                         base (if blocked (conj base {:kind :blocked}) base)]
+                     base)
+        salt       (or (:turn new-world) 0)]
+    {:mood           :dungeon ; no overworld yet — single mood until there is
+     :seed           (str (music/music-seed new-world))
+     :depth          (or (:depth new-world) 1)
+     :tension-target (music/tension-target new-world)
+     :triggers       (for-events new-world salt evs)}))

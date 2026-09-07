@@ -72,6 +72,17 @@
       (when-let [code (replay/encode-run-safe world)]
         (emit :replay-dump {:code code :turn t})))))
 
+(defn emit-audio
+  "Fired once per turn: the audio control frame (see xsofy.sfx/audio-frame —
+   derivation inputs, the instantaneous tension target, and the turn's
+   one-shot trigger maps). Fire-and-forget and write-only by design: the
+   consumer holds the tension envelope and renders sound, and nothing ever
+   reads audio state back into the game, so a dropped or divergent frame
+   cannot touch replay. Listen via
+   window.addEventListener('xsofy/audio', e => ...)."
+  [frame]
+  (emit :audio frame))
+
 (defn emit-term-size
   "Fired at game-loop entry and whenever the terminal reports a new size
    (xsofy/main.lg detects resize via prev-size comparison each turn).
