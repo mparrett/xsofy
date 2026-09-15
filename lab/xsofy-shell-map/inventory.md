@@ -1,8 +1,8 @@
-# xsofy shell and deploy map, as of 2026-09-15 04:45 UTC
+# xsofy shell and deploy map, as of 2026-09-15 05:02 UTC
 
 Shell, mobile, input, and deploy issues and PRs Matt touched in nooga/xsofy
 
-Counts as of 2026-09-15 04:45 UTC: 69 nodes, 168 references. Edges are `#`-references in bodies and comments; the **related** column is the same data. Interactive map: `/private/tmp/claude-501/-Users-matt-projects-new-3p-joint-xsofy/3ba6686f-6c32-436c-b81d-076b3d9bc7d1/scratchpad/xsofy-map/index.html`.
+Counts as of 2026-09-15 05:02 UTC: 69 nodes, 168 references. Edges are `#`-references in bodies and comments; the **related** column is the same data. Interactive map: `/Users/matt/projects-new/3p/joint-xsofy/pr-wip/workstream-map-republish/xsofy-map/index.html`.
 
 ## Mobile & touch UI
 

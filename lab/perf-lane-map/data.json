@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-15 04:42 UTC",
+ "generated": "2026-09-15 05:03 UTC",
  "lanes": [
   [
    "ci",
@@ -52,7 +52,10 @@
     "letgo-596-lg-compile-plan"
    ],
    "start": "",
-   "engaged": [],
+   "engaged": [
+    "mparrett",
+    "nooga"
+   ],
    "deg": 2
   },
   {
@@ -247,7 +250,9 @@
    "head": "gogen-self-aot-gaps",
    "notes": [],
    "start": "",
-   "engaged": [],
+   "engaged": [
+    "mparrett"
+   ],
    "deg": 0
   },
   {
@@ -1437,23 +1442,25 @@
    "repo": "nooga/let-go",
    "num": 440,
    "label": "#440",
-   "pr": false,
+   "pr": true,
    "state": "merged",
    "title": "feat(ir): loop-fusion (deforestation) \u2014 pass, enabled, comp-chains + into",
    "author": "nnunley",
    "created": "2026-07-11",
    "closed": "2026-07-15",
-   "merged": "",
+   "merged": "2026-07-15",
    "url": "https://github.com/nooga/let-go/pull/440",
    "lane": "ir",
    "labels": "",
-   "base": "",
-   "head": "",
+   "base": "main",
+   "head": "feat/fusion-pass",
    "notes": [
     "letgo-loop-fusion-440"
    ],
    "start": "",
-   "engaged": [],
+   "engaged": [
+    "nooga"
+   ],
    "deg": 0
   },
   {
@@ -1591,7 +1598,7 @@
    ],
    "start": "micro-opt epic (8 PRs merged)",
    "engaged": [],
-   "deg": 17
+   "deg": 18
   },
   {
    "id": "nooga/let-go#502",
@@ -1724,8 +1731,10 @@
     "letgo-simplification-audit"
    ],
    "start": "",
-   "engaged": [],
-   "deg": 6
+   "engaged": [
+    "nnunley"
+   ],
+   "deg": 10
   },
   {
    "id": "nooga/let-go#531",
@@ -1753,7 +1762,7 @@
    "engaged": [
     "mparrett"
    ],
-   "deg": 5
+   "deg": 6
   },
   {
    "id": "nooga/let-go#534",
@@ -1886,7 +1895,7 @@
     "nnunley",
     "nooga"
    ],
-   "deg": 6
+   "deg": 7
   },
   {
    "id": "nooga/let-go#559",
@@ -1961,7 +1970,6 @@
     "letgo-651-baseline-seed-answer",
     "letgo-ci-waste-review",
     "letgo-timeline-count-interaction",
-    "letgo-timeline-leg-stoptimer-overhead",
     "letgo-typeinfer-perf-audit"
    ],
    "start": "",
@@ -2239,7 +2247,7 @@
    ],
    "start": "",
    "engaged": [],
-   "deg": 4
+   "deg": 5
   },
   {
    "id": "nooga/let-go#575",
@@ -2263,7 +2271,7 @@
    ],
    "start": "",
    "engaged": [],
-   "deg": 4
+   "deg": 5
   },
   {
    "id": "nooga/let-go#578",
@@ -2364,7 +2372,8 @@
    "head": "",
    "notes": [
     "ecosystem-health-audit-2026-07",
-    "letgo-ci-waste-review"
+    "letgo-ci-waste-review",
+    "letgo-timeline-leg-stoptimer-overhead"
    ],
    "start": "CI audit tracker; item 6 is the timeline legs",
    "engaged": [],
@@ -2474,7 +2483,7 @@
    ],
    "start": "",
    "engaged": [],
-   "deg": 25
+   "deg": 24
   },
   {
    "id": "nooga/let-go#598",
@@ -2731,8 +2740,10 @@
     "letgo-vm-dispatch-articles-review"
    ],
    "start": "",
-   "engaged": [],
-   "deg": 14
+   "engaged": [
+    "mparrett"
+   ],
+   "deg": 17
   },
   {
    "id": "nooga/let-go#621",
@@ -2758,7 +2769,7 @@
    "engaged": [
     "nnunley"
    ],
-   "deg": 2
+   "deg": 3
   },
   {
    "id": "nooga/let-go#627",
@@ -3567,7 +3578,7 @@
    ],
    "start": "",
    "engaged": [],
-   "deg": 22
+   "deg": 23
   },
   {
    "id": "nooga/let-go#705",
@@ -4386,12 +4397,12 @@
    "num": 874,
    "label": "#874",
    "pr": true,
-   "state": "open",
+   "state": "merged",
    "title": "docs(design): propose the glplat host-capability seam and backend contract",
    "author": "mparrett",
    "created": "2026-09-13",
-   "closed": "",
-   "merged": "",
+   "closed": "2026-09-15",
+   "merged": "2026-09-15",
    "url": "https://github.com/nooga/let-go/pull/874",
    "lane": "foot",
    "labels": "",
@@ -4431,7 +4442,7 @@
    ],
    "start": "where runner time goes (61% timeline); cadence lever",
    "engaged": [],
-   "deg": 12
+   "deg": 11
   },
   {
    "id": "nooga/let-go#877",
@@ -4466,7 +4477,7 @@
    "label": "#878",
    "pr": true,
    "state": "open",
-   "title": "ci(perf): raise the ubuntu perf capture cap to 120 minutes",
+   "title": "ci(perf): lower the ubuntu perf capture cap to 60 minutes, provisionally",
    "author": "mparrett",
    "created": "2026-09-14",
    "closed": "",
@@ -4485,7 +4496,7 @@
    "engaged": [
     "nnunley"
    ],
-   "deg": 5
+   "deg": 4
   },
   {
    "id": "nooga/let-go#879",
@@ -4543,12 +4554,12 @@
    "num": 882,
    "label": "#882",
    "pr": true,
-   "state": "open",
+   "state": "merged",
    "title": "bench(vm): hoist per-iteration setup out of the vector benchmark loops",
    "author": "mparrett",
    "created": "2026-09-15",
-   "closed": "",
-   "merged": "",
+   "closed": "2026-09-15",
+   "merged": "2026-09-15",
    "url": "https://github.com/nooga/let-go/pull/882",
    "lane": "gate",
    "labels": "",
@@ -4561,7 +4572,7 @@
    "engaged": [
     "nnunley"
    ],
-   "deg": 6
+   "deg": 7
   },
   {
    "id": "nooga/let-go#883",
@@ -4626,13 +4637,13 @@
   },
   {
    "s": "nooga/let-go#220",
-   "t": "nooga/let-go#211",
-   "w": 3
+   "t": "nooga/let-go#210",
+   "w": 1
   },
   {
    "s": "nooga/let-go#220",
-   "t": "nooga/let-go#210",
-   "w": 1
+   "t": "nooga/let-go#211",
+   "w": 3
   },
   {
    "s": "nooga/let-go#236",
@@ -4711,12 +4722,12 @@
   },
   {
    "s": "nooga/let-go#403",
-   "t": "nooga/let-go#402",
+   "t": "nooga/let-go#401",
    "w": 1
   },
   {
    "s": "nooga/let-go#403",
-   "t": "nooga/let-go#401",
+   "t": "nooga/let-go#402",
    "w": 1
   },
   {
@@ -4751,27 +4762,7 @@
   },
   {
    "s": "nooga/let-go#425",
-   "t": "nooga/let-go#503",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#425",
-   "t": "nooga/let-go#644",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#425",
-   "t": "nooga/let-go#652",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#425",
    "t": "nooga/let-go#596",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#425",
-   "t": "nooga/let-go#620",
    "w": 1
   },
   {
@@ -4781,12 +4772,32 @@
   },
   {
    "s": "nooga/let-go#425",
+   "t": "nooga/let-go#502",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#425",
    "t": "nooga/let-go#660",
    "w": 1
   },
   {
    "s": "nooga/let-go#425",
-   "t": "nooga/let-go#502",
+   "t": "nooga/let-go#620",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#425",
+   "t": "nooga/let-go#652",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#425",
+   "t": "nooga/let-go#503",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#425",
+   "t": "nooga/let-go#644",
    "w": 1
   },
   {
@@ -4826,16 +4837,6 @@
   },
   {
    "s": "nooga/let-go#503",
-   "t": "nooga/let-go#464",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#503",
-   "t": "nooga/let-go#356",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#503",
    "t": "nooga/let-go#424",
    "w": 1
   },
@@ -4845,18 +4846,28 @@
    "w": 1
   },
   {
+   "s": "nooga/let-go#503",
+   "t": "nooga/let-go#356",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#503",
+   "t": "nooga/let-go#464",
+   "w": 1
+  },
+  {
    "s": "nooga/let-go#517",
    "t": "nooga/let-go#445",
    "w": 2
   },
   {
    "s": "nooga/let-go#522",
-   "t": "nooga/let-go#503",
+   "t": "nooga/let-go#464",
    "w": 1
   },
   {
    "s": "nooga/let-go#522",
-   "t": "nooga/let-go#464",
+   "t": "nooga/let-go#503",
    "w": 1
   },
   {
@@ -4867,6 +4878,26 @@
   {
    "s": "nooga/let-go#528",
    "t": "nooga/let-go#464",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#528",
+   "t": "nooga/let-go#531",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#528",
+   "t": "nooga/let-go#558",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#528",
+   "t": "nooga/let-go#574",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#528",
+   "t": "nooga/let-go#575",
    "w": 1
   },
   {
@@ -4881,22 +4912,22 @@
   },
   {
    "s": "nooga/let-go#534",
-   "t": "nooga/let-go#357",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#534",
    "t": "nooga/let-go#438",
    "w": 1
   },
   {
-   "s": "nooga/let-go#544",
-   "t": "nooga/let-go#528",
+   "s": "nooga/let-go#534",
+   "t": "nooga/let-go#357",
    "w": 1
   },
   {
    "s": "nooga/let-go#544",
    "t": "nooga/let-go#464",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#544",
+   "t": "nooga/let-go#528",
    "w": 1
   },
   {
@@ -4946,13 +4977,13 @@
   },
   {
    "s": "nooga/let-go#561",
-   "t": "nooga/let-go#564",
-   "w": 1
+   "t": "nooga/let-go#565",
+   "w": 2
   },
   {
    "s": "nooga/let-go#561",
-   "t": "nooga/let-go#565",
-   "w": 2
+   "t": "nooga/let-go#564",
+   "w": 1
   },
   {
    "s": "nooga/let-go#561",
@@ -4976,12 +5007,12 @@
   },
   {
    "s": "nooga/let-go#564",
-   "t": "nooga/let-go#464",
+   "t": "nooga/let-go#571",
    "w": 1
   },
   {
    "s": "nooga/let-go#564",
-   "t": "nooga/let-go#571",
+   "t": "nooga/let-go#464",
    "w": 1
   },
   {
@@ -4991,13 +5022,13 @@
   },
   {
    "s": "nooga/let-go#564",
-   "t": "nooga/let-go#236",
-   "w": 1
+   "t": "nooga/let-go#597",
+   "w": 2
   },
   {
    "s": "nooga/let-go#564",
-   "t": "nooga/let-go#597",
-   "w": 2
+   "t": "nooga/let-go#236",
+   "w": 1
   },
   {
    "s": "nooga/let-go#564",
@@ -5066,11 +5097,6 @@
   },
   {
    "s": "nooga/let-go#575",
-   "t": "nooga/let-go#528",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#575",
    "t": "nooga/let-go#558",
    "w": 1
   },
@@ -5080,18 +5106,8 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#578",
-   "t": "nooga/let-go#560",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#578",
-   "t": "nooga/let-go#559",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#578",
-   "t": "nooga/let-go#563",
+   "s": "nooga/let-go#575",
+   "t": "nooga/let-go#528",
    "w": 1
   },
   {
@@ -5101,17 +5117,7 @@
   },
   {
    "s": "nooga/let-go#578",
-   "t": "nooga/let-go#567",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#578",
-   "t": "nooga/let-go#568",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#578",
-   "t": "nooga/let-go#571",
+   "t": "nooga/let-go#563",
    "w": 1
   },
   {
@@ -5125,14 +5131,39 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#579",
-   "t": "nooga/let-go#575",
-   "w": 2
+   "s": "nooga/let-go#578",
+   "t": "nooga/let-go#568",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#578",
+   "t": "nooga/let-go#560",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#578",
+   "t": "nooga/let-go#571",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#578",
+   "t": "nooga/let-go#567",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#578",
+   "t": "nooga/let-go#559",
+   "w": 1
   },
   {
    "s": "nooga/let-go#579",
    "t": "nooga/let-go#574",
    "w": 1
+  },
+  {
+   "s": "nooga/let-go#579",
+   "t": "nooga/let-go#575",
+   "w": 2
   },
   {
    "s": "nooga/let-go#580",
@@ -5146,12 +5177,12 @@
   },
   {
    "s": "nooga/let-go#581",
-   "t": "nooga/let-go#528",
+   "t": "nooga/let-go#522",
    "w": 1
   },
   {
    "s": "nooga/let-go#581",
-   "t": "nooga/let-go#522",
+   "t": "nooga/let-go#528",
    "w": 1
   },
   {
@@ -5166,18 +5197,18 @@
   },
   {
    "s": "nooga/let-go#581",
+   "t": "nooga/let-go#882",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#581",
    "t": "nooga/let-go#573",
    "w": 1
   },
   {
    "s": "nooga/let-go#581",
-   "t": "nooga/let-go#882",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#581",
    "t": "nooga/let-go#878",
-   "w": 1
+   "w": 2
   },
   {
    "s": "nooga/let-go#582",
@@ -5191,7 +5222,12 @@
   },
   {
    "s": "nooga/let-go#583",
-   "t": "nooga/let-go#573",
+   "t": "nooga/let-go#363",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#583",
+   "t": "nooga/let-go#581",
    "w": 1
   },
   {
@@ -5201,13 +5237,8 @@
   },
   {
    "s": "nooga/let-go#583",
-   "t": "nooga/let-go#581",
+   "t": "nooga/let-go#573",
    "w": 1
-  },
-  {
-   "s": "nooga/let-go#583",
-   "t": "nooga/let-go#363",
-   "w": 2
   },
   {
    "s": "nooga/let-go#596",
@@ -5226,17 +5257,22 @@
   },
   {
    "s": "nooga/let-go#596",
-   "t": "nooga/let-go#97",
+   "t": "nooga/let-go#735",
    "w": 1
   },
   {
    "s": "nooga/let-go#596",
-   "t": "nooga/let-go#735",
+   "t": "nooga/let-go#97",
    "w": 1
   },
   {
    "s": "nooga/let-go#597",
    "t": "nooga/let-go#363",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#597",
+   "t": "nooga/let-go#328",
    "w": 2
   },
   {
@@ -5251,17 +5287,12 @@
   },
   {
    "s": "nooga/let-go#597",
-   "t": "nooga/let-go#329",
-   "w": 2
-  },
-  {
-   "s": "nooga/let-go#597",
-   "t": "nooga/let-go#328",
-   "w": 2
-  },
-  {
-   "s": "nooga/let-go#597",
    "t": "nooga/let-go#561",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#597",
+   "t": "nooga/let-go#329",
    "w": 2
   },
   {
@@ -5271,8 +5302,13 @@
   },
   {
    "s": "nooga/let-go#597",
-   "t": "nooga/let-go#238",
+   "t": "nooga/let-go#752",
    "w": 1
+  },
+  {
+   "s": "nooga/let-go#597",
+   "t": "nooga/let-go#879",
+   "w": 2
   },
   {
    "s": "nooga/let-go#597",
@@ -5281,7 +5317,17 @@
   },
   {
    "s": "nooga/let-go#597",
-   "t": "nooga/let-go#795",
+   "t": "nooga/let-go#705",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#597",
+   "t": "nooga/let-go#238",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#597",
+   "t": "nooga/let-go#663",
    "w": 1
   },
   {
@@ -5296,12 +5342,7 @@
   },
   {
    "s": "nooga/let-go#597",
-   "t": "nooga/let-go#684",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#597",
-   "t": "nooga/let-go#752",
+   "t": "nooga/let-go#791",
    "w": 1
   },
   {
@@ -5311,27 +5352,12 @@
   },
   {
    "s": "nooga/let-go#597",
-   "t": "nooga/let-go#663",
+   "t": "nooga/let-go#684",
    "w": 1
   },
   {
    "s": "nooga/let-go#597",
-   "t": "nooga/let-go#791",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#597",
-   "t": "nooga/let-go#879",
-   "w": 2
-  },
-  {
-   "s": "nooga/let-go#597",
-   "t": "nooga/let-go#705",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#599",
-   "t": "nooga/let-go#357",
+   "t": "nooga/let-go#795",
    "w": 1
   },
   {
@@ -5345,13 +5371,18 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#601",
-   "t": "nooga/let-go#558",
+   "s": "nooga/let-go#599",
+   "t": "nooga/let-go#357",
    "w": 1
   },
   {
    "s": "nooga/let-go#601",
    "t": "nooga/let-go#580",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#601",
+   "t": "nooga/let-go#558",
    "w": 1
   },
   {
@@ -5386,17 +5417,17 @@
   },
   {
    "s": "nooga/let-go#618",
-   "t": "nooga/let-go#620",
+   "t": "nooga/let-go#579",
    "w": 2
   },
   {
    "s": "nooga/let-go#618",
-   "t": "nooga/let-go#612",
+   "t": "nooga/let-go#613",
    "w": 1
   },
   {
    "s": "nooga/let-go#618",
-   "t": "nooga/let-go#613",
+   "t": "nooga/let-go#612",
    "w": 1
   },
   {
@@ -5406,7 +5437,7 @@
   },
   {
    "s": "nooga/let-go#618",
-   "t": "nooga/let-go#579",
+   "t": "nooga/let-go#620",
    "w": 2
   },
   {
@@ -5421,6 +5452,11 @@
   },
   {
    "s": "nooga/let-go#619",
+   "t": "nooga/let-go#620",
+   "w": 3
+  },
+  {
+   "s": "nooga/let-go#619",
    "t": "nooga/let-go#621",
    "w": 2
   },
@@ -5428,11 +5464,6 @@
    "s": "nooga/let-go#619",
    "t": "nooga/let-go#618",
    "w": 2
-  },
-  {
-   "s": "nooga/let-go#619",
-   "t": "nooga/let-go#620",
-   "w": 3
   },
   {
    "s": "nooga/let-go#619",
@@ -5447,12 +5478,17 @@
   {
    "s": "nooga/let-go#620",
    "t": "nooga/let-go#618",
-   "w": 1
+   "w": 5
   },
   {
    "s": "nooga/let-go#620",
    "t": "nooga/let-go#644",
-   "w": 1
+   "w": 5
+  },
+  {
+   "s": "nooga/let-go#620",
+   "t": "nooga/let-go#619",
+   "w": 5
   },
   {
    "s": "nooga/let-go#620",
@@ -5462,11 +5498,21 @@
   {
    "s": "nooga/let-go#620",
    "t": "nooga/let-go#645",
+   "w": 4
+  },
+  {
+   "s": "nooga/let-go#620",
+   "t": "nooga/let-go#621",
    "w": 1
   },
   {
    "s": "nooga/let-go#620",
-   "t": "nooga/let-go#619",
+   "t": "nooga/let-go#464",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#620",
+   "t": "nooga/let-go#700",
    "w": 1
   },
   {
@@ -5476,12 +5522,12 @@
   },
   {
    "s": "nooga/let-go#627",
-   "t": "nooga/let-go#613",
+   "t": "nooga/let-go#639",
    "w": 1
   },
   {
    "s": "nooga/let-go#627",
-   "t": "nooga/let-go#639",
+   "t": "nooga/let-go#613",
    "w": 1
   },
   {
@@ -5496,12 +5542,12 @@
   },
   {
    "s": "nooga/let-go#640",
-   "t": "nooga/let-go#627",
+   "t": "nooga/let-go#639",
    "w": 3
   },
   {
    "s": "nooga/let-go#640",
-   "t": "nooga/let-go#639",
+   "t": "nooga/let-go#627",
    "w": 3
   },
   {
@@ -5511,13 +5557,13 @@
   },
   {
    "s": "nooga/let-go#641",
-   "t": "nooga/let-go#640",
-   "w": 3
+   "t": "nooga/let-go#639",
+   "w": 2
   },
   {
    "s": "nooga/let-go#641",
-   "t": "nooga/let-go#639",
-   "w": 2
+   "t": "nooga/let-go#640",
+   "w": 3
   },
   {
    "s": "nooga/let-go#641",
@@ -5541,13 +5587,23 @@
   },
   {
    "s": "nooga/let-go#644",
+   "t": "nooga/let-go#619",
+   "w": 3
+  },
+  {
+   "s": "nooga/let-go#644",
    "t": "nooga/let-go#620",
    "w": 6
   },
   {
    "s": "nooga/let-go#644",
-   "t": "nooga/let-go#619",
-   "w": 3
+   "t": "nooga/let-go#656",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#644",
+   "t": "nooga/let-go#639",
+   "w": 1
   },
   {
    "s": "nooga/let-go#644",
@@ -5558,16 +5614,6 @@
    "s": "nooga/let-go#644",
    "t": "nooga/let-go#645",
    "w": 3
-  },
-  {
-   "s": "nooga/let-go#644",
-   "t": "nooga/let-go#639",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#644",
-   "t": "nooga/let-go#656",
-   "w": 1
   },
   {
    "s": "nooga/let-go#644",
@@ -5591,6 +5637,11 @@
   },
   {
    "s": "nooga/let-go#646",
+   "t": "nooga/let-go#620",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#646",
    "t": "nooga/let-go#645",
    "w": 1
   },
@@ -5600,23 +5651,18 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#646",
-   "t": "nooga/let-go#620",
-   "w": 1
-  },
-  {
    "s": "nooga/let-go#649",
    "t": "nooga/let-go#719",
    "w": 1
   },
   {
    "s": "nooga/let-go#649",
-   "t": "nooga/let-go#641",
+   "t": "nooga/let-go#733",
    "w": 1
   },
   {
    "s": "nooga/let-go#649",
-   "t": "nooga/let-go#733",
+   "t": "nooga/let-go#641",
    "w": 1
   },
   {
@@ -5681,13 +5727,13 @@
   },
   {
    "s": "nooga/let-go#656",
-   "t": "nooga/let-go#655",
-   "w": 2
+   "t": "nooga/let-go#639",
+   "w": 3
   },
   {
    "s": "nooga/let-go#656",
-   "t": "nooga/let-go#639",
-   "w": 3
+   "t": "nooga/let-go#655",
+   "w": 2
   },
   {
    "s": "nooga/let-go#656",
@@ -5701,13 +5747,13 @@
   },
   {
    "s": "nooga/let-go#656",
-   "t": "nooga/let-go#645",
-   "w": 2
+   "t": "nooga/let-go#693",
+   "w": 1
   },
   {
    "s": "nooga/let-go#656",
-   "t": "nooga/let-go#693",
-   "w": 1
+   "t": "nooga/let-go#645",
+   "w": 2
   },
   {
    "s": "nooga/let-go#656",
@@ -5726,11 +5772,6 @@
   },
   {
    "s": "nooga/let-go#660",
-   "t": "nooga/let-go#598",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#660",
    "t": "nooga/let-go#554",
    "w": 1
   },
@@ -5741,13 +5782,13 @@
   },
   {
    "s": "nooga/let-go#660",
-   "t": "nooga/let-go#425",
+   "t": "nooga/let-go#598",
    "w": 1
   },
   {
-   "s": "nooga/let-go#661",
-   "t": "nooga/let-go#598",
-   "w": 3
+   "s": "nooga/let-go#660",
+   "t": "nooga/let-go#425",
+   "w": 1
   },
   {
    "s": "nooga/let-go#661",
@@ -5755,9 +5796,9 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#662",
+   "s": "nooga/let-go#661",
    "t": "nooga/let-go#598",
-   "w": 1
+   "w": 3
   },
   {
    "s": "nooga/let-go#662",
@@ -5770,14 +5811,19 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#663",
-   "t": "nooga/let-go#651",
-   "w": 2
+   "s": "nooga/let-go#662",
+   "t": "nooga/let-go#598",
+   "w": 1
   },
   {
    "s": "nooga/let-go#663",
    "t": "nooga/let-go#464",
    "w": 1
+  },
+  {
+   "s": "nooga/let-go#663",
+   "t": "nooga/let-go#651",
+   "w": 2
   },
   {
    "s": "nooga/let-go#663",
@@ -5801,8 +5847,8 @@
   },
   {
    "s": "nooga/let-go#684",
-   "t": "nooga/let-go#564",
-   "w": 3
+   "t": "nooga/let-go#740",
+   "w": 5
   },
   {
    "s": "nooga/let-go#684",
@@ -5811,8 +5857,8 @@
   },
   {
    "s": "nooga/let-go#684",
-   "t": "nooga/let-go#740",
-   "w": 5
+   "t": "nooga/let-go#564",
+   "w": 3
   },
   {
    "s": "nooga/let-go#684",
@@ -5821,7 +5867,7 @@
   },
   {
    "s": "nooga/let-go#686",
-   "t": "nooga/let-go#645",
+   "t": "nooga/let-go#656",
    "w": 1
   },
   {
@@ -5831,7 +5877,7 @@
   },
   {
    "s": "nooga/let-go#686",
-   "t": "nooga/let-go#656",
+   "t": "nooga/let-go#645",
    "w": 1
   },
   {
@@ -5846,11 +5892,6 @@
   },
   {
    "s": "nooga/let-go#691",
-   "t": "nooga/let-go#645",
-   "w": 2
-  },
-  {
-   "s": "nooga/let-go#691",
    "t": "nooga/let-go#686",
    "w": 1
   },
@@ -5858,6 +5899,11 @@
    "s": "nooga/let-go#691",
    "t": "nooga/let-go#639",
    "w": 1
+  },
+  {
+   "s": "nooga/let-go#691",
+   "t": "nooga/let-go#645",
+   "w": 2
   },
   {
    "s": "nooga/let-go#691",
@@ -5871,16 +5917,6 @@
   },
   {
    "s": "nooga/let-go#693",
-   "t": "nooga/let-go#686",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#693",
-   "t": "nooga/let-go#655",
-   "w": 2
-  },
-  {
-   "s": "nooga/let-go#693",
    "t": "nooga/let-go#656",
    "w": 1
   },
@@ -5890,34 +5926,14 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#700",
+   "s": "nooga/let-go#693",
+   "t": "nooga/let-go#655",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#693",
    "t": "nooga/let-go#686",
-   "w": 2
-  },
-  {
-   "s": "nooga/let-go#700",
-   "t": "nooga/let-go#618",
    "w": 1
-  },
-  {
-   "s": "nooga/let-go#700",
-   "t": "nooga/let-go#691",
-   "w": 2
-  },
-  {
-   "s": "nooga/let-go#700",
-   "t": "nooga/let-go#644",
-   "w": 3
-  },
-  {
-   "s": "nooga/let-go#700",
-   "t": "nooga/let-go#646",
-   "w": 2
-  },
-  {
-   "s": "nooga/let-go#700",
-   "t": "nooga/let-go#645",
-   "w": 3
   },
   {
    "s": "nooga/let-go#700",
@@ -5931,6 +5947,36 @@
   },
   {
    "s": "nooga/let-go#700",
+   "t": "nooga/let-go#618",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#700",
+   "t": "nooga/let-go#686",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#700",
+   "t": "nooga/let-go#644",
+   "w": 3
+  },
+  {
+   "s": "nooga/let-go#700",
+   "t": "nooga/let-go#691",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#700",
+   "t": "nooga/let-go#646",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#700",
+   "t": "nooga/let-go#645",
+   "w": 3
+  },
+  {
+   "s": "nooga/let-go#700",
    "t": "nooga/let-go#719",
    "w": 2
   },
@@ -5941,12 +5987,7 @@
   },
   {
    "s": "nooga/let-go#700",
-   "t": "nooga/let-go#722",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#700",
-   "t": "nooga/let-go#726",
+   "t": "nooga/let-go#723",
    "w": 1
   },
   {
@@ -5956,17 +5997,17 @@
   },
   {
    "s": "nooga/let-go#700",
+   "t": "nooga/let-go#726",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#700",
+   "t": "nooga/let-go#722",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#700",
    "t": "nooga/let-go#727",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#700",
-   "t": "nooga/let-go#723",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#700",
-   "t": "nooga/let-go#730",
    "w": 1
   },
   {
@@ -5975,8 +6016,8 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#705",
-   "t": "nooga/let-go#663",
+   "s": "nooga/let-go#700",
+   "t": "nooga/let-go#730",
    "w": 1
   },
   {
@@ -5986,8 +6027,8 @@
   },
   {
    "s": "nooga/let-go#705",
-   "t": "nooga/let-go#564",
-   "w": 2
+   "t": "nooga/let-go#663",
+   "w": 1
   },
   {
    "s": "nooga/let-go#705",
@@ -6001,6 +6042,11 @@
   },
   {
    "s": "nooga/let-go#705",
+   "t": "nooga/let-go#564",
+   "w": 2
+  },
+  {
+   "s": "nooga/let-go#705",
    "t": "nooga/let-go#708",
    "w": 1
   },
@@ -6011,13 +6057,13 @@
   },
   {
    "s": "nooga/let-go#706",
-   "t": "nooga/let-go#705",
-   "w": 4
+   "t": "nooga/let-go#645",
+   "w": 1
   },
   {
    "s": "nooga/let-go#706",
-   "t": "nooga/let-go#645",
-   "w": 1
+   "t": "nooga/let-go#705",
+   "w": 4
   },
   {
    "s": "nooga/let-go#706",
@@ -6041,7 +6087,12 @@
   },
   {
    "s": "nooga/let-go#709",
-   "t": "nooga/let-go#564",
+   "t": "nooga/let-go#691",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#709",
+   "t": "nooga/let-go#706",
    "w": 1
   },
   {
@@ -6051,12 +6102,7 @@
   },
   {
    "s": "nooga/let-go#709",
-   "t": "nooga/let-go#691",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#709",
-   "t": "nooga/let-go#706",
+   "t": "nooga/let-go#564",
    "w": 1
   },
   {
@@ -6101,8 +6147,18 @@
   },
   {
    "s": "nooga/let-go#720",
+   "t": "nooga/let-go#719",
+   "w": 5
+  },
+  {
+   "s": "nooga/let-go#720",
    "t": "nooga/let-go#686",
    "w": 1
+  },
+  {
+   "s": "nooga/let-go#720",
+   "t": "nooga/let-go#726",
+   "w": 6
   },
   {
    "s": "nooga/let-go#720",
@@ -6121,28 +6177,18 @@
   },
   {
    "s": "nooga/let-go#720",
-   "t": "nooga/let-go#726",
-   "w": 6
-  },
-  {
-   "s": "nooga/let-go#720",
-   "t": "nooga/let-go#719",
-   "w": 5
-  },
-  {
-   "s": "nooga/let-go#720",
    "t": "nooga/let-go#727",
    "w": 6
   },
   {
    "s": "nooga/let-go#720",
-   "t": "nooga/let-go#706",
-   "w": 2
+   "t": "nooga/let-go#723",
+   "w": 4
   },
   {
    "s": "nooga/let-go#720",
-   "t": "nooga/let-go#723",
-   "w": 4
+   "t": "nooga/let-go#706",
+   "w": 2
   },
   {
    "s": "nooga/let-go#720",
@@ -6171,16 +6217,6 @@
   },
   {
    "s": "nooga/let-go#722",
-   "t": "nooga/let-go#620",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#722",
-   "t": "nooga/let-go#645",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#722",
    "t": "nooga/let-go#639",
    "w": 1
   },
@@ -6200,9 +6236,14 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#723",
-   "t": "nooga/let-go#719",
-   "w": 4
+   "s": "nooga/let-go#722",
+   "t": "nooga/let-go#620",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#722",
+   "t": "nooga/let-go#645",
+   "w": 1
   },
   {
    "s": "nooga/let-go#723",
@@ -6211,8 +6252,8 @@
   },
   {
    "s": "nooga/let-go#723",
-   "t": "nooga/let-go#727",
-   "w": 1
+   "t": "nooga/let-go#719",
+   "w": 4
   },
   {
    "s": "nooga/let-go#723",
@@ -6220,8 +6261,8 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#726",
-   "t": "nooga/let-go#719",
+   "s": "nooga/let-go#723",
+   "t": "nooga/let-go#727",
    "w": 1
   },
   {
@@ -6232,6 +6273,11 @@
   {
    "s": "nooga/let-go#726",
    "t": "nooga/let-go#644",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#726",
+   "t": "nooga/let-go#719",
    "w": 1
   },
   {
@@ -6246,12 +6292,12 @@
   },
   {
    "s": "nooga/let-go#730",
-   "t": "nooga/let-go#719",
+   "t": "nooga/let-go#645",
    "w": 1
   },
   {
    "s": "nooga/let-go#730",
-   "t": "nooga/let-go#645",
+   "t": "nooga/let-go#719",
    "w": 1
   },
   {
@@ -6266,12 +6312,12 @@
   },
   {
    "s": "nooga/let-go#735",
-   "t": "nooga/let-go#596",
+   "t": "nooga/let-go#425",
    "w": 2
   },
   {
    "s": "nooga/let-go#735",
-   "t": "nooga/let-go#425",
+   "t": "nooga/let-go#596",
    "w": 2
   },
   {
@@ -6286,7 +6332,7 @@
   },
   {
    "s": "nooga/let-go#740",
-   "t": "nooga/let-go#651",
+   "t": "nooga/let-go#597",
    "w": 1
   },
   {
@@ -6296,7 +6342,7 @@
   },
   {
    "s": "nooga/let-go#740",
-   "t": "nooga/let-go#597",
+   "t": "nooga/let-go#651",
    "w": 1
   },
   {
@@ -6306,12 +6352,12 @@
   },
   {
    "s": "nooga/let-go#741",
-   "t": "nooga/let-go#596",
+   "t": "nooga/let-go#97",
    "w": 1
   },
   {
    "s": "nooga/let-go#741",
-   "t": "nooga/let-go#97",
+   "t": "nooga/let-go#596",
    "w": 1
   },
   {
@@ -6346,7 +6392,7 @@
   },
   {
    "s": "nooga/let-go#791",
-   "t": "nooga/let-go#780",
+   "t": "nooga/let-go#727",
    "w": 1
   },
   {
@@ -6356,7 +6402,7 @@
   },
   {
    "s": "nooga/let-go#791",
-   "t": "nooga/let-go#727",
+   "t": "nooga/let-go#780",
    "w": 1
   },
   {
@@ -6381,12 +6427,17 @@
   },
   {
    "s": "nooga/let-go#859",
-   "t": "nooga/xsofy#192",
+   "t": "nooga/let-go#860",
    "w": 1
   },
   {
    "s": "nooga/let-go#859",
-   "t": "nooga/let-go#860",
+   "t": "nooga/xsofy#192",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#860",
+   "t": "nooga/xsofy#192",
    "w": 1
   },
   {
@@ -6395,23 +6446,18 @@
    "w": 1
   },
   {
-   "s": "nooga/let-go#860",
-   "t": "nooga/xsofy#192",
-   "w": 1
+   "s": "nooga/let-go#874",
+   "t": "nooga/let-go#744",
+   "w": 2
   },
   {
    "s": "nooga/let-go#874",
    "t": "nooga/let-go#392",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#874",
-   "t": "nooga/let-go#744",
-   "w": 1
+   "w": 2
   },
   {
    "s": "nooga/let-go#876",
-   "t": "nooga/let-go#581",
+   "t": "nooga/let-go#651",
    "w": 1
   },
   {
@@ -6426,17 +6472,17 @@
   },
   {
    "s": "nooga/let-go#876",
+   "t": "nooga/let-go#705",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#876",
    "t": "nooga/let-go#597",
    "w": 1
   },
   {
    "s": "nooga/let-go#876",
-   "t": "nooga/let-go#651",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#876",
-   "t": "nooga/let-go#705",
+   "t": "nooga/let-go#581",
    "w": 1
   },
   {
@@ -6451,17 +6497,12 @@
   },
   {
    "s": "nooga/let-go#878",
-   "t": "nooga/let-go#876",
-   "w": 1
+   "t": "nooga/let-go#882",
+   "w": 2
   },
   {
    "s": "nooga/let-go#878",
    "t": "nooga/let-go#583",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#878",
-   "t": "nooga/let-go#597",
    "w": 1
   },
   {
@@ -6486,22 +6527,22 @@
   },
   {
    "s": "nooga/let-go#882",
-   "t": "nooga/let-go#883",
-   "w": 1
-  },
-  {
-   "s": "nooga/let-go#882",
    "t": "nooga/let-go#573",
    "w": 1
   },
   {
-   "s": "nooga/let-go#883",
-   "t": "nooga/let-go#780",
+   "s": "nooga/let-go#882",
+   "t": "nooga/let-go#883",
    "w": 1
   },
   {
    "s": "nooga/let-go#883",
    "t": "nooga/let-go#882",
+   "w": 1
+  },
+  {
+   "s": "nooga/let-go#883",
+   "t": "nooga/let-go#780",
    "w": 1
   },
   {
@@ -6536,7 +6577,7 @@
   },
   {
    "s": "nooga/xsofy#147",
-   "t": "nooga/xsofy#149",
+   "t": "nooga/xsofy#145",
    "w": 1
   },
   {
@@ -6546,7 +6587,7 @@
   },
   {
    "s": "nooga/xsofy#147",
-   "t": "nooga/xsofy#145",
+   "t": "nooga/xsofy#149",
    "w": 1
   },
   {
@@ -6583,15 +6624,15 @@
  "contributors": [
   {
    "login": "mparrett",
-   "n": 167
+   "n": 170
   },
   {
    "login": "nnunley",
-   "n": 112
+   "n": 113
   },
   {
    "login": "nooga",
-   "n": 69
+   "n": 71
   }
  ]
 }
