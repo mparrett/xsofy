@@ -1,8 +1,8 @@
-# Perf lane map, as of 2026-09-15 04:40 UTC
+# Perf lane map, as of 2026-09-15 04:42 UTC
 
 Perf, bench, ratchet, and CI-timeline issues and PRs Matt touched in nooga/let-go and nooga/xsofy
 
-Counts as of 2026-09-15 04:40 UTC: 175 nodes, 393 references. Edges are `#`-references in bodies and comments; the **related** column is the same data. Interactive map: `~/projects-new/3p/joint-xsofy/perf-lane-map.html`.
+Counts as of 2026-09-15 04:42 UTC: 175 nodes, 393 references. Edges are `#`-references in bodies and comments; the **related** column is the same data. Interactive map: `~/projects-new/3p/joint-xsofy/perf-lane-map/index.html`.
 
 ## CI timeline & runners
 
