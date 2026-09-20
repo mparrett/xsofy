@@ -1,10 +1,14 @@
 # let-go version for building xsofy — single source of truth.
 # deploy-pages.yml and the test.yml floor lane both resolve the version from here.
 #
-# v1.12.2 carries everything the web bundle depends on:
+# v1.13.0 carries everything the web bundle depends on:
 #   - #378 renames the -w-shell none host mount #terminal -> #app and ships it
-#     visible; the shell (tools/xsofy-shell.html) binds #app.
+#     visible; the shell (tools/xsofy-shell.html) binds #app. Shipped in v1.12.2.
 #   - #245 (client-owned shell) and #339 (js/url-param host seam), from v1.11.1.
+#   - #859 makes vm.Int 64 bits on every host and #862 lowers a let-go :int to
+#     int64. Both are no-ops for this bundle: they only widen 32-bit-int hosts
+#     (linux/386, TinyGo wasm), and stock Go wasm was already 64-bit. Existing
+#     seeds name the same worlds.
 #
 # This was a bare commit SHA (cf195a67, #378 itself) from 2026-07-16, when no
 # release carried #378 yet. v1.12.2 shipped it on 2026-07-20, so the SHA is no
@@ -14,4 +18,4 @@
 # The floor lane cannot see that, because it runs the test suite but never
 # builds or boots the WASM bundle. Nothing shipped broken: deploy-pages.yml
 # fires only on v* tags, and the last one predates the SHA pin.
-v1.12.2
+v1.13.0
