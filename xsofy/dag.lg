@@ -14,6 +14,9 @@
                   advances it forward; commits before it are forgotten.
    - materialize = replay the action chain from :origin to a commit.
    - checkpoint-hash = OPTIONAL full content hash, only at non-history merges."
+  ;; peek here is the DAG read (materialize a commit's world), not core's
+  ;; stack peek; the domain meaning is the intended one in this namespace.
+  (:refer-clojure :exclude [peek])
   (:require [xsofy.hash :as hash]
             [xsofy.serialize :as ser]
             [xsofy.world :as world]
