@@ -1,0 +1,30 @@
+(ns xsofy.test.events-test
+  "Tests for xsofy.gl.events — glplat event strings to xsofy.input keys."
+  (:require
+   [test :refer [deftest is testing]]
+   [xsofy.gl.events :as events]))
+
+(deftest printable-press-dispatches-once
+  (testing "key: twin of a printable press is dropped; char: carries it"
+    (is (nil? (events/parse-glplat-event "key:k")))
+    (is (= "k" (events/parse-glplat-event "char:k"))))
+  (testing "a held printable key repeats through char:, not key-repeat:"
+    (is (nil? (events/parse-glplat-event "key-repeat:k")))))
+
+(deftest shifted-keys-come-from-char
+  (is (= "K" (events/parse-glplat-event "char:K")))
+  (is (= ">" (events/parse-glplat-event "char:>")))
+  (is (= "?" (events/parse-glplat-event "char:?"))))
+
+(deftest arrows-carry-the-esc-prefix
+  (is (= "\u001b[A" (events/parse-glplat-event "key:up")))
+  (is (= "\u001b[B" (events/parse-glplat-event "key:down")))
+  (is (= "\u001b[D" (events/parse-glplat-event "key:left")))
+  (is (= "\u001b[C" (events/parse-glplat-event "key:right")))
+  (testing "held arrows repeat"
+    (is (= "\u001b[A" (events/parse-glplat-event "key-repeat:up")))))
+
+(deftest named-and-unknown-events
+  (is (= "enter" (events/parse-glplat-event "key:enter")))
+  (is (= "" (events/parse-glplat-event "key:escape")))
+  (is (nil? (events/parse-glplat-event "mouse:1"))))

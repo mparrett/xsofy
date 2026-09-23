@@ -32,7 +32,8 @@
             [xsofy.test.hud-test]
             [xsofy.test.grid-test]
             [xsofy.test.mat4-test]
-            [xsofy.test.fall-test]))
+            [xsofy.test.fall-test]
+            [xsofy.test.events-test]))
 
 ;; Bare (run-tests) means "the current namespace" under let-go >= 1.13.0, whose
 ;; clojure.test port (#863) adopted Clojure's real arities. This namespace holds
