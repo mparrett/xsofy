@@ -13,6 +13,15 @@
     "right" "\u001b[C"
     nil))
 
+(def modifier-names #{"lshift" "rshift" "lctrl" "rctrl" "lalt" "ralt"})
+
+(defn- key-name->key
+  "Key string for a key:/key-repeat: name, or nil when char: or nothing
+   should carry it."
+  [name]
+  (or (arrow-seq name)
+      (when (and (> (count name) 1) (not (modifier-names name))) name)))
+
 (defn parse-glplat-event
   "Parse a glplat event string (e.g., 'key:w', 'key:escape', 'char:x') to a key
    string that input/parse-key can consume. nil means ignore this event.
@@ -29,17 +38,15 @@
    is the only one carrying shift state, and xsofy binds shifted keys (K/J/H/L
    run, > descend, ? help) that key: reports only as their lowercase name. So a
    key:/key-repeat: event naming a single printable character is dropped here
-   and its char: twin does the work."
+   and its char: twin does the work.
+
+   A bare modifier (lshift, lctrl, …) is dropped too. A terminal sends no bytes
+   for one, but here it would dispatch as an unbound key, and every dispatch
+   interrupts a run or autoexplore — so pressing Shift mid-run stopped it."
   [event-str]
   (cond
     (string/starts-with? event-str "key:escape") ""
-    (string/starts-with? event-str "key:")
-    (let [name (subs event-str 4)]
-      (or (arrow-seq name)
-          (when (> (count name) 1) name)))
-    (string/starts-with? event-str "key-repeat:")
-    (let [name (subs event-str 11)]
-      (or (arrow-seq name)
-          (when (> (count name) 1) name)))
+    (string/starts-with? event-str "key:") (key-name->key (subs event-str 4))
+    (string/starts-with? event-str "key-repeat:") (key-name->key (subs event-str 11))
     (string/starts-with? event-str "char:") (subs event-str 5)
     :else nil))

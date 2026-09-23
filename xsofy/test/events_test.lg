@@ -28,3 +28,10 @@
   (is (= "enter" (events/parse-glplat-event "key:enter")))
   (is (= "" (events/parse-glplat-event "key:escape")))
   (is (nil? (events/parse-glplat-event "mouse:1"))))
+
+(deftest bare-modifiers-are-ignored
+  ;; A terminal sends no bytes for a bare modifier, so it never interrupts a
+  ;; run or autoexplore there. Both glplat backends name them as key: events.
+  (doseq [m ["lshift" "rshift" "lctrl" "rctrl" "lalt" "ralt"]]
+    (is (nil? (events/parse-glplat-event (str "key:" m))) m)
+    (is (nil? (events/parse-glplat-event (str "key-repeat:" m))) m)))
