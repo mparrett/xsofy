@@ -21,6 +21,13 @@
   (testing "a long release reaches exactly zero, so the sink stops re-sending"
     (is (= 0.0 (audio/quantize (nth (iterate #(audio/envelope % 0.0) 1.0) 40))))))
 
+(deftest urgent-changes-are-new-floors-and-rising-tension
+  (let [k [:dungeon 7 2 0.25]]
+    (is (audio/urgent? nil k) "the first stage of a run")
+    (is (audio/urgent? k [:dungeon 8 3 0.25]) "a new floor")
+    (is (audio/urgent? k [:dungeon 7 2 0.5]) "tension rising")
+    (is (not (audio/urgent? k [:dungeon 7 2 0.125])) "tension falling waits")))
+
 (deftest the-sink-is-write-only
   (testing "every entry point returns nil, linked or not, so nothing can
             branch on whether a sound played"
