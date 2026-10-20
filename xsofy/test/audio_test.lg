@@ -1,0 +1,29 @@
+(ns xsofy.test.audio-test
+  "The audio sink. The envelope and quantizer are pure and tested directly;
+   the sink entry points are tested only for what holds on every lg — on a
+   stock lg (no undertone binding) they are no-ops that return nil."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.audio :as audio]))
+
+(deftest envelope-attacks-instantly-and-releases-slowly
+  (testing "a higher target lands at once"
+    (is (= 0.8 (audio/envelope 0.1 0.8))))
+  (testing "a lower target decays one turn's worth, not to the target"
+    (is (= (* 0.5 audio/decay) (audio/envelope 0.5 0.0))))
+  (testing "about a 7-turn half-life"
+    (let [t (nth (iterate #(audio/envelope % 0.0) 1.0) 7)]
+      (is (< 0.45 t 0.5)))))
+
+(deftest quantize-settles-a-decaying-envelope
+  (testing "1/32 steps"
+    (is (= 0.5 (audio/quantize 0.49)))
+    (is (= 0.0 (audio/quantize 0.01))))
+  (testing "a long release reaches exactly zero, so the sink stops re-sending"
+    (is (= 0.0 (audio/quantize (nth (iterate #(audio/envelope % 0.0) 1.0) 40))))))
+
+(deftest the-sink-is-write-only
+  (testing "every entry point returns nil, linked or not, so nothing can
+            branch on whether a sound played"
+    (is (nil? (audio/turn! {:mood :dungeon :seed 1 :depth 1
+                            :tension-target 0.0 :triggers []})))
+    (is (nil? (audio/outro!)))))

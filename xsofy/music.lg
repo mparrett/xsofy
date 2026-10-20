@@ -9,11 +9,11 @@
 
    The tension ENVELOPE (instant attack, exponential release,
    max(target, prev*decay)) deliberately does NOT live here or anywhere in
-   the game: it carries memory, and a world field for it would need
+   the world: it carries memory, and a world field for it would need
    construction + transition + serialization answers for a value only the
-   speakers read. The game emits the instantaneous target each turn
-   (xsofy.sfx/audio-frame); the audio module holds the accumulator and decays
-   it per frame received — one message per turn, so the half-life stays in
+   speakers read. The game computes the instantaneous target each turn
+   (xsofy.sfx/audio-frame); the sink, xsofy.audio, holds the accumulator and
+   decays it once per frame — one frame per turn, so the half-life stays in
    game-clock units.
 
    Prototyped and parity-tested against the undertone engine in
