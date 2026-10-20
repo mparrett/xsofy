@@ -17,7 +17,9 @@
             [xsofy.console :as console]
             [xsofy.seed :as seed]
             [xsofy.replay :as replay]
-            [xsofy.ui-bridge :as bridge]))
+            [xsofy.ui-bridge :as bridge]
+            [xsofy.sfx :as shots]
+            [xsofy.audio :as audio]))
 
 
 (defn init-terminal []
@@ -341,6 +343,7 @@
 (defn new-game []
   (let [sd  (seed/boot-seed)
         rng {:seed sd}
+        _   (audio/title! sd)
         {:keys [title scheme rng]} (title/show-title-screen rng)
         [quest rng] (title/generate-quest rng)
         _ (title/show-descending-screen 1 scheme)]
@@ -380,6 +383,7 @@
   [code]
   (let [{:keys [seed actions]} (replay/decode code)
         w0 (build-game seed)]
+    (audio/start! seed)
     (render/render-full w0)
     (bridge/emit-stats w0)
     (sfx/pause! 400)
@@ -394,8 +398,12 @@
                   (render/render-full w'))
                 ;; Keep the HUD stats tracking the replay as it plays out.
                 (bridge/emit-stats w')
+                ;; Voiced like a live turn, and the outbox dropped like one:
+                ;; left in place it would pile up across the whole replay and
+                ;; play as one burst on the first live turn.
+                (audio/turn! (shots/audio-frame w' w))
                 (sfx/pause! 90)
-                w'))
+                (dissoc w' :sfx)))
             w0 actions)))
 
 (defn game-loop
@@ -460,7 +468,8 @@
                      (recur w w (term/size))))))
 
          :death
-         (let [[tw th] (term/size)
+         (let [_ (audio/outro!)
+               [tw th] (term/size)
                _ (sfx/clear-screen tw th)  ;; initial clear; the loop re-clears + re-scatters on resize
                ;; Capture this organic run's replay code at its final state. On
                ;; web this always fires: the shell's config pane renders the emit

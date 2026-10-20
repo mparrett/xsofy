@@ -909,11 +909,19 @@
                                     (snd/creature-death target-pos def-name target-sounds)
                                     (snd/death-cry target-pos def-name))]
                   (cond
-                    ;; player attacking
+                    ;; player attacking. The audio cue rides the same :sfx
+                    ;; outbox as deliver-sound's spatial events, but as a
+                    ;; non-spatial cue: the text is already logged above, and
+                    ;; your own blow lands centered. Severity is the fraction
+                    ;; of the target's max hp this blow took, which is what
+                    ;; lets one sound cover a scratch and a decapitation.
                     (= attacker-id :player)
                     (let [w (if killed
                               (log-msg w (str "You kill the " def-name "!" sneak-txt))
-                              (log-msg w (str "You hit the " def-name " for " dmg "." sneak-txt)))]
+                              (log-msg w (str "You hit the " def-name " for " dmg "." sneak-txt)))
+                          w (snd/cue w :hit-dealt
+                                     {:severity (snd/blow-severity target dmg)
+                                      :killed killed})]
                       (if killed
                         (snd/deliver-sound w death-sound)
                         w))
@@ -921,7 +929,9 @@
                     (= target-id :player)
                     (if killed
                       (log-msg w (str "The " atk-name " kills you!"))
-                      (log-msg w (str "The " atk-name " hits you for " dmg ".")))
+                      (snd/cue (log-msg w (str "The " atk-name " hits you for " dmg "."))
+                               :hit-taken
+                               {:severity (snd/blow-severity target dmg)}))
                     ;; creature vs creature
                     :else
                     (let [w (if killed
@@ -1007,12 +1017,31 @@
                  :step 0 :glyph glyph :color color}
             flash {:type :flash :pos hit-pos
                    :color (if did-hit flash-color [80 80 80]) :decay 2}
-            w (update world :vfx #(into (or % []) [vfx flash]))]
+            ;; The release, not the arrival: it fires whether or not the shot
+            ;; lands, and it is spatial, so being shot at out of the dark
+            ;; still tells you from where. deliver-sound with no :msg-* keys
+            ;; is audio only — the log already narrates the hit.
+            w (-> (update world :vfx #(into (or % []) [vfx flash]))
+                  (snd/deliver-sound {:kind :shoot :pos origin :radius 14}))]
         (let [w (if (and did-hit (> dmg 0))
                   (let [hp-before (get-in hit-entity [:body :hp] 0)
                         w2 (opctx/with-context {:source launcher-id :reason :ranged}
                               (ent/damage-entity w (:id hit-entity) dmg))
-                        killed (nil? (get-in w2 [:entities (:id hit-entity)]))]
+                        killed (nil? (get-in w2 [:entities (:id hit-entity)]))
+                        ;; Same audio feedback as melee: a hit is a hit
+                        ;; whether it arrived by hand or in flight. Only
+                        ;; player-involved blows cue — creature-on-creature
+                        ;; ranged fire is scenery and stays with the spatial
+                        ;; sounds.
+                        w2 (cond
+                             (= launcher-id :player)
+                             (snd/cue w2 :hit-dealt
+                                      {:severity (snd/blow-severity hit-entity dmg)
+                                       :killed killed})
+                             (= (:id hit-entity) :player)
+                             (snd/cue w2 :hit-taken
+                                      {:severity (snd/blow-severity hit-entity dmg)})
+                             :else w2)]
                     (if hit-pos
                       (splatter-blood w2 (first hit-pos) (second hit-pos)
                                       dmg hp-before killed)
@@ -1140,7 +1169,7 @@
                       (name (or (:template item) (:id item))))
             result (ent/pickup-item world (:id item) :player)]
         (if result
-          (log-msg result (str "You pick up the " iname "."))
+          (snd/cue (log-msg result (str "You pick up the " iname ".")) :pickup)
           (log-msg world "Your inventory is full.")))
       (log-msg world "Nothing here to pick up."))))
 
@@ -1379,14 +1408,15 @@
           (recur (-> w
                      (update :gold #(+ (or % 0) 1))
                      (ent/remove-entity (:id item))
-                     (log-msg "You pick up gold."))
+                     (log-msg "You pick up gold.")
+                     (snd/cue :pickup))
                  (rest items))
           (if (= :runestone (:template item))
-            (recur (consume-runestone w item)
+            (recur (snd/cue (consume-runestone w item) :pickup)
                    (rest items))
           (let [result (ent/pickup-item w (:id item) :player)]
             (if result
-              (recur (log-msg result (str "You pick up the " iname "."))
+              (recur (snd/cue (log-msg result (str "You pick up the " iname ".")) :pickup)
                      (rest items))
               (-> w
                   (log-msg "Your inventory is full.")
@@ -1568,13 +1598,18 @@
     ;; webbed: struggle to break free instead of moving
     (if webbed
       (let [ttl (get-in world [:entities :player :statuses :webbed :ttl] 1)
+            ;; One sound either way, held back while you are still stuck: what
+            ;; the player needs to hear is whether they got out, and level
+            ;; says that without a second patch.
             w (if (<= ttl 1)
                 ;; break free — trample the web
                 (-> (fire/trample-web! world px py)
                     (status/remove-status :player :webbed)
+                    (snd/cue :web {:broke true})
                     (log-msg "You tear free from the web!"))
                 ;; still stuck — decrement
                 (-> (assoc-in world [:entities :player :statuses :webbed :ttl] (dec ttl))
+                    (snd/cue :web {:broke false})
                     (log-msg "You struggle against the web...")))]
         (-> w
             (add-ticks :player move-cost)
