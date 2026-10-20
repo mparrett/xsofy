@@ -25,6 +25,10 @@
       (require '[undertone.ambience])
       {:trigger        @(resolve 'undertone/trigger)
        :set-parameters @(resolve 'undertone/set-parameters)
+       ;; Newer than the rest (undertone#60); without it every change waits
+       ;; for the pattern boundary.
+       :set-parameters-now (or (some-> (resolve 'undertone/set-parameters-now) deref)
+                               @(resolve 'undertone/set-parameters))
        :music-start    @(resolve 'undertone/music-start)
        :play-theme     @(resolve 'undertone/play-theme)
        :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
@@ -63,11 +67,24 @@
 (def ^:private state
   (atom {:tension 0.0 :sent nil :outro false}))
 
+(defn urgent?
+  "Whether a mood change should be heard now rather than at the next pattern
+   boundary, about 7 s away at the dungeon's tempo. A new floor and rising
+   tension are: arriving somewhere and danger arriving are both events, and
+   hearing them seconds late detaches the music from them. Falling tension is
+   relief, which the envelope already spreads over turns, so it can wait."
+  [prev k]
+  (or (nil? prev)
+      (not= (pop prev) (pop k))
+      (> (peek k) (peek prev))))
+
 (defn- score! [mood seed depth tension]
-  (let [k [mood seed depth (quantize tension)]]
-    (when (not= k (:sent @state))
+  (let [k    [mood seed depth (quantize tension)]
+        prev (:sent @state)]
+    (when (not= k prev)
       (swap! state assoc :sent k)
-      (call :set-parameters (call :derive-mood mood seed depth (peek k))))))
+      (call (if (urgent? prev k) :set-parameters-now :set-parameters)
+            (call :derive-mood mood seed depth (peek k))))))
 
 ;; ---- themes ----
 ;; Grids are 16 eighth-note steps in scale degrees (1..8, 0 rests), so a theme
