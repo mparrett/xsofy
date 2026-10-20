@@ -8,6 +8,7 @@
             [xsofy.ui :as ui]
             [xsofy.ui-bridge :as bridge]
             [xsofy.sfx :as sfx]
+            [xsofy.audio :as audio]
             [xsofy.dispatch :as dispatch]))
 
 ;; --- Play loop (poll-based; #56) ------------------------------------------
@@ -87,7 +88,7 @@
         ;; world; both exits below then dissoc :sfx alongside :vfx so the
         ;; outbox never survives the turn — that dissoc is what keeps it out
         ;; of saves, the hash chain, and replay.
-        _ (bridge/emit-audio (sfx/audio-frame new-world world))
+        _ (audio/turn! (sfx/audio-frame new-world world))
         cur-size (term/size)
         resized (not= cur-size (:size state))
         floor-changed (not= (:depth new-world) (:depth prev))]

@@ -29,7 +29,8 @@
             [xsofy.test.input-test]
             [xsofy.test.console-test]
             [xsofy.test.music-test]
-            [xsofy.test.sfx-test]))
+            [xsofy.test.sfx-test]
+            [xsofy.test.audio-test]))
 
 ;; Bare (run-tests) means "the current namespace" under let-go >= 1.13.0, whose
 ;; clojure.test port (#863) adopted Clojure's real arities. This namespace holds

@@ -15,8 +15,7 @@
    pure, consumes no rng, and the emitted frame is fire-and-forget: a
    dropped or divergent sound can never touch world state.
 
-   Trigger-map contract (consumed by the undertone host's audio/trigger —
-   see joint-xsofy/dev/undertone):
+   Trigger-map contract (consumed by undertone/trigger, through xsofy.audio):
      :shot      engine patch name (:footstep :hit :pluck)
      :note      absolute MIDI-ish note — used when pitch has no musical
                 context (impacts, steps)
@@ -25,10 +24,7 @@
                 note = root + 12*octave + scale[degree], from the same
                 derivation that pitched the music — in key by construction.
      :gain :pan :delay-ms        as in the prototype's sfx.lg
-     :seed      a DECIMAL STRING, parsed back to int64 by the module. The
-                frame travels as JSON and JS numbers are f64, which silently
-                rounds anything past 2^53 — an int64 seed does not survive
-                the trip as a number. (Caught by the browser probe.)"
+     :seed      the engine's humanize seed, an int"
   (:require [xsofy.music :as music]
             [xsofy.det :as det]))
 
@@ -77,7 +73,7 @@
     :note (+ 43 (jit seed :note 2))
     :gain (* 0.32 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
-    :seed (str seed)}])
+    :seed seed}])
 
 (defn- combat-hit-shots
   "Fighting you can hear but are not part of — creature versus creature.
@@ -87,7 +83,7 @@
     :note (+ 45 (jit seed :note 3))
     :gain (* 0.9 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
-    :seed (str seed)}])
+    :seed seed}])
 
 (defn severity
   "0..1 — how big a bite the blow took out of its target. A FRACTION of the
@@ -109,11 +105,11 @@
   (let [s    (severity ev)
         note (- 48 (int (* 11.0 s)) (jit seed :note 1))
         gain (+ 0.55 (* 0.5 s))
-        base {:shot :hit :note note :gain gain :pan 0.5 :seed (str seed)}]
+        base {:shot :hit :note note :gain gain :pan 0.5 :seed seed}]
     (if (:killed ev)
       [base
        {:shot :thud :note (- note 12) :gain (* gain 0.8) :pan 0.5
-        :delay-ms 90 :seed (str (det/combine seed [:kill]))}]
+        :delay-ms 90 :seed (det/combine seed [:kill])}]
       [base])))
 
 (defn- hit-taken-shots
@@ -126,7 +122,7 @@
       :note (- 45 (int (* 9.0 s)))
       :gain (+ 0.6 (* 0.4 s))
       :pan  0.5
-      :seed (str seed)}]))
+      :seed seed}]))
 
 (defn- door-shots
   "A door swinging. Spatial and unhurried: it is almost always something else
@@ -137,7 +133,7 @@
     :note (+ 40 (jit seed :note 3))
     :gain (* 0.5 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
-    :seed (str seed)}])
+    :seed seed}])
 
 (defn- death-shots
   "Something died. Louder than the blow that killed it and longer than any
@@ -148,7 +144,7 @@
     :note (+ 52 (jit seed :note 4))
     :gain (* 0.8 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
-    :seed (str seed)}])
+    :seed seed}])
 
 (defn- floor-shots
   "Changing floor — the longest sound in the game, because it scores a
@@ -162,7 +158,7 @@
     :octave (if (= (:dir-of-travel ev) :up) 1 0)
     :gain   0.7
     :pan    0.5
-    :seed   (str seed)}])
+    :seed   seed}])
 
 (defn- blocked-shots
   "The game said no — you walked into water, or the edge of the world, and it
@@ -173,7 +169,7 @@
     :note 40
     :gain 0.45
     :pan  0.5
-    :seed (str seed)}])
+    :seed seed}])
 
 (defn- web-shots
   "A web: tearing free is a sharp snap, still being stuck is the same sound
@@ -184,7 +180,7 @@
     :note (+ 55 (jit seed :note 4))
     :gain (if (:broke ev) 0.6 0.3)
     :pan  0.5
-    :seed (str seed)}])
+    :seed seed}])
 
 (defn- shoot-shots
   "A bow releasing. Spatial, because being shot AT from somewhere is the
@@ -194,7 +190,7 @@
     :note (+ 57 (jit seed :note 3))
     :gain (* 0.55 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
-    :seed (str seed)}])
+    :seed seed}])
 
 (defn- pickup-shots
   "Two plucks a fifth apart, high register, 70 ms apart. Pitch crosses as
@@ -202,9 +198,9 @@
    own scale (the same derivation that pitched the music), so the chime is
    in key by construction — the trick a sample library can't do."
   [ev seed]
-  [{:shot :pluck :degree 0 :octave 2 :gain 0.65 :pan 0.45 :seed (str seed)}
+  [{:shot :pluck :degree 0 :octave 2 :gain 0.65 :pan 0.45 :seed seed}
    {:shot :pluck :degree 4 :octave 2 :gain 0.55 :pan 0.55 :delay-ms 70
-    :seed (str (det/combine seed [:second]))}])
+    :seed (det/combine seed [:second])}])
 
 (defn for-event
   "One event descriptor -> a vector of trigger maps."
@@ -232,11 +228,10 @@
 ;; ---- the per-turn frame ----
 
 (defn audio-frame
-  "Everything the audio module needs for one turn, in one map:
+  "Everything xsofy.audio needs for one turn, in one map:
 
-     :mood :seed :depth   the derivation inputs (module derives parameters
-                          via the engine's parity-tested Go derivation)
-     :tension-target      instantaneous; the module applies the envelope
+     :mood :seed :depth   the derivation inputs for undertone.ambience
+     :tension-target      instantaneous; xsofy.audio applies the envelope
      :triggers            resolved one-shot trigger maps
 
    Three events are INFERRED here from the two worlds rather than produced in
@@ -266,7 +261,7 @@
                      base)
         salt       (or (:turn new-world) 0)]
     {:mood           :dungeon ; no overworld yet — single mood until there is
-     :seed           (str (music/music-seed new-world))
+     :seed           (music/music-seed new-world)
      :depth          (or (:depth new-world) 1)
      :tension-target (music/tension-target new-world)
      :triggers       (for-events new-world salt evs)}))
