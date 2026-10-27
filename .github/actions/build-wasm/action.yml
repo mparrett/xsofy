@@ -22,6 +22,24 @@ inputs:
 runs:
   using: composite
   steps:
+    # 0. TinyGo lane (lab experiment): ~1/3 the wasm of the stock-Go build.
+    #    let-go v1.13.0 needs Go 1.27, which TinyGo 0.43 accepts, and TinyGo
+    #    shells out to wasm-opt for -opt=z but does not ship it.
+    - name: Set up Go for TinyGo
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.27'
+    - name: Install TinyGo and binaryen
+      shell: bash
+      run: |
+        wget -q https://github.com/tinygo-org/tinygo/releases/download/v0.43.0/tinygo_0.43.0_amd64.deb
+        sudo dpkg -i tinygo_0.43.0_amd64.deb
+        wget -q https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz
+        tar -xzf binaryen-version_133-x86_64-linux.tar.gz -C "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/binaryen-version_133/bin" >> "$GITHUB_PATH"
+        rm -f tinygo_0.43.0_amd64.deb binaryen-version_133-x86_64-linux.tar.gz
+        tinygo version
+
     # 1. Shell-less bundle: -w-shell none emits glue-only HTML exposing
     #    window.LetGoHost, so a project can inject its own client shell (#245).
     #    -w-wasm external emits main.wasm beside the HTML so the loader streams
@@ -30,6 +48,8 @@ runs:
     #    slightly larger on the wire. Timings in nooga/xsofy#191.
     - name: Build WASM (shell-less)
       shell: bash
+      env:
+        LETGO_USE_TINYGO: '1'
       run: |
         if [ -n "${{ inputs.letgo-src }}" ]; then export LETGO_SRC="${{ inputs.letgo-src }}"; fi
         let-go -w "${{ inputs.dist }}" -w-shell none -w-wasm external main.lg
