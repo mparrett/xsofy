@@ -176,8 +176,11 @@
   ;; but inside what small speakers reproduce.
   (let [no {:shot :thunk :note 52 :gain 0.6 :pan 0.5 :seed seed}
         body (case (:element ev)
-               :water {:shot :fall :note 60 :gain 1.6}
-               :fall  {:shot :fall :note 50 :gain 1.8}
+               ;; Not :fall for water: a falling saw read as a creature's
+               ;; death cry. Filtered noise reads as water and is its own
+               ;; timbre; the chasm keeps :fall, low enough to sit under the cry.
+               :water {:shot :sink :note 60 :gain 1.4}
+               :fall  {:shot :fall :note 43 :gain 1.8}
                :fire  {:shot :zap :note 64 :gain 1.4}
                nil)]
     (if body
