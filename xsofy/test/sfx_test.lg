@@ -255,7 +255,7 @@
 
 (deftest hazard-prompts-carry-their-element
   (testing "each hazard gets the refusal plus its own sound"
-    (is (= [:thunk :fall] (mapv :shot (triggers {:kind :blocked :element :water}))))
+    (is (= [:thunk :sink] (mapv :shot (triggers {:kind :blocked :element :water}))))
     (is (= [:thunk :fall] (mapv :shot (triggers {:kind :blocked :element :fall}))))
     (is (= [:thunk :zap]  (mapv :shot (triggers {:kind :blocked :element :fire})))))
   (testing "the hazard's sound is at least as loud as a mid-severity hit"
