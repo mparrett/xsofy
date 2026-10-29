@@ -70,7 +70,9 @@
 
 (defn- footstep-shots [ev seed]
   [{:shot :footstep
-    :note (+ 43 (jit seed :note 2))
+    ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
+    ;; step entirely, and the gain is what keeps it subtle, not the register.
+    :note (+ 55 (jit seed :note 2))
     :gain (* 0.32 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}])
