@@ -26,7 +26,8 @@
      :gain :pan :delay-ms        as in the prototype's sfx.lg
      :seed      the engine's humanize seed, an int"
   (:require [xsofy.music :as music]
-            [xsofy.det :as det]))
+            [xsofy.det :as det]
+            [xsofy.terrain :as terrain]))
 
 ;; ---- spatial model ----
 
@@ -163,17 +164,25 @@
     :seed   seed}])
 
 (defn- blocked-shots
-  "The game said no — you walked into water, or the edge of the world, and it
-   wants confirmation. Quiet and unmusical on purpose: it fires on mistakes,
-   so it must not be satisfying to trigger."
+  "The game said no — you walked into water, a chasm or lava, and it wants
+   confirmation. The thunk is the refusal: quiet and unmusical on purpose, so
+   it is not satisfying to trigger. The hazard's own sound rides on top at
+   about a mid-severity hit's level, because stepping off a ledge must be at
+   least as noticeable as landing a blow (measured 2026-10-29: the thunk alone
+   was ~2.5x quieter than a hit). Gains past 1 are fine; undertone does not
+   clamp them."
   [ev seed]
   ;; Note 40 (~82 Hz) vanished on laptop speakers; 52 keeps it low and dull
   ;; but inside what small speakers reproduce.
-  [{:shot :thunk
-    :note 52
-    :gain 0.5
-    :pan  0.5
-    :seed seed}])
+  (let [no {:shot :thunk :note 52 :gain 0.6 :pan 0.5 :seed seed}
+        body (case (:element ev)
+               :water {:shot :fall :note 60 :gain 1.6}
+               :fall  {:shot :fall :note 50 :gain 1.8}
+               :fire  {:shot :zap :note 64 :gain 1.4}
+               nil)]
+    (if body
+      [no (assoc body :pan 0.5 :delay-ms 40 :seed (det/combine seed [:hazard]))]
+      [(assoc no :gain 1.2)])))
 
 (defn- web-shots
   "A web: tearing free is a sharp snap, still being stuck is the same sound
@@ -255,13 +264,16 @@
         ;; same trick the player's own footstep uses.
         blocked    (and (:hazard-prompt new-world)
                         (not (:hazard-prompt prev-world)))
+        hazard     (when-let [[hx hy] (and blocked (:hazard-pos new-world))]
+                     (:element (get terrain/hazard-info
+                                    (terrain/tget (:terrain new-world) (:width new-world) hx hy))))
         evs        (let [base (vec (or (:sfx new-world) []))
                          base (if stepped (conj base {:kind :footstep}) base)
                          base (if moved-floor
                                 (conj base {:kind :floor
                                             :dir-of-travel (if (< depth prev-depth) :up :down)})
                                 base)
-                         base (if blocked (conj base {:kind :blocked}) base)]
+                         base (if blocked (conj base {:kind :blocked :element hazard}) base)]
                      base)
         salt       (or (:turn new-world) 0)]
     {:mood           :dungeon ; no overworld yet — single mood until there is

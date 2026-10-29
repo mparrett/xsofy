@@ -252,3 +252,14 @@
         kinds  (set (map :kind (mapcat :sfx worlds)))]
     (is (contains? kinds :hit-taken))
     (is (not (contains? kinds :hit-dealt)))))
+
+(deftest hazard-prompts-carry-their-element
+  (testing "each hazard gets the refusal plus its own sound"
+    (is (= [:thunk :fall] (mapv :shot (triggers {:kind :blocked :element :water}))))
+    (is (= [:thunk :fall] (mapv :shot (triggers {:kind :blocked :element :fall}))))
+    (is (= [:thunk :zap]  (mapv :shot (triggers {:kind :blocked :element :fire})))))
+  (testing "the hazard's sound is at least as loud as a mid-severity hit"
+    (is (>= (:gain (second (triggers {:kind :blocked :element :water})))
+            (:gain (first (triggers {:kind :hit-dealt :severity 0.5}))))))
+  (testing "an unknown hazard still sounds, as a louder thunk alone"
+    (is (= [:thunk] (mapv :shot (triggers {:kind :blocked}))))))
