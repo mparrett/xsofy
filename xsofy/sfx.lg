@@ -106,7 +106,9 @@
    is audible as a fall rather than announced by an unrelated noise."
   [ev seed]
   (let [s    (severity ev)
-        note (- 48 (int (* 11.0 s)) (jit seed :note 1))
+        ;; ±2 rather than ±1: at ±1 a run of blows on one enemy sounded
+        ;; like the same sample repeated.
+        note (- 48 (int (* 11.0 s)) (jit seed :note 2))
         gain (+ 0.55 (* 0.5 s))
         base {:shot :hit :note note :gain gain :pan 0.5 :seed seed}]
     (if (:killed ev)
@@ -122,7 +124,7 @@
   [ev seed]
   (let [s (severity ev)]
     [{:shot :thud
-      :note (- 45 (int (* 9.0 s)))
+      :note (- 45 (int (* 9.0 s)) (jit seed :note 2))
       :gain (+ 0.6 (* 0.4 s))
       :pan  0.5
       :seed seed}]))
