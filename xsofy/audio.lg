@@ -1,0 +1,161 @@
+(ns xsofy.audio
+  "The audio sink: the one place the game calls the undertone natives.
+
+   xsofy.music and xsofy.sfx stay pure; this namespace turns their per-turn
+   frame into sound. The natives are resolved at load rather than required,
+   because a stock lg has no undertone namespace: there `natives` is nil,
+   every function here is a no-op, and the game runs silent. An lg with the
+   binding linked (joint-xsofy/dev/lg-undertone, or an lgx :deps entry) plays.
+
+   The surface is write-only. Nothing here returns into game code or world
+   state, so a dropped, late or divergent sound cannot reach replay, saves or
+   the hash chain.
+
+   The tension ENVELOPE lives here, not in the world: instant attack,
+   exponential release, one step per frame. Frames arrive once per turn, so
+   the half-life is in game-clock units — idling does not relieve dread,
+   taking turns does."
+  (:require [xsofy.music :as music]))
+
+;; ---- the natives ----
+
+(def ^:private natives
+  (when (resolve 'undertone/trigger)
+    (try
+      (require '[undertone.ambience])
+      {:trigger        @(resolve 'undertone/trigger)
+       :set-parameters @(resolve 'undertone/set-parameters)
+       ;; Newer than the rest (undertone#60); without it every change waits
+       ;; for the pattern boundary.
+       :set-parameters-now (or (some-> (resolve 'undertone/set-parameters-now) deref)
+                               @(resolve 'undertone/set-parameters))
+       :music-start    @(resolve 'undertone/music-start)
+       :play-theme     @(resolve 'undertone/play-theme)
+       :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
+      (catch e nil))))
+
+(defn enabled?
+  "Whether this lg has the undertone binding linked."
+  []
+  (some? natives))
+
+(defn- call [k & args]
+  (when-let [f (get natives k)]
+    (apply f args)))
+
+;; ---- the envelope ----
+
+(def decay
+  "Per-turn release factor: about a 7-turn half-life. The single taste knob;
+   the old sibling-module consumer used the same value."
+  0.9)
+
+(defn envelope
+  "The next envelope value: the target if it is higher (danger lands at
+   once), else the previous value decayed one turn (relief is earned)."
+  [prev target]
+  (max (double target) (* (double prev) decay)))
+
+(defn quantize
+  "Tension in 1/32 steps. set-parameters only lands at a pattern boundary, so
+   every turn between two boundaries overwrites the last; quantizing lets the
+   sink skip the lg derivation on the turns where nothing audible changed,
+   and lets a decaying envelope settle instead of re-sending forever."
+  [t]
+  (/ (double (int (+ 0.5 (* (double t) 32.0)))) 32.0))
+
+(def ^:private state
+  (atom {:tension 0.0 :sent nil :outro false}))
+
+(defn urgent?
+  "Whether a mood change should be heard now rather than at the next pattern
+   boundary, about 7 s away at the dungeon's tempo. A new floor and rising
+   tension are: arriving somewhere and danger arriving are both events, and
+   hearing them seconds late detaches the music from them. Falling tension is
+   relief, which the envelope already spreads over turns, so it can wait."
+  [prev k]
+  (or (nil? prev)
+      (not= (pop prev) (pop k))
+      (> (peek k) (peek prev))))
+
+(defn- score! [mood seed depth tension]
+  (let [k    [mood seed depth (quantize tension)]
+        prev (:sent @state)]
+    (when (not= k prev)
+      (swap! state assoc :sent k)
+      (call (if (urgent? prev k) :set-parameters-now :set-parameters)
+            (call :derive-mood mood seed depth (peek k))))))
+
+;; ---- themes ----
+;; Grids are 16 eighth-note steps in scale degrees (1..8, 0 rests), so a theme
+;; lands in the key of whatever floor's parameters are staged when it plays.
+;; Drum lanes are kick, clap, shaker in sixteenths.
+
+(def title-theme
+  "Plays under the title screen and hands back to the generator, so the first
+   floor's music continues out of it rather than starting cold."
+  {:grids [{:lead [5 0 0 4 3 0 0 0 1 0 0 0 0 0 0 0]
+            :bass [1 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead [5 0 0 4 3 0 0 0 2 0 3 0 1 0 0 0]
+            :bass [1 0 0 0 0 0 0 0 4 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead  [8 0 0 7 5 0 0 0 6 0 0 5 4 0 0 0]
+            :bass  [6 0 0 0 0 0 0 0 4 0 0 0 0 0 0 0]
+            :drums ["X...............X..............."]
+            :bed   true}
+           {:lead  [5 0 0 4 3 0 0 0 2 0 0 0 1 0 0 0]
+            :bass  [5 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0]
+            :drums ["X..............................."]
+            :bed   true}]
+   :then :generate})
+
+(def outro-theme
+  "Plays over the death screen: the title's motif falling, the bed dropping
+   out under the last grid, then silence until the next run's title."
+  {:grids [{:lead [8 0 0 0 7 0 0 0 5 0 0 0 4 0 0 0]
+            :bass [1 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead [3 0 0 0 2 0 0 0 1 0 0 0 0 0 0 0]
+            :bass [4 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0]
+            :bed  false}]
+   :then :silence})
+
+;; ---- the sink ----
+
+(defn start!
+  "Begin a run's audio: stage the first floor's mood, optionally queue a
+   theme, and start the music. Before the first start a theme waits and plays
+   with the music (in a browser that is the tap that unlocks audio); after
+   it, the theme cuts in within one block. Calling start! again is safe —
+   music-start is idempotent — which is what a new game after a death is."
+  ([seed] (start! seed nil))
+  ([seed theme]
+   (when natives
+     (reset! state {:tension 0.0 :sent nil :outro false})
+     (score! :dungeon (music/music-seed {:seed-input seed :depth 1}) 1 0.0)
+     (when theme (call :play-theme theme))
+     (call :music-start))))
+
+(defn title!
+  "start! with the title theme, for the title screen."
+  [seed]
+  (start! seed title-theme))
+
+(defn turn!
+  "Play one turn's frame (xsofy.sfx/audio-frame): advance the envelope,
+   restage the mood if it moved audibly, and fire the turn's one-shots."
+  [frame]
+  (when natives
+    (let [t (:tension (swap! state update :tension envelope (:tension-target frame)))]
+      (score! (:mood frame) (:seed frame) (:depth frame) t)
+      (when (seq (:triggers frame))
+        (call :trigger (:triggers frame))))))
+
+(defn outro!
+  "The death outro. Once per death: the death screen re-enters itself when a
+   restart is declined, and the outro should not restart with it."
+  []
+  (when (and natives (not (:outro @state)))
+    (swap! state assoc :outro true)
+    (call :play-theme outro-theme)))

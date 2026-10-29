@@ -68,11 +68,11 @@
 ;; certain empty inputs). These are explicit lazy versions, needed everywhere
 ;; we build rose trees.
 
-(defn- lazy-map
+(defn- lazy-map*
   [f coll]
   (lazy-seq
     (when-let [s (seq coll)]
-      (cons (f (first s)) (lazy-map f (rest s))))))
+      (cons (f (first s)) (lazy-map* f (rest s))))))
 
 (defn- lazy-concat
   [colls]
@@ -136,8 +136,8 @@
                                 (map (fn [d] (+ target d))
                                      (vec (shrink-int offset)))))]
     {:value n
-     ;; lazy-map so we only build child trees as the shrinker descends.
-     :shrinks (lazy-map (fn [v] (int-shrink-tree v target lo hi)) candidates)}))
+     ;; lazy-map* so we only build child trees as the shrinker descends.
+     :shrinks (lazy-map* (fn [v] (int-shrink-tree v target lo hi)) candidates)}))
 
 (defn return
   "Lift a constant value into a generator. Yields v with no shrinks,
@@ -203,10 +203,10 @@
           inner ((f outer-v) rf s)
           ;; shrink the outer; rerun f for each outer shrink with a fresh rng
           outer-shrunk-roses
-            (lazy-map (fn [outer-child]
-                        (let [[r-child _] (rng-split rf)]
-                          ((bind (fn [_r _s] outer-child) f) r-child s)))
-                      (rose-shrinks outer))
+            (lazy-map* (fn [outer-child]
+                         (let [[r-child _] (rng-split rf)]
+                           ((bind (fn [_r _s] outer-child) f) r-child s)))
+                       (rose-shrinks outer))
           inner-shrunk-roses (rose-shrinks inner)]
       {:value (rose-value inner)
        :shrinks (lazy-concat [outer-shrunk-roses inner-shrunk-roses])})))
@@ -220,13 +220,13 @@
    version."
   [roses]
   (let [n (count roses)
-        per-index (lazy-map (fn [idx]
-                              (let [r (nth roses idx)]
-                                (lazy-map (fn [sr]
-                                            (roses->vector-rose
-                                              (assoc roses idx sr)))
-                                          (rose-shrinks r))))
-                            (range n))]
+        per-index (lazy-map* (fn [idx]
+                               (let [r (nth roses idx)]
+                                 (lazy-map* (fn [sr]
+                                              (roses->vector-rose
+                                                (assoc roses idx sr)))
+                                            (rose-shrinks r))))
+                             (range n))]
     (lazy-concat per-index)))
 
 (defn- roses->vector-rose
@@ -264,10 +264,10 @@
                          (filter #(and (>= % lo) (< % n))
                                  [lo (quot n 2) (dec n)]))
           length-shrinks
-            (lazy-map (fn [m]
-                        (let [[r-sub _] (rng-split r-elems)]
-                          ((gen-vector-of-len g m) r-sub s)))
-                      shorter-lens)
+            (lazy-map* (fn [m]
+                         (let [[r-sub _] (rng-split r-elems)]
+                           ((gen-vector-of-len g m) r-sub s)))
+                       shorter-lens)
           elem-shrinks (rose-shrinks base)]
       {:value base-val
        :shrinks (lazy-concat [length-shrinks elem-shrinks])})))

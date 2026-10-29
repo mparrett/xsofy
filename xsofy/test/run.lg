@@ -1,5 +1,5 @@
 (ns xsofy.test.run
-  (:require [test :refer [run-tests]]
+  (:require [test :refer [run-all-tests]]
             [xsofy.test.check-test]
             [xsofy.test.invariant-test]
             [xsofy.test.render-test]
@@ -18,6 +18,7 @@
             [xsofy.test.dag-test]
             [xsofy.test.container-trigger-test]
             [xsofy.test.fire-test]
+            [xsofy.test.status-test]
             [xsofy.test.seed-test]
             [xsofy.test.mapgen-audit-test]
             [xsofy.test.replay-test]
@@ -26,6 +27,15 @@
             [xsofy.test.scenariotest-test]
             [xsofy.test.menu-dispatch-test]
             [xsofy.test.input-test]
-            [xsofy.test.console-test]))
+            [xsofy.test.console-test]
+            [xsofy.test.music-test]
+            [xsofy.test.sfx-test]
+            [xsofy.test.audio-test]
+            [xsofy.test.ui-modal-test]))
 
-(run-tests)
+;; Bare (run-tests) means "the current namespace" under let-go >= 1.13.0, whose
+;; clojure.test port (#863) adopted Clojure's real arities. This namespace holds
+;; no deftests, so that form ran zero tests and still exited 0. Select the
+;; required namespaces explicitly; the :require list above stays the source of
+;; truth, since all-ns only sees what has been loaded.
+(run-all-tests #"xsofy\.test\..*")
