@@ -167,9 +167,11 @@
    wants confirmation. Quiet and unmusical on purpose: it fires on mistakes,
    so it must not be satisfying to trigger."
   [ev seed]
+  ;; Note 40 (~82 Hz) vanished on laptop speakers; 52 keeps it low and dull
+  ;; but inside what small speakers reproduce.
   [{:shot :thunk
-    :note 40
-    :gain 0.45
+    :note 52
+    :gain 0.5
     :pan  0.5
     :seed seed}])
 
