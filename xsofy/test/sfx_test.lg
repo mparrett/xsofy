@@ -104,13 +104,18 @@
            (:note (first (triggers {:kind :hit-dealt :severity 1.0})))))
     (is (>= (:gain (first (triggers {:kind :hit-dealt :severity -1.0}))) 0))))
 
-(deftest a-kill-adds-a-lower-shot-behind-the-blow
+(deftest a-kill-adds-a-bright-shot-behind-the-blow
   (let [shots (triggers {:kind :hit-dealt :severity 0.6 :killed true})]
     (is (= 2 (count shots)))
-    (testing "the second is lower and lands just behind the first, so a kill
-              reads as a fall rather than as an unrelated noise"
-      (is (< (:note (second shots)) (:note (first shots))))
-      (is (> (:delay-ms (second shots)) 0))))
+    (testing "the second is a tink above the blow, just behind it: the old
+              octave-down thud sat near 35 Hz and could not be heard"
+      (is (= :tink (:shot (second shots))))
+      (is (> (:note (second shots)) (:note (first shots))))
+      (is (> (:delay-ms (second shots)) (:delay-ms (first shots))))))
+  (testing "a ranged blow lands after its flight, the kill shot after that"
+    (let [shots (triggers {:kind :hit-dealt :severity 0.6 :killed true :flight-ms 100})]
+      (is (= 100 (:delay-ms (first shots))))
+      (is (> (:delay-ms (second shots)) 100))))
   (testing "a non-fatal blow is a single shot"
     (is (= 1 (count (triggers {:kind :hit-dealt :severity 0.6}))))))
 
@@ -176,9 +181,9 @@
     (testing "descending scores the transition, and says which way"
       (let [t (first (:triggers (sfx/audio-frame deeper base)))]
         (is (= 1 (count (:triggers (sfx/audio-frame deeper base)))))
-        (is (= :sink (:shot t)))))
+        (is (= :descend (:shot t)))))
     (testing "ascending is the mirror, a different patch not a flag"
-      (is (= :lift (:shot (first (:triggers (sfx/audio-frame shallow base)))))))
+      (is (= :ascend (:shot (first (:triggers (sfx/audio-frame shallow base)))))))
     (testing "pitch crosses as a degree so it lands in the key of the floor
               you are ARRIVING on, which the module resolves"
       (is (some? (:degree (first (:triggers (sfx/audio-frame deeper base)))))))
@@ -202,10 +207,29 @@
   (testing "spatial kinds attenuate with distance like every other one"
     (is (> (:gain (first (triggers {:kind :death :dist 1})))
            (:gain (first (triggers {:kind :death :dist 9}))))))
-  (testing "tearing free from a web is louder than still being stuck — one
-            patch, and level carries the only difference that matters"
-    (is (> (:gain (first (triggers {:kind :web :broke true})))
-           (:gain (first (triggers {:kind :web :broke false})))))))
+  (testing "being held and tearing free are different sounds: a rasp while
+            stuck, the snap when you get out"
+    (is (= :snap (:shot (first (triggers {:kind :web :broke true})))))
+    (is (= :rasp (:shot (first (triggers {:kind :web :broke false})))))))
+
+(deftest new-sources-are-voiced
+  (testing "a spell-caster's bolt is a zap, not the bow's twang"
+    (is (= :zap (:shot (first (triggers {:kind :cast :dist 3 :dir 0.5}))))))
+  (testing "fire catching is voiced and attenuates with distance"
+    (is (> (:gain (first (triggers {:kind :ignite :dist 1})))
+           (:gain (first (triggers {:kind :ignite :dist 8}))))))
+  (testing "a step in water splashes"
+    (is (= :splash (:shot (first (triggers {:kind :footstep :surface :water})))))
+    (is (= :footstep (:shot (first (triggers {:kind :footstep})))))))
+
+(deftest audio-frame-infers-new-fire
+  (let [lit (assoc base :fire-ttl {[7 5] 3})]
+    (testing "a tile that caught fire this turn, in earshot, is one ignite"
+      (is (= [:ignite] (mapv :shot (:triggers (sfx/audio-frame lit base))))))
+    (testing "fire that was already burning is not re-announced"
+      (is (empty? (:triggers (sfx/audio-frame lit lit)))))
+    (testing "fire out of earshot is silent"
+      (is (empty? (:triggers (sfx/audio-frame (assoc base :fire-ttl {[40 5] 3}) base)))))))
 
 ;; ---- producers, through the real combat path ----
 ;; The vocabulary tests above use hand-built descriptors. These drive
