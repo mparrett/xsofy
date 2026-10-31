@@ -15,7 +15,8 @@
    exponential release, one step per frame. Frames arrive once per turn, so
    the half-life is in game-clock units — idling does not relieve dread,
    taking turns does."
-  (:require [xsofy.music :as music]))
+  (:require [xsofy.music :as music]
+            [xsofy.sfx :as sfx]))
 
 ;; ---- the natives ----
 
@@ -31,6 +32,8 @@
                                @(resolve 'undertone/set-parameters))
        :music-start    @(resolve 'undertone/music-start)
        :play-theme     @(resolve 'undertone/play-theme)
+       :register-shot  @(resolve 'undertone/register-shot)
+       :set-music-gain @(resolve 'undertone/set-music-gain)
        :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
       (catch e nil))))
 
@@ -123,6 +126,20 @@
 
 ;; ---- the sink ----
 
+(def music-gain
+  "The bed's level under the one-shots. Shots always play at full level, so
+   trimming the bed is how the sfx stand out; 1.0 buried the quieter ones
+   on laptop speakers (2026-10-29 playtest)."
+  0.85)
+
+(defn register-shots!
+  "Register xsofy's own patches (xsofy.sfx/custom-shots). Idempotent: a
+   re-registration replaces the patch. The offline renders call it too."
+  []
+  (when natives
+    (doseq [spec sfx/custom-shots]
+      (call :register-shot spec))))
+
 (defn start!
   "Begin a run's audio: stage the first floor's mood, optionally queue a
    theme, and start the music. Before the first start a theme waits and plays
@@ -133,6 +150,8 @@
   ([seed theme]
    (when natives
      (reset! state {:tension 0.0 :sent nil :outro false})
+     (register-shots!)
+     (call :set-music-gain music-gain)
      (score! :dungeon (music/music-seed {:seed-input seed :depth 1}) 1 0.0)
      (when theme (call :play-theme theme))
      (call :music-start))))
@@ -149,8 +168,23 @@
   (when natives
     (let [t (:tension (swap! state update :tension envelope (:tension-target frame)))]
       (score! (:mood frame) (:seed frame) (:depth frame) t)
-      (when (seq (:triggers frame))
-        (call :trigger (:triggers frame))))))
+      ;; descent! already played this floor change's shot at the start of
+      ;; the animation; the frame's copy, built after it, would double it.
+      (let [trs (if (:descent-fired @state)
+                  (do (swap! state dissoc :descent-fired)
+                      (vec (remove #(#{:descend :ascend} (:shot %)) (:triggers frame))))
+                  (:triggers frame))]
+        (when (seq trs)
+          (call :trigger trs))))))
+
+(defn descent!
+  "The descent shot, fired when the descending animation starts so the sound
+   spans it rather than arriving after it. Pitched by note, not degree: the
+   new floor's mood is not staged yet."
+  [depth]
+  (when natives
+    (swap! state assoc :descent-fired true)
+    (call :trigger {:shot :descend :note 48 :gain 1.0 :pan 0.5 :seed depth})))
 
 (defn outro!
   "The death outro. Once per death: the death screen re-enters itself when a

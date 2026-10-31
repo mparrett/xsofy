@@ -2,7 +2,8 @@
   (:require [term]
             [xsofy.screenfx :as sfx]
             [xsofy.ui :as ui]
-            [xsofy.det :as det]))
+            [xsofy.det :as det]
+            [xsofy.audio :as audio]))
 
 ;; --- Procedural Title Generation ---
 
@@ -225,6 +226,7 @@
          msg (nth descending-messages (rand-int (count descending-messages)))
          depth-str (str "Depth " depth)
          runes (sfx/scatter-runes tw th 25 scheme)]
+    (audio/descent! depth)
     ;; clear
     (sfx/clear-screen tw th)
     ;; animate — runes drift upward, erase old position each frame
