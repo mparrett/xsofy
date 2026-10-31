@@ -29,6 +29,38 @@
             [xsofy.det :as det]
             [xsofy.terrain :as terrain]))
 
+;; ---- xsofy's own shots ----
+;; Registered with undertone at start (xsofy.audio/register-shots!), in the
+;; EDN shape engine.ShotSpec reads. They live here, as data, so the offline
+;; renders and the game register the same patches.
+
+(def custom-shots
+  [;; Descending: a sine falling two octaves over the ~1.5 s descent
+   ;; animation, under noise whose lowpass closes with it. One shot spans the
+   ;; whole transition, which a one-grid theme (5-8 s) could not.
+   {:name :descend :gate-ms 1400
+    :patch [[:env 0.02 1.4 0 0.6] [:osc 12 :sine 24 0.7] [:mul] [:verb 0.35] [:out 0.55 0.5]
+            [:env 0.25 1.1 0 0.6] [:osc 0 :noise 0 1] [:mul]
+            [:env 0.01 1.2 0 0.4] [:svf 300 0.3 0 3] [:verb 0.4] [:out 0.3 0.5]]}
+   ;; Ascending: the mirror — rising sine, lowpass opening.
+   {:name :ascend :gate-ms 1400
+    :patch [[:env 0.02 1.4 0 0.6] [:osc 0 :sine -24 0.7] [:mul] [:verb 0.35] [:out 0.55 0.5]
+            [:env 0.25 1.1 0 0.6] [:osc 0 :noise 0 1] [:mul]
+            [:env 1.0 0.3 0 0.4] [:svf 300 0.3 0 3] [:verb 0.4] [:out 0.3 0.5]]}
+   ;; A step in water: band-passed noise plus a small rising blip.
+   {:name :splash :gate-ms 140
+    :patch [[:env 0.002 0.14 0 0.1] [:osc 0 :noise 0 1] [:mul] [:svf 1400 0.4 1 0] [:out 0.7 0.5]
+            [:env 0.001 0.07 0 0.05] [:osc 12 :sine 7 0.04] [:mul] [:out 0.25 0.5]]}
+   ;; Straining against a web: a crushed, band-passed rasp, so being held
+   ;; sounds different from tearing free (:snap).
+   {:name :rasp :gate-ms 220
+    :patch [[:env 0.01 0.22 0 0.1] [:osc 0 :noise 0 1] [:mul] [:crush 900 6]
+            [:svf 2200 0.6 1 0] [:out 0.5 0.5]]}
+   ;; Fire catching: a bright crackle, then a low whoomph.
+   {:name :ignite :gate-ms 400
+    :patch [[:env 0.005 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:hpf 1500] [:out 0.5 0.5]
+            [:env 0.06 0.4 0 0.25] [:osc 0 :noise 0 1] [:mul] [:lpf 900] [:verb 0.2] [:out 0.45 0.5]]}])
+
 ;; ---- spatial model ----
 
 (defn attenuate
@@ -70,7 +102,7 @@
 ;; floor, not about coverage.
 
 (defn- footstep-shots [ev seed]
-  [{:shot :footstep
+  [{:shot (if (= :water (:surface ev)) :splash :footstep)
     ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
     ;; step entirely, and the gain is what keeps it subtle, not the register.
     :note (+ 55 (jit seed :note 2))
@@ -110,11 +142,16 @@
         ;; like the same sample repeated.
         note (- 48 (int (* 11.0 s)) (jit seed :note 2))
         gain (+ 0.55 (* 0.5 s))
-        base {:shot :hit :note note :gain gain :pan 0.5 :seed seed}]
+        ;; A ranged blow lands after the release, not with it: without the
+        ;; flight time the impact started with the twang and masked it.
+        flight (or (:flight-ms ev) 0)
+        base {:shot :hit :note note :gain gain :pan 0.5 :delay-ms flight :seed seed}]
     (if (:killed ev)
+      ;; The kill was a thud an octave down, ~35 Hz and inaudible; a bright
+      ;; tink two octaves up reads as the final blow.
       [base
-       {:shot :thud :note (- note 12) :gain (* gain 0.8) :pan 0.5
-        :delay-ms 90 :seed (det/combine seed [:kill])}]
+       {:shot :tink :note (+ note 24) :gain 0.6 :pan 0.5
+        :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
       [base])))
 
 (defn- hit-taken-shots
@@ -127,6 +164,7 @@
       :note (- 45 (int (* 9.0 s)) (jit seed :note 2))
       :gain (+ 0.6 (* 0.4 s))
       :pan  0.5
+      :delay-ms (or (:flight-ms ev) 0)
       :seed seed}]))
 
 (defn- door-shots
@@ -158,10 +196,10 @@
    the module resolves degrees against its staged parameters, which by this
    point are already the new floor's."
   [ev seed]
-  [{:shot   (if (= (:dir-of-travel ev) :up) :lift :sink)
+  [{:shot   (if (= (:dir-of-travel ev) :up) :ascend :descend)
     :degree 0
     :octave (if (= (:dir-of-travel ev) :up) 1 0)
-    :gain   0.7
+    :gain   1.0
     :pan    0.5
     :seed   seed}])
 
@@ -194,9 +232,9 @@
    held back. One patch, two gains — the difference the player needs to hear
    is whether they got out, and level says that without a second sound."
   [ev seed]
-  [{:shot :snap
+  [{:shot (if (:broke ev) :snap :rasp)
     :note (+ 55 (jit seed :note 4))
-    :gain (if (:broke ev) 0.6 0.3)
+    :gain (if (:broke ev) 0.6 1.0)
     :pan  0.5
     :seed seed}])
 
@@ -207,6 +245,26 @@
   [{:shot :twang
     :note (+ 57 (jit seed :note 3))
     :gain (* 0.55 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+(defn- cast-shots
+  "A creature casting at range (the fire imp's bolt). Spatial like the bow,
+   but a rising zap, so a spell is never mistaken for an arrow."
+  [ev seed]
+  [{:shot :zap
+    :note (+ 60 (jit seed :note 2))
+    :gain (* 0.8 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+(defn- ignite-shots
+  "Fire catching somewhere you can hear. Inferred from the world, so every
+   source of fire (spell, lava, spread) is voiced without a producer."
+  [ev seed]
+  [{:shot :ignite
+    :note 60
+    :gain (* 0.8 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
@@ -235,6 +293,8 @@
     :blocked    (blocked-shots ev seed)
     :web        (web-shots ev seed)
     :shoot      (shoot-shots ev seed)
+    :cast       (cast-shots ev seed)
+    :ignite     (ignite-shots ev seed)
     []))
 
 (defn for-events
@@ -269,11 +329,31 @@
         ;; same trick the player's own footstep uses.
         blocked    (and (:hazard-prompt new-world)
                         (not (:hazard-prompt prev-world)))
+        ;; Guarded: a world without terrain (a test fixture) has no surface.
+        surface    (when (and stepped (:terrain new-world))
+                     (when (#{3 4} (terrain/tget (:terrain new-world) (:width new-world)
+                                                 (first pos) (second pos)))
+                       :water))
+        ;; The nearest tile that caught fire this turn, within earshot.
+        ignite     (when pos
+                     (let [prev-fire (or (:fire-ttl prev-world) {})
+                           [px py] pos
+                           near (->> (keys (or (:fire-ttl new-world) {}))
+                                     (remove #(contains? prev-fire %))
+                                     (map (fn [[x y]] [(max (abs (- x px)) (abs (- y py))) (- x px)]))
+                                     (filter #(<= (first %) 10))
+                                     (sort-by first)
+                                     first)]
+                       (when near
+                         (let [[dist dx] near]
+                           {:kind :ignite :dist dist
+                            :dir (/ (double dx) (max 1.0 (double dist)))}))))
         hazard     (when-let [[hx hy] (and blocked (:hazard-pos new-world))]
                      (:element (get terrain/hazard-info
                                     (terrain/tget (:terrain new-world) (:width new-world) hx hy))))
         evs        (let [base (vec (or (:sfx new-world) []))
-                         base (if stepped (conj base {:kind :footstep}) base)
+                         base (if stepped (conj base {:kind :footstep :surface surface}) base)
+                         base (if ignite (conj base ignite) base)
                          base (if moved-floor
                                 (conj base {:kind :floor
                                             :dir-of-travel (if (< depth prev-depth) :up :down)})

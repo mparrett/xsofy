@@ -1022,7 +1022,7 @@
             ;; still tells you from where. deliver-sound with no :msg-* keys
             ;; is audio only — the log already narrates the hit.
             w (-> (update world :vfx #(into (or % []) [vfx flash]))
-                  (snd/deliver-sound {:kind :shoot :pos origin :radius 14}))]
+                  (snd/deliver-sound {:kind (or (:sound opts) :shoot) :pos origin :radius 14}))]
         (let [w (if (and did-hit (> dmg 0))
                   (let [hp-before (get-in hit-entity [:body :hp] 0)
                         w2 (opctx/with-context {:source launcher-id :reason :ranged}
@@ -1037,10 +1037,12 @@
                              (= launcher-id :player)
                              (snd/cue w2 :hit-dealt
                                       {:severity (snd/blow-severity hit-entity dmg)
-                                       :killed killed})
+                                       :killed killed
+                                       :flight-ms (* 25 (count actual-path))})
                              (= (:id hit-entity) :player)
                              (snd/cue w2 :hit-taken
-                                      {:severity (snd/blow-severity hit-entity dmg)})
+                                      {:severity (snd/blow-severity hit-entity dmg)
+                                       :flight-ms (* 25 (count actual-path))})
                              :else w2)]
                     (if hit-pos
                       (splatter-blood w2 (first hit-pos) (second hit-pos)
@@ -1068,7 +1070,9 @@
             proj-opts (merge {:damage dmg
                               :accuracy (or (:accuracy spell-data) 75)}
                              (when (:glyph spell-data) {:glyph (:glyph spell-data)})
-                             (when (:color spell-data) {:color (:color spell-data)}))]
+                             (when (:color spell-data) {:color (:color spell-data)})
+                             ;; A spell-caster's bolt is not a bow: voice it as a cast.
+                             (when (seq spell-runes) {:sound :cast}))]
         (let [result (launch-projectile world (:pos attacker) (:pos target)
                                         attacker-id proj-opts)
               w (:world result)
