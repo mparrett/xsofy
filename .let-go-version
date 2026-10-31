@@ -1,14 +1,22 @@
 # let-go version for building xsofy — single source of truth.
 # deploy-pages.yml and the test.yml floor lane both resolve the version from here.
 #
-# Pinned to a commit (not a v-tag) because the shell now binds the #app host
-# mount from nooga/let-go#378, which no release carries yet:
+# v1.13.0 carries everything the web bundle depends on:
 #   - #378 renames the -w-shell none host mount #terminal -> #app and ships it
-#     visible; the shell (tools/xsofy-shell.html) binds #app.
-# Still includes #245 (client-owned shell) and #339 (js/url-param host seam)
-# from v1.11.1.
+#     visible; the shell (tools/xsofy-shell.html) binds #app. Shipped in v1.12.2.
+#   - #245 (client-owned shell) and #339 (js/url-param host seam), from v1.11.1.
+#   - #859 makes vm.Int 64 bits on every host and #862 lowers a let-go :int to
+#     int64. Both are no-ops for this bundle: they only widen 32-bit-int hosts
+#     (linux/386, TinyGo wasm), and stock Go wasm was already 64-bit. Existing
+#     seeds name the same worlds.
 #
-# NOTE: this is a SHA, not a release tag, so the build must check out + build
-# let-go at this commit — a stale prebuilt `lg` silently emits the old #terminal
-# frame. Re-pin to a release tag once let-go ships #378.
-cf195a67fd8aa43286319519c2512363caa96a52
+# This was a bare commit SHA (cf195a67, #378 itself) from 2026-07-16, when no
+# release carried #378 yet. v1.12.2 shipped it on 2026-07-20, so the SHA is no
+# longer needed — and it had gone stale: a bundle built with it fails to boot,
+# dying at namespace load with
+#   error loading xsofy.input: calling dev? — bit-shift-left expected Int
+# The floor lane cannot see that: its WASM step builds the bundle but never
+# boots one, and this failure is at namespace load, not at build. Nothing
+# shipped broken: deploy-pages.yml fires only on v* tags, and the last one
+# predates the SHA pin.
+v1.13.0
