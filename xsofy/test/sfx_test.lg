@@ -9,7 +9,8 @@
             [xsofy.music :as music]
             [xsofy.sfx :as sfx]
             [xsofy.world :as w]
-            [xsofy.check-gen :as g]))
+            [xsofy.check-gen :as g]
+            [xsofy.terrain :as terrain]))
 
 (def base
   {:seed-input 42 :seed 777 :depth 3 :fov #{}
@@ -287,3 +288,88 @@
             (:gain (first (triggers {:kind :hit-dealt :severity 0.5}))))))
   (testing "an unknown hazard still sounds, as a louder thunk alone"
     (is (= [:thunk] (mapv :shot (triggers {:kind :blocked}))))))
+
+;; ---- items, statuses, menus, grass (2026-11-09 playtest) ----
+
+(deftest item-actions-are-voiced
+  (testing "each kind of item use has its own sound"
+    (is (= [:gulp :gulp :gulp] (mapv :shot (triggers {:kind :use :item :potion}))))
+    (is (= :paper (:shot (first (triggers {:kind :use :item :scroll})))))
+    (is (= 4 (count (triggers {:kind :use :item :enchant}))))
+    (is (empty? (triggers {:kind :use :item :unknown}))))
+  (testing "equip, unequip, drop and a cursed refusal"
+    (is (= :clink (:shot (first (triggers {:kind :equip})))))
+    (is (= :clink (:shot (first (triggers {:kind :unequip})))))
+    (is (= :thud (:shot (first (triggers {:kind :drop})))))
+    (is (= :thunk (:shot (first (triggers {:kind :cursed})))))))
+
+(deftest statuses-are-voiced
+  (testing "catching fire ignites; the fire going out hisses"
+    (is (= :ignite (:shot (first (triggers {:kind :status :status :burning :on true})))))
+    (is (= [:hiss] (mapv :shot (triggers {:kind :status :status :burning :on false})))))
+  (testing "only burning has an ending sound"
+    (is (empty? (triggers {:kind :status :status :poison :on false}))))
+  (testing "every status the player can gain has an onset"
+    (doseq [k [:burning :poison :frozen :confused :slowed :haste]]
+      (is (seq (triggers {:kind :status :status k :on true})) (str k))))
+  (testing "status damage is not a blow"
+    (is (= :sizzle (:shot (first (triggers {:kind :status-tick :status :burning})))))
+    (is (= :sick (:shot (first (triggers {:kind :status-tick :status :poison})))))))
+
+(deftest menu-shots-follow-the-screen
+  (testing "open rises, close falls, a switch is one pluck, no change is silent"
+    (let [deg (fn [trs] (mapv :degree trs))]
+      (is (= [2 4] (deg (sfx/menu-shots nil :inventory))))
+      (is (= [4 2] (deg (sfx/menu-shots :inventory nil))))
+      (is (= 1 (count (sfx/menu-shots :inventory :quick-menu))))
+      (is (empty? (sfx/menu-shots :inventory :inventory))))))
+
+(defn- with-status [world k]
+  (assoc-in world [:entities :player :statuses k] {:ttl 3 :max-ttl 3}))
+
+(deftest audio-frame-infers-statuses
+  (let [shots (fn [new prev] (mapv :shot (:triggers (sfx/audio-frame new prev))))
+        burning (with-status base :burning)]
+    (testing "a status arriving and leaving"
+      (is (= [:ignite :sizzle] (shots burning base)))
+      (is (= [:hiss] (shots base burning))))
+    (testing "a held status is not re-announced"
+      (is (empty? (shots burning burning))))
+    (testing "webbed and swimming have their own sounds"
+      (is (empty? (shots (with-status base :webbed) base))))
+    (testing "HP lost while burning, with no blow, is a burn tick"
+      (let [hurt (assoc-in burning [:entities :player :body :hp] 18)]
+        (is (= [:sizzle] (shots hurt burning)))))
+    (testing "HP lost to a blow while burning is the blow, not a tick"
+      (let [hurt (-> burning
+                     (assoc-in [:entities :player :body :hp] 18)
+                     (assoc :sfx [{:kind :hit-taken :severity 0.1 :dist 0}]))]
+        (is (not-any? #{:sizzle} (shots hurt burning)))))))
+
+(deftest audio-frame-hears-grass
+  (let [room  (assoc-in (g/minimal-stone-room) [:entities :player]
+                        {:id :player :pos [2 2] :body {:hp 20 :max-hp 20}})
+        moved (assoc-in room [:entities :player :pos] [3 2])]
+    (terrain/tset! (:terrain room) (:width room) 3 2 2)
+    (testing "a step onto grass rustles"
+      (is (= [:rustle] (mapv :shot (:triggers (sfx/audio-frame moved room))))))
+    (terrain/tset! (:terrain room) (:width room) 3 2 18)
+    (testing "trampled grass still rustles"
+      (is (= [:rustle] (mapv :shot (:triggers (sfx/audio-frame moved room))))))))
+
+(deftest item-actions-cue-through-the-real-path
+  (let [room   (g/minimal-stone-room)
+        world  (-> room
+                   (assoc-in [:entities :player]
+                     {:id :player :template :player :pos [2 2]
+                      :ticks 0 :status {} :statuses {} :inventory [:pot-1]
+                      :body {:hp 10 :max-hp 30 :strength 5 :armor 0}})
+                   (assoc-in [:entities :pot-1]
+                     {:id :pot-1 :item-name "healing potion"
+                      :item {:slot :consumable :effect :heal :count 1}}))
+        kinds  (fn [w] (mapv (juxt :kind :item) (:sfx w)))]
+    (testing "drinking a potion cues :use :potion"
+      (is (= [[:use :potion]] (kinds (w/use-item world :pot-1)))))
+    (testing "dropping cues :drop"
+      (is (= [[:drop nil]] (kinds (w/drop-action world :pot-1)))))))
+

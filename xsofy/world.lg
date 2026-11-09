@@ -1208,12 +1208,14 @@
         (-> world
             (assoc-in [:entities :player :body :hp] new-hp)
             (consume-item item-id)
+            (snd/cue :use {:item :potion})
             (log-msg (str "You drink the " iname ". Healed for " (- new-hp cur-hp) "."))))
 
       :strength
       (-> world
           (update-in [:entities :player :body :strength] inc)
           (consume-item item-id)
+          (snd/cue :use {:item :potion})
           (log-msg "You feel stronger!"))
 
       :life
@@ -1222,6 +1224,7 @@
             (assoc-in [:entities :player :body :max-hp] new-max)
             (assoc-in [:entities :player :body :hp] new-max)
             (consume-item item-id)
+            (snd/cue :use {:item :potion})
             (log-msg "You feel more vigorous! Max HP increased.")))
 
       :enchant
@@ -1237,11 +1240,13 @@
           (-> world
               (assoc :rune-table new-table)
               (consume-item item-id)
+              (snd/cue :use {:item :scroll})
               (log-msg (str "The scroll reveals: "
                             (runes/rune-glyph new-table rune-key)
                             " means \"" (name rune-key) "\"!")))
           (-> world
               (consume-item item-id)
+              (snd/cue :use {:item :scroll})
               (log-msg "The scroll crumbles. All runes are already known."))))
 
       ;; default
@@ -1269,6 +1274,7 @@
             (assoc-in [:entities target-id :item :enchant] new-enchant)
             (update-in [:entities target-id :item :str-req] #(max 0 (dec (or % 1))))
             (consume-item scroll-id)
+            (snd/cue :use {:item :enchant})
             (log-msg msg)))
       (log-msg world "You can't enchant that."))))
 
@@ -1849,7 +1855,8 @@
   (let [slot (get-in world [:entities item-id :item :slot])]
     (if (and slot (not= slot :consumable))
       (if-let [w (ent/equip-item world item-id :player)]
-        (log-msg w (str "You equip the " (item-name* world item-id) "."))
+        (-> (snd/cue w :equip)
+            (log-msg (str "You equip the " (item-name* world item-id) ".")))
         world)
       world)))
 
@@ -1857,9 +1864,11 @@
   (let [slot (get-in world [:entities item-id :item :slot])]
     (if slot
       (if (ent/cursed? world item-id)
-        (log-msg world (str "The " (item-name* world item-id) " is cursed! You can't remove it."))
+        (-> (snd/cue world :cursed)
+            (log-msg (str "The " (item-name* world item-id) " is cursed! You can't remove it.")))
         (if-let [w (ent/unequip-item world :player slot)]
-          (log-msg w (str "You remove the " (item-name* world item-id) "."))
+          (-> (snd/cue w :unequip)
+              (log-msg (str "You remove the " (item-name* world item-id) ".")))
           world))
       world)))
 
@@ -1869,11 +1878,13 @@
         equipped-id (when slot (get equipment slot))
         is-cursed   (and (= equipped-id item-id) (ent/cursed? world item-id))]
     (if is-cursed
-      (log-msg world (str "The " (item-name* world item-id) " is cursed! You can't remove it."))
+      (-> (snd/cue world :cursed)
+          (log-msg (str "The " (item-name* world item-id) " is cursed! You can't remove it.")))
       (let [w (if (= equipped-id item-id)
                 (ent/unequip-item world :player slot)
                 world)]
         (-> (ent/drop-item w item-id :player)
+            (snd/cue :drop)
             (log-msg (str "You drop the " (item-name* world item-id) ".")))))))
 
 ;; --- Turn Processing ---

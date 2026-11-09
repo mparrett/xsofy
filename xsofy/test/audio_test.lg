@@ -34,3 +34,12 @@
     (is (nil? (audio/turn! {:mood :dungeon :seed 1 :depth 1
                             :tension-target 0.0 :triggers []})))
     (is (nil? (audio/outro!)))))
+
+(deftest cues-drains-the-outbox-on-every-lg
+  (testing "a menu's world comes back without :sfx, binding or not"
+    (let [w {:turn 3 :entities {} :sfx [{:kind :drop :dist 0}]}]
+      (is (nil? (:sfx (audio/cues! w))))
+      (is (= 3 (:turn (audio/cues! w))))))
+  (testing "a world with nothing cued is returned as is"
+    (let [w {:turn 3}]
+      (is (identical? w (audio/cues! w))))))

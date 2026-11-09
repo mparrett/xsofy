@@ -59,7 +59,33 @@
    ;; Fire catching: a bright crackle, then a low whoomph.
    {:name :ignite :gate-ms 400
     :patch [[:env 0.005 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:hpf 1500] [:out 0.5 0.5]
-            [:env 0.06 0.4 0 0.25] [:osc 0 :noise 0 1] [:mul] [:lpf 900] [:verb 0.2] [:out 0.45 0.5]]}])
+            [:env 0.06 0.4 0 0.25] [:osc 0 :noise 0 1] [:mul] [:lpf 900] [:verb 0.2] [:out 0.45 0.5]]}
+   ;; A step through grass: a short, bright band of noise, quieter than
+   ;; the water step because it is the more common of the two.
+   {:name :rustle :gate-ms 100
+    :patch [[:env 0.004 0.09 0 0.06] [:osc 0 :noise 0 1] [:mul] [:svf 3200 0.3 1 0] [:out 0.7 0.5]]}
+   ;; One swallow: a low sine bent upward fast. Played three times for a drink.
+   {:name :gulp :gate-ms 100
+    :patch [[:env 0.005 0.09 0 0.05] [:osc -12 :sine 7 0.05] [:mul] [:lpf 1200] [:out 0.7 0.5]]}
+   ;; Unrolling a scroll: band-passed, slightly crushed noise.
+   {:name :paper :gate-ms 260
+    :patch [[:env 0.02 0.25 0 0.1] [:osc 0 :noise 0 1] [:mul] [:svf 2500 0.2 1 0] [:hpf 900]
+            [:crush 6000 8] [:out 0.4 0.5]]}
+   ;; Metal on metal for equipping: a high pulse with an inharmonic sine above.
+   {:name :clink :gate-ms 130
+    :patch [[:env 0.001 0.12 0 0.08] [:osc 24 :pulse 0 1] [:mul] [:hpf 1200] [:verb 0.15] [:out 0.25 0.5]
+            [:env 0.001 0.07 0 0.05] [:osc 31 :sine 0 1] [:mul] [:out 0.2 0.5]]}
+   ;; Poison: a dull saw, drooping, with a fast vibrato that reads as queasy.
+   {:name :sick :gate-ms 550
+    :patch [[:env 0.05 0.5 0 0.3] [:lfo 7 0] [:pitch 0.6] [:osc 0 :saw -3 0.5] [:mul]
+            [:lpf 800] [:out 0.5 0.5]]}
+   ;; A burn tick: a short, crushed, high crackle, distinct from a blow.
+   {:name :sizzle :gate-ms 200
+    :patch [[:env 0.002 0.18 0 0.1] [:osc 0 :noise 0 1] [:mul] [:crush 4000 5] [:hpf 2500] [:out 0.4 0.5]]}
+   ;; Fire going out: noise whose lowpass closes from bright to dull.
+   {:name :hiss :gate-ms 700
+    :patch [[:env 0.01 0.7 0 0.4] [:osc 0 :noise 0 1] [:mul]
+            [:env 0.001 0.7 0 0.4] [:svf 600 0.2 0 3] [:out 0.45 0.5]]}])
 
 ;; ---- spatial model ----
 
@@ -102,7 +128,7 @@
 ;; floor, not about coverage.
 
 (defn- footstep-shots [ev seed]
-  [{:shot (if (= :water (:surface ev)) :splash :footstep)
+  [{:shot (case (:surface ev) :water :splash :grass :rustle :footstep)
     ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
     ;; step entirely, and the gain is what keeps it subtle, not the register.
     :note (+ 55 (jit seed :note 2))
@@ -278,6 +304,92 @@
    {:shot :pluck :degree 4 :octave 2 :gain 0.55 :pan 0.55 :delay-ms 70
     :seed (det/combine seed [:second])}])
 
+;; ---- the player's own items ----
+
+(defn- use-shots
+  "Using an item, by what it is: three swallows for a potion, paper and a
+   chime for a scroll, a rising in-key arpeggio for an enchantment."
+  [ev seed]
+  (let [s (fn [k] (det/combine seed [k]))]
+    (case (:item ev)
+      :potion  [{:shot :gulp :note 55 :gain 0.8 :pan 0.5 :seed seed}
+                {:shot :gulp :note 58 :gain 0.7 :pan 0.5 :delay-ms 130 :seed (s :g2)}
+                {:shot :gulp :note 53 :gain 0.7 :pan 0.5 :delay-ms 260 :seed (s :g3)}]
+      :scroll  [{:shot :paper :note 60 :gain 1.4 :pan 0.5 :seed seed}
+                {:shot :pluck :degree 4 :octave 2 :gain 0.7 :pan 0.5 :delay-ms 220 :seed (s :chime)}]
+      :enchant [{:shot :pluck :degree 0 :octave 1 :gain 0.9 :pan 0.4 :seed seed}
+                {:shot :pluck :degree 2 :octave 1 :gain 0.9 :pan 0.47 :delay-ms 70 :seed (s :e2)}
+                {:shot :pluck :degree 4 :octave 1 :gain 0.9 :pan 0.53 :delay-ms 140 :seed (s :e3)}
+                {:shot :pluck :degree 0 :octave 2 :gain 1.0 :pan 0.6 :delay-ms 210 :seed (s :e4)}]
+      [])))
+
+(defn- equip-shots [ev seed]
+  [{:shot :clink :note (+ 60 (jit seed :note 1)) :gain 0.6 :pan 0.5 :seed seed}])
+
+(defn- unequip-shots [ev seed]
+  [{:shot :clink :note (+ 55 (jit seed :note 1)) :gain 0.45 :pan 0.5 :seed seed}])
+
+(defn- drop-shots [ev seed]
+  [{:shot :thud :note 52 :gain 0.35 :pan 0.5 :seed seed}])
+
+(defn- cursed-shots
+  "A cursed item refusing to come off: the hazard prompt's refusal thunk."
+  [ev seed]
+  [{:shot :thunk :note 52 :gain 0.9 :pan 0.5 :seed seed}])
+
+;; ---- statuses on the player ----
+
+(defn- status-shots
+  "A status landing on the player (:on true) or leaving (:on false). Only
+   burning has an ending: the fire going out is news, the rest are not."
+  [ev seed]
+  (let [s (fn [k] (det/combine seed [k]))]
+    (if (:on ev)
+      (case (:status ev)
+        :burning  [{:shot :ignite :note 64 :gain 1.1 :pan 0.5 :seed seed}
+                   {:shot :sizzle :note 60 :gain 0.6 :pan 0.5 :delay-ms 120 :seed (s :tail)}]
+        :poison   [{:shot :sick :note 50 :gain 0.9 :pan 0.5 :seed seed}]
+        :frozen   [{:shot :tink :degree 4 :octave 2 :gain 0.6 :pan 0.45 :seed seed}
+                   {:shot :tink :degree 6 :octave 2 :gain 0.5 :pan 0.55 :delay-ms 50 :seed (s :f2)}]
+        :confused [{:shot :pluck :degree 1 :octave 1 :gain 0.9 :pan 0.4 :seed seed}
+                   {:shot :pluck :degree 2 :octave 1 :gain 0.9 :pan 0.6 :delay-ms 20 :seed (s :c2)}]
+        :slowed   [{:shot :sink :note 55 :gain 0.7 :pan 0.5 :seed seed}]
+        :haste    [{:shot :pluck :degree 0 :octave 2 :gain 0.8 :pan 0.45 :seed seed}
+                   {:shot :pluck :degree 2 :octave 2 :gain 0.8 :pan 0.5 :delay-ms 45 :seed (s :h2)}
+                   {:shot :pluck :degree 4 :octave 2 :gain 0.8 :pan 0.55 :delay-ms 90 :seed (s :h3)}]
+        [])
+      (case (:status ev)
+        :burning [{:shot :hiss :note 60 :gain 1.3 :pan 0.5 :seed seed}]
+        []))))
+
+(defn- status-tick-shots
+  "Damage from a status rather than a blow: a crackle for fire, the queasy
+   saw, quieter, for poison."
+  [ev seed]
+  (case (:status ev)
+    :burning [{:shot :sizzle :note (+ 60 (jit seed :note 2)) :gain 0.7 :pan 0.5 :seed seed}]
+    :poison  [{:shot :sick :note (+ 48 (jit seed :note 1)) :gain 0.5 :pan 0.5 :seed seed}]
+    []))
+
+;; ---- menus ----
+
+(defn menu-shots
+  "Menu sounds for a change of screen, `from` -> `to` (nil is the game):
+   opening rises a third, closing falls it, and moving between two screens is
+   one quiet pluck. Called by xsofy.audio/menu!, not from the turn's frame:
+   menus are UI, so they never touch the world."
+  [from to]
+  (let [seed 77]
+    (cond
+      (= from to) []
+      (nil? from) [{:shot :pluck :degree 2 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
+                   {:shot :pluck :degree 4 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
+                    :seed (det/combine seed [:open])}]
+      (nil? to)   [{:shot :pluck :degree 4 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
+                   {:shot :pluck :degree 2 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
+                    :seed (det/combine seed [:close])}]
+      :else       [{:shot :pluck :degree 3 :octave 2 :gain 0.45 :pan 0.5 :seed seed}])))
+
 (defn for-event
   "One event descriptor -> a vector of trigger maps."
   [ev seed]
@@ -295,6 +407,13 @@
     :shoot      (shoot-shots ev seed)
     :cast       (cast-shots ev seed)
     :ignite     (ignite-shots ev seed)
+    :use        (use-shots ev seed)
+    :equip      (equip-shots ev seed)
+    :unequip    (unequip-shots ev seed)
+    :drop       (drop-shots ev seed)
+    :cursed     (cursed-shots ev seed)
+    :status     (status-shots ev seed)
+    :status-tick (status-tick-shots ev seed)
     []))
 
 (defn for-events
@@ -312,9 +431,10 @@
      :tension-target      instantaneous; xsofy.audio applies the envelope
      :triggers            resolved one-shot trigger maps
 
-   Three events are INFERRED here from the two worlds rather than produced in
-   world code — the step (position changed), the floor change (depth changed),
-   and a blocked move (a hazard prompt opened). None needs a world change or a
+   Some events are INFERRED here from the two worlds rather than produced in
+   world code — the step and its surface (position changed), the floor change
+   (depth changed), a blocked move (a hazard prompt opened), fire catching
+   nearby, and statuses arriving, leaving or doing damage. None needs a world change or a
    producer call, which keeps the busiest sources entirely presentation-side.
    NPC/world events arrive via the :sfx outbox (xsofy.sound)."
   [new-world prev-world]
@@ -330,10 +450,30 @@
         blocked    (and (:hazard-prompt new-world)
                         (not (:hazard-prompt prev-world)))
         ;; Guarded: a world without terrain (a test fixture) has no surface.
+        ;; Grass is read as either state: trample! mutates the shared terrain
+        ;; array, so the previous world already shows the trampled tile.
         surface    (when (and stepped (:terrain new-world))
-                     (when (#{3 4} (terrain/tget (:terrain new-world) (:width new-world)
-                                                 (first pos) (second pos)))
-                       :water))
+                     (let [t (terrain/tget (:terrain new-world) (:width new-world)
+                                           (first pos) (second pos))]
+                       (cond (#{3 4} t)  :water
+                             (#{2 18} t) :grass)))
+        ;; Statuses that arrived or left this turn. :webbed and :swimming have
+        ;; their own sounds (the web, the water step).
+        statuses   (fn [w] (set (remove #{:webbed :swimming}
+                                        (keys (get-in w [:entities :player :statuses])))))
+        now-st     (statuses new-world)
+        was-st     (statuses prev-world)
+        status-evs (concat (map (fn [k] {:kind :status :status k :on true})
+                                (sort (remove was-st now-st)))
+                           (map (fn [k] {:kind :status :status k :on false})
+                                (sort (remove now-st was-st))))
+        ;; HP lost to a status, not a blow: no :hit-taken this turn and a
+        ;; damaging status held at either end of it.
+        hp         (get-in new-world [:entities :player :body :hp])
+        prev-hp    (get-in prev-world [:entities :player :body :hp])
+        tick       (when (and hp prev-hp (< hp prev-hp)
+                              (not-any? #(= :hit-taken (:kind %)) (:sfx new-world)))
+                     (some (into now-st was-st) [:burning :poison]))
         ;; The nearest tile that caught fire this turn, within earshot.
         ignite     (when pos
                      (let [prev-fire (or (:fire-ttl prev-world) {})
@@ -358,7 +498,9 @@
                                 (conj base {:kind :floor
                                             :dir-of-travel (if (< depth prev-depth) :up :down)})
                                 base)
-                         base (if blocked (conj base {:kind :blocked :element hazard}) base)]
+                         base (if blocked (conj base {:kind :blocked :element hazard}) base)
+                         base (into base status-evs)
+                         base (if tick (conj base {:kind :status-tick :status tick}) base)]
                      base)
         salt       (or (:turn new-world) 0)]
     {:mood           :dungeon ; no overworld yet — single mood until there is
