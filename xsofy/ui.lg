@@ -2,7 +2,8 @@
   (:require [term]
             [async :refer [timeout <!!]]
             [xsofy.input :as input]
-            [xsofy.util :as u]))
+            [xsofy.util :as u]
+            [xsofy.audio :as audio]))
 
 ;; --- Timing ---
 ;; Shared frame/animation pause. Floors the delay under wasm so the event loop
@@ -365,27 +366,30 @@
                                 frame-ms 30}}]
    (let [from    (:screen world)
          painted (atom :unpainted)
-         shown   (atom :unpainted)]
-     (run-loop
-       {:sources  [source (clock-source 0)]
-        :state    world
-        :step     (fn [w ev]
-                    (let [[kind payload] ev]
-                      (if (= kind :action)
-                        ;; raw-key->event maps EOF to :eof; reducers expect nil.
-                        (let [w' (input w (if (= payload :eof) nil payload))]
-                          (if (= (:screen w') from) w' (reduced w')))
-                        w)))
-        :render   (fn [w]
-                    (let [size    (size-fn)
-                          resized (not= size @painted)]
-                      (when resized
-                        (reset! painted size)
-                        (when background! (background! w)))
-                      (when (or resized (not (identical? w @shown)))
-                        (reset! shown w)
-                        (render! w))))
-        :frame-ms frame-ms}))))
+         shown   (atom :unpainted)
+         _       (audio/menu! from)
+         w       (run-loop
+                  {:sources  [source (clock-source 0)]
+                   :state    world
+                   :step     (fn [w ev]
+                               (let [[kind payload] ev]
+                                 (if (= kind :action)
+                                   ;; raw-key->event maps EOF to :eof; reducers expect nil.
+                                   (let [w' (audio/cues! (input w (if (= payload :eof) nil payload)))]
+                                     (if (= (:screen w') from) w' (reduced w')))
+                                   w)))
+                   :render   (fn [w]
+                               (let [size    (size-fn)
+                                     resized (not= size @painted)]
+                                 (when resized
+                                   (reset! painted size)
+                                   (when background! (background! w)))
+                                 (when (or resized (not (identical? w @shown)))
+                                   (reset! shown w)
+                                   (render! w))))
+                   :frame-ms frame-ms})]
+     (audio/menu! (:screen w))
+     w)))
 
 (defn prompt-key!
   "Poll for one real keypress while `prompt!` stays painted, returning the key

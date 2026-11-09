@@ -186,6 +186,31 @@
     (swap! state assoc :descent-fired true)
     (call :trigger {:shot :descend :note 48 :gain 1.0 :pan 0.5 :seed depth})))
 
+(defn menu!
+  "Menu sounds: call with the screen being shown (nil for the game). Remembers
+   the last one, so a screen handing off to itself is silent and the next call
+   decides open, close or switch (xsofy.sfx/menu-shots)."
+  [screen]
+  (when natives
+    (let [prev (:menu @state)]
+      (when (not= prev screen)
+        (swap! state assoc :menu screen)
+        (let [trs (sfx/menu-shots prev screen)]
+          (when (seq trs) (call :trigger trs)))))))
+
+(defn cues!
+  "Play and drain a world's :sfx outbox outside the play loop: an item used
+   from a menu cues inside the menu's key handler, and play-advance would only
+   drain it a turn later. Drains with or without the binding, so the world a
+   menu returns is the same on every lg."
+  [world]
+  (if-let [evs (seq (:sfx world))]
+    (do (when natives
+          (let [trs (sfx/for-events world (or (:turn world) 0) (vec evs))]
+            (when (seq trs) (call :trigger trs))))
+        (dissoc world :sfx))
+    world))
+
 (defn outro!
   "The death outro. Once per death: the death screen re-enters itself when a
    restart is declined, and the outro should not restart with it."
