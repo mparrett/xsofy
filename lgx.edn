@@ -1,0 +1,21 @@
+{:paths ["."]
+ :main "main.lg"
+
+ ;; `lgx run` plays natively. `lgx build` makes the browser page, which still
+ ;; needs xsofy's shell (tools/xsofy-shell.html) and undertone's
+ ;; webaudio/page.js injected after it: lgx has no step for either.
+ :targets {:bin {:target :wasm :out "dist/lgx" :wasm {:shell :none}}}
+
+ ;; Sound needs undertone's natives linked into lg, so lgx builds the runtime.
+ ;; The pin is a let-go main commit until a release carries the audio seam
+ ;; (#1089, #1107) and lg -w's -w-module/-import (#1016, #1037).
+ :lg-runtime :built
+ :lg-version "48de160a262a9fd37bdac5719e8d521893fd7a0d"
+
+ ;; Play through let-go's audio seam rather than undertone's own oto player:
+ ;; oto allows one device per process. The browser build ignores the tag and
+ ;; keeps undertone's worklet, since the seam has no browser backend yet.
+ :go/build-tags ["audio_oto"]
+
+ :deps {github.com/mparrett/undertone/letgo
+        {:go/version "160c0a0735040a9d1da001795491ba11fa8067d7"}}}
