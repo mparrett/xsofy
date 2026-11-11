@@ -179,15 +179,21 @@
 (deftest audio-frame-infers-the-floor-change
   (let [deeper  (assoc base :depth 4)
         shallow (assoc base :depth 2)]
-    (testing "descending scores the transition, and says which way"
-      (let [t (first (:triggers (sfx/audio-frame deeper base)))]
-        (is (= 1 (count (:triggers (sfx/audio-frame deeper base)))))
-        (is (= :descend (:shot t)))))
+    (testing "descending scores the transition: the swirl, then six plucks"
+      (let [trs (:triggers (sfx/audio-frame deeper base))]
+        (is (= 7 (count trs)))
+        (is (= :descend (:shot (first trs))))
+        (is (= 6 (count (filter #(= :pluck (:shot %)) trs))))))
+    (testing "every floor-change trigger is tagged, so the sink can drop the
+              frame's copy after descent! played it"
+      (is (every? :floor (:triggers (sfx/audio-frame deeper base))))
+      (is (every? :floor (:triggers (sfx/audio-frame shallow base)))))
     (testing "ascending is the mirror, a different patch not a flag"
       (is (= :ascend (:shot (first (:triggers (sfx/audio-frame shallow base)))))))
     (testing "pitch crosses as a degree so it lands in the key of the floor
               you are ARRIVING on, which the module resolves"
-      (is (some? (:degree (first (:triggers (sfx/audio-frame deeper base)))))))
+      (is (every? :degree (filter #(= :pluck (:shot %)) (:triggers (sfx/audio-frame deeper base)))))
+      (is (some? (:degree (first (:triggers (sfx/audio-frame shallow base)))))))
     (testing "same floor -> nothing"
       (is (= 0 (count (:triggers (sfx/audio-frame base base))))))))
 
