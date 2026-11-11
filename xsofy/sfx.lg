@@ -35,13 +35,18 @@
 ;; renders and the game register the same patches.
 
 (def custom-shots
-  [;; Descending: a sine falling two octaves over the ~1.5 s descent
-   ;; animation, under noise whose lowpass closes with it. One shot spans the
-   ;; whole transition, which a one-grid theme (5-8 s) could not.
-   {:name :descend :gate-ms 1400
-    :patch [[:env 0.02 1.4 0 0.6] [:osc 12 :sine 24 0.7] [:mul] [:verb 0.35] [:out 0.55 0.5]
-            [:env 0.25 1.1 0 0.6] [:osc 0 :noise 0 1] [:mul]
-            [:env 0.01 1.2 0 0.4] [:svf 300 0.3 0 3] [:verb 0.4] [:out 0.3 0.5]]}
+  [;; Descending: the swirl under descent-shots' plucks. Two detuned saws
+   ;; with a slow pitch wobble and a resonant lowpass sweeping against it,
+   ;; for falling into another world rather than down a staircase (Matt's
+   ;; pick, S1 of the 2026-11 descent rounds; renders and notes in
+   ;; project-docs joint-xsofy/audio-candidates). It outlasts the ~1.1 s
+   ;; animation and rings out over the new floor.
+   {:name :descend :gate-ms 2000
+    :patch [[:lfo 1.0 0] [:pitch 4.5]
+            [:env 0.1 2.0 0 0.9] [:osc 0 :saw 0 1] [:mul]
+            [:lfo 0.9 0] [:svf 650 0.85 0 1.8] [:verb 0.45] [:out 0.4 0.5]
+            [:env 0.1 2.0 0 0.9] [:osc 0.15 :saw 0 1] [:mul]
+            [:lfo 0.9 1] [:svf 650 0.85 0 1.8] [:verb 0.45] [:out 0.4 0.5]]}
    ;; Ascending: the mirror — rising sine, lowpass opening.
    {:name :ascend :gate-ms 1400
     :patch [[:env 0.02 1.4 0 0.6] [:osc 0 :sine -24 0.7] [:mul] [:verb 0.35] [:out 0.55 0.5]
@@ -215,6 +220,28 @@
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
+(def ^:private descent-plucks
+  "Scale positions (7 per octave) and gains of the plucks falling through the
+   descent swirl, 340 ms apart. The gains are the board's leveled mix: the
+   round 6 plucks x3.28 with the swirl at 0.9, picked 2026-11-10 against the
+   bed at music-gain 0.5."
+  [[9 2.79] [13 2.37] [11 1.95] [15 1.53] [13 1.12] [9 0.70]])
+
+(def ^:private pluck-pans [0.5 0.88 0.97 0.72 0.28 0.04])
+
+(defn descent-shots
+  "The descent: the :descend swirl and a falling run of plucks. Every trigger
+   carries :floor (undertone ignores unknown keys) so xsofy.audio can drop the
+   frame's copy when descent! already played it. The plucks cross as scale
+   DEGREES, so they land in whatever key the module has staged when they fire."
+  [seed]
+  (into [{:shot :descend :note 48 :gain 0.9 :pan 0.5 :seed seed :floor true}]
+        (map-indexed (fn [i [step gain]]
+                       {:shot :pluck :degree (mod step 7) :octave (quot step 7)
+                        :gain gain :pan (nth pluck-pans i) :delay-ms (* 340 i)
+                        :seed (det/combine seed [:pluck i]) :floor true})
+                     descent-plucks)))
+
 (defn- floor-shots
   "Changing floor — the longest sound in the game, because it scores a
    transition rather than an action. Pitch crosses as a scale DEGREE so it
@@ -222,12 +249,9 @@
    the module resolves degrees against its staged parameters, which by this
    point are already the new floor's."
   [ev seed]
-  [{:shot   (if (= (:dir-of-travel ev) :up) :ascend :descend)
-    :degree 0
-    :octave (if (= (:dir-of-travel ev) :up) 1 0)
-    :gain   1.0
-    :pan    0.5
-    :seed   seed}])
+  (if (= (:dir-of-travel ev) :up)
+    [{:shot :ascend :degree 0 :octave 1 :gain 1.0 :pan 0.5 :seed seed :floor true}]
+    (descent-shots seed)))
 
 (defn- blocked-shots
   "The game said no — you walked into water, a chasm or lava, and it wants
