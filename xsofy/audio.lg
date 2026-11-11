@@ -16,7 +16,8 @@
    the half-life is in game-clock units — idling does not relieve dread,
    taking turns does."
   (:require [xsofy.music :as music]
-            [xsofy.sfx :as sfx]))
+            [xsofy.sfx :as sfx]
+            [async :refer [timeout <!!]]))
 
 ;; ---- the natives ----
 
@@ -34,6 +35,8 @@
        :play-theme     @(resolve 'undertone/play-theme)
        :register-shot  @(resolve 'undertone/register-shot)
        :set-music-gain @(resolve 'undertone/set-music-gain)
+       ;; Newer still (undertone#83); without it the descent does not duck.
+       :glide-music-gain (some-> (resolve 'undertone/glide-music-gain) deref)
        :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
       (catch e nil))))
 
@@ -129,8 +132,17 @@
 (def music-gain
   "The bed's level under the one-shots. Shots always play at full level, so
    trimming the bed is how the sfx stand out; 1.0 buried the quieter ones
-   on laptop speakers (2026-10-29 playtest)."
-  0.85)
+   on laptop speakers (2026-10-29 playtest). 0.85 sat the bed near −19 LUFS,
+   loud enough that 50% system volume in headphones was barely comfortable
+   and big shots were judged against it; 0.5 (about −24) from 2026-11-10."
+  0.5)
+
+(def duck
+  "The bed ducks under the descent: down to :level of music-gain over :down
+   seconds, held :hold-ms from the shot's start, then back over :release
+   seconds. The hold runs from the start because undertone does not report
+   when a shot ends. Tuned on the sfx board, 2026-11-10."
+  {:level 0.4 :down 0.1 :hold-ms 2000 :release 1.5})
 
 (defn register-shots!
   "Register xsofy's own patches (xsofy.sfx/custom-shots). Idempotent: a
@@ -161,6 +173,19 @@
   [seed]
   (start! seed title-theme))
 
+(defn- duck!
+  "Duck the bed under a big shot (see duck). The release runs on its own
+   goroutine; a later duck bumps :duck-gen so an earlier timer cannot lift
+   the bed while the later shot still wants it down."
+  []
+  (when-let [glide (:glide-music-gain natives)]
+    (let [n (:duck-gen (swap! state update :duck-gen (fnil inc 0)))]
+      (glide (* music-gain (:level duck)) (:down duck))
+      (go (<!! (timeout (:hold-ms duck)))
+          (when (= n (:duck-gen @state))
+            (glide music-gain (:release duck))))
+      nil)))
+
 (defn turn!
   "Play one turn's frame (xsofy.sfx/audio-frame): advance the envelope,
    restage the mood if it moved audibly, and fire the turn's one-shots."
@@ -172,9 +197,10 @@
       ;; the animation; the frame's copy, built after it, would double it.
       (let [trs (if (:descent-fired @state)
                   (do (swap! state dissoc :descent-fired)
-                      (vec (remove #(#{:descend :ascend} (:shot %)) (:triggers frame))))
+                      (vec (remove :floor (:triggers frame))))
                   (:triggers frame))]
         (when (seq trs)
+          (when (some #(= :descend (:shot %)) trs) (duck!))
           (call :trigger trs))))))
 
 (defn descent!
@@ -184,7 +210,8 @@
   [depth]
   (when natives
     (swap! state assoc :descent-fired true)
-    (call :trigger {:shot :descend :note 48 :gain 1.0 :pan 0.5 :seed depth})))
+    (duck!)
+    (call :trigger (sfx/descent-shots depth))))
 
 (defn menu!
   "Menu sounds: call with the screen being shown (nil for the game). Remembers

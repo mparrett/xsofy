@@ -14,8 +14,8 @@
 
  ;; Play through let-go's audio seam rather than undertone's own oto player:
  ;; oto allows one device per process. The browser build ignores the tag and
- ;; keeps undertone's worklet, since the seam has no browser backend yet.
+ ;; keeps undertone's worklet (let-go's browser seam, #1112, is opt-in and not used here).
  :go/build-tags ["audio_oto"]
 
  :deps {github.com/mparrett/undertone/letgo
-        {:go/version "160c0a0735040a9d1da001795491ba11fa8067d7"}}}
+        {:go/version "31ff28442921565898733b1d05ba6971c0ece4bc"}}}
