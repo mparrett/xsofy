@@ -22,6 +22,34 @@ inputs:
 runs:
   using: composite
   steps:
+    # 0. TinyGo lane (lab experiment): ~1/3 the wasm of the stock-Go build.
+    #    let-go v1.13.0 needs Go 1.27, which TinyGo 0.42 accepts, and TinyGo
+    #    shells out to wasm-opt for -opt=z but does not ship it. TinyGo 0.43+
+    #    wraps calls in panic-unwind catchers that overflow the browser worker's
+    #    native stack on some descends (RangeError, seen 2026-10-27). lg builds
+    #    with -panic=trap, so nothing recovers and the catchers are dead weight;
+    #    0.44's -panic-unwind=none drops them. lg v1.13.0 can't pass extra
+    #    tinygo flags, so a PATH wrapper adds it to every `tinygo build`.
+    - name: Set up Go for TinyGo
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.27'
+    - name: Install TinyGo and binaryen
+      shell: bash
+      run: |
+        wget -q https://github.com/tinygo-org/tinygo/releases/download/v0.44.0/tinygo_0.44.0_amd64.deb
+        sudo dpkg -i tinygo_0.44.0_amd64.deb
+        wget -q https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz
+        tar -xzf binaryen-version_133-x86_64-linux.tar.gz -C "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/binaryen-version_133/bin" >> "$GITHUB_PATH"
+        rm -f tinygo_0.44.0_amd64.deb binaryen-version_133-x86_64-linux.tar.gz
+        mkdir -p "$RUNNER_TEMP/tinygo-wrap"
+        real="$(command -v tinygo)"
+        printf '#!/bin/sh\nif [ "$1" = build ]; then shift; exec %s build -panic-unwind=none "$@"; fi\nexec %s "$@"\n' "$real" "$real" > "$RUNNER_TEMP/tinygo-wrap/tinygo"
+        chmod +x "$RUNNER_TEMP/tinygo-wrap/tinygo"
+        echo "$RUNNER_TEMP/tinygo-wrap" >> "$GITHUB_PATH"
+        tinygo version
+
     # 1. Shell-less bundle: -w-shell none emits glue-only HTML exposing
     #    window.LetGoHost, so a project can inject its own client shell (#245).
     #    -w-wasm external emits main.wasm beside the HTML so the loader streams
@@ -30,6 +58,8 @@ runs:
     #    slightly larger on the wire. Timings in nooga/xsofy#191.
     - name: Build WASM (shell-less)
       shell: bash
+      env:
+        LETGO_USE_TINYGO: '1'
       run: |
         if [ -n "${{ inputs.letgo-src }}" ]; then export LETGO_SRC="${{ inputs.letgo-src }}"; fi
         let-go -w "${{ inputs.dist }}" -w-shell none -w-wasm external main.lg
