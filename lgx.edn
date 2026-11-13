@@ -10,7 +10,7 @@
  ;; The pin is a let-go main commit until a release carries the audio seam
  ;; (#1089, #1107) and lg -w's -w-module/-import (#1016, #1037).
  :lg-runtime :built
- :lg-version "48de160a262a9fd37bdac5719e8d521893fd7a0d"
+ :lg-version "c6665893a7b89c5d212f397e9f7fe7a49ef36028"
 
  ;; Play through let-go's audio seam rather than undertone's own oto player:
  ;; oto allows one device per process. The browser build ignores the tag and
@@ -18,4 +18,4 @@
  :go/build-tags ["audio_oto"]
 
  :deps {github.com/mparrett/undertone/letgo
-        {:go/version "d66e93c254826bde32997569f1e218d6d263c814"}}}
+        {:go/version "206e0be18512785cfd3cd344b7a035517c4bcb74"}}}
