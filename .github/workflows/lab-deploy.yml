@@ -49,7 +49,9 @@ concurrency:
 jobs:
   deploy:
     if: inputs.action == 'deploy'
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where Playwright 1.60 cannot
+    # install chromium's deps, so the smoke gate fails before it runs.
+    runs-on: ubuntu-24.04
     steps:
       # Reject path traversal and anything that would escape lab/ — `name` is
       # free text from the dispatch form and lands in a filesystem path.
