@@ -37,6 +37,8 @@
        :set-music-gain @(resolve 'undertone/set-music-gain)
        ;; Newer still (undertone#83); without it the descent does not duck.
        :glide-music-gain (some-> (resolve 'undertone/glide-music-gain) deref)
+       ;; Newer again (undertone#89); without it the sfx play at board level.
+       :set-sfx-gain   (some-> (resolve 'undertone/set-sfx-gain) deref)
        :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
       (catch e nil))))
 
@@ -53,9 +55,6 @@
 ;; together. 0.75 (−2.5 dB) from 2026-11-14, when Matt found the sfx 2-3 dB
 ;; too loud alongside the quieter music bed.
 (def sfx-gain 0.75)
-
-(defn- shots! [trs]
-  (call :trigger (mapv #(update % :gain (fnil * 1.0) sfx-gain) trs)))
 
 ;; ---- the envelope ----
 
@@ -176,6 +175,7 @@
      (reset! state {:tension 0.0 :sent nil :outro false})
      (register-shots!)
      (call :set-music-gain music-gain)
+     (call :set-sfx-gain sfx-gain)
      (score! :dungeon (music/music-seed {:seed-input seed :depth 1}) 1 0.0)
      (when theme (call :play-theme theme))
      (call :music-start))))
@@ -208,7 +208,7 @@
   (when-let [{:keys [at seed]} (and natives (:going @state))]
     (swap! state dissoc :going)
     (let [elapsed (quot (.Sub (now) at) 1000000)]
-      (shots! (sfx/arrival-shots :down seed (max 0 (- (sfx/arrival-ms :down) elapsed)))))))
+      (call :trigger (sfx/arrival-shots :down seed (max 0 (- (sfx/arrival-ms :down) elapsed)))))))
 
 (defn turn!
   "Play one turn's frame (xsofy.sfx/audio-frame): advance the envelope,
@@ -226,7 +226,7 @@
                   (:triggers frame))]
         (when (seq trs)
           (when (some :floor trs) (duck!))
-          (shots! trs))))))
+          (call :trigger trs))))))
 
 (defn descent!
   "The going-down run, fired when the descending animation starts so the
@@ -236,7 +236,7 @@
   (when natives
     (swap! state assoc :going {:at (now) :seed depth})
     (duck!)
-    (shots! (sfx/descent-shots depth))))
+    (call :trigger (sfx/descent-shots depth))))
 
 (defn menu!
   "Menu sounds: call with the screen being shown (nil for the game). Remembers
@@ -248,7 +248,7 @@
       (when (not= prev screen)
         (swap! state assoc :menu screen)
         (let [trs (sfx/menu-shots prev screen)]
-          (when (seq trs) (shots! trs)))))))
+          (when (seq trs) (call :trigger trs)))))))
 
 (defn cues!
   "Play and drain a world's :sfx outbox outside the play loop: an item used
@@ -259,7 +259,7 @@
   (if-let [evs (seq (:sfx world))]
     (do (when natives
           (let [trs (sfx/for-events world (or (:turn world) 0) (vec evs))]
-            (when (seq trs) (shots! trs))))
+            (when (seq trs) (call :trigger trs))))
         (dissoc world :sfx))
     world))
 
