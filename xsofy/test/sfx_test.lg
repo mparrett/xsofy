@@ -179,21 +179,30 @@
 (deftest audio-frame-infers-the-floor-change
   (let [deeper  (assoc base :depth 4)
         shallow (assoc base :depth 2)]
-    (testing "descending scores the transition: the swirl, then six plucks"
-      (let [trs (:triggers (sfx/audio-frame deeper base))]
-        (is (= 7 (count trs)))
-        (is (= :descend (:shot (first trs))))
-        (is (= 6 (count (filter #(= :pluck (:shot %)) trs))))))
+    (testing "changing floor scores going and arriving: the chirp run, then
+              the chirp held once"
+      (doseq [w [deeper shallow]]
+        (let [trs (:triggers (sfx/audio-frame w base))]
+          (is (= 16 (count (filter #(and (= :scoop (:shot %)) (< (:note %) 48)) trs)))
+              "16 steps, counted by the lowest octave's copy, which every step has")
+          (is (= 2 (count (filter #(= :chirp-land (:shot %)) trs)))))))
     (testing "every floor-change trigger is tagged, so the sink can drop the
               frame's copy after descent! played it"
       (is (every? :floor (:triggers (sfx/audio-frame deeper base))))
       (is (every? :floor (:triggers (sfx/audio-frame shallow base)))))
-    (testing "ascending is the mirror, a different patch not a flag"
-      (is (= :ascend (:shot (first (:triggers (sfx/audio-frame shallow base)))))))
-    (testing "pitch crosses as a degree so it lands in the key of the floor
-              you are ARRIVING on, which the module resolves"
-      (is (every? :degree (filter #(= :pluck (:shot %)) (:triggers (sfx/audio-frame deeper base)))))
-      (is (some? (:degree (first (:triggers (sfx/audio-frame shallow base)))))))
+    (testing "the run descends going down and climbs going up"
+      (let [first-pc (fn [w] (mod (:note (first (:triggers (sfx/audio-frame w base)))) 12))]
+        (is (= 11 (first-pc deeper)))
+        (is (= 0 (first-pc shallow)))))
+    (testing "the arrival lands on the pitch class the run stops on, after
+              the run's last step"
+      (doseq [[w dir] [[deeper :down] [shallow :up]]]
+        (let [trs  (:triggers (sfx/audio-frame w base))
+              run  (filter #(= :scoop (:shot %)) trs)
+              land (first (filter #(= :chirp-land (:shot %)) trs))]
+          (is (= (sfx/landing-pc dir) (mod (:note land) 12)))
+          (is (= (mod (:note (last run)) 12) (mod (:note land) 12)))
+          (is (> (:delay-ms land) (apply max (map :delay-ms run)))))))
     (testing "same floor -> nothing"
       (is (= 0 (count (:triggers (sfx/audio-frame base base))))))))
 
