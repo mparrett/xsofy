@@ -91,6 +91,15 @@
       [(unchecked-add lo (mod new-seed span))
        (assoc world :seed new-seed)])))
 
+(defn roll-100
+  "(int-in world 0 100), the commonest roll. With lo and hi literal here,
+   with-folded-salt encodes all of [:int-in 0 100] at compile time, where
+   int-in must encode its runtime lo/hi on every call; the hash sees the same
+   bytes, so the roll is the same. Returns [i world']."
+  [world]
+  (let [new-seed (h/with-folded-salt (or (:seed world) 0) [:int-in 0 100])]
+    [(mod new-seed 100) (assoc world :seed new-seed)]))
+
 (defn pick
   "Pick an element from coll. Returns [nil world] if coll is empty.
 
@@ -109,7 +118,7 @@
   "True with probability chance/100, where chance is an int in [0, 100].
    Returns [bool world']."
   [world chance]
-  (let [[i w'] (int-in world 0 100)]
+  (let [[i w'] (roll-100 world)]
     [(< i chance) w']))
 
 (defn unit
