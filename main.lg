@@ -344,7 +344,7 @@
   (let [sd  (seed/boot-seed)
         rng {:seed sd}
         _   (audio/title! sd)
-        {:keys [title scheme rng]} (title/show-title-screen rng)
+        {:keys [title scheme rng]} (title/show-title-screen rng {:on-start audio/title-fade-in!})
         [quest rng] (title/generate-quest rng)
         _ (title/show-descending-screen 1 scheme)
         world (assemble-world sd title scheme quest)]
