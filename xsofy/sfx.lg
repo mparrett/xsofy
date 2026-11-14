@@ -42,6 +42,10 @@
    ;; and notes in project-docs joint-xsofy/audio-candidates.
    {:name :scoop :gate-ms 300
     :patch [[:env 0.005 0.35 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.5] [:out 0.45 0.5]]}
+   ;; K008's going-down run (round 22): a soft, dark knock, tried in game
+   ;; in place of C007 on 2026-11-14.
+   {:name :knock-soft :gate-ms 500
+    :patch [[:env 0.003 0.3 0 0.15] [:pluck 0 0.96] [:mul] [:lpf 600] [:verb 0.45] [:out 0.8 0.5]]}
    {:name :chirp-land :gate-ms 400
     :patch [[:env 0.005 0.45 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.55] [:out 0.45 0.5]]}
    ;; A step in water: band-passed noise plus a small rising blip.
@@ -239,8 +243,10 @@
    that puts it at the board's level: round 19's script gain (0.85 x 3.17
    under the bell), the board's leveling factor for C007/C008, and Matt's
    +2 dB (2026-11-12)."
-  {:down {:top 11 :step -1 :gain (* 0.85 3.17 0.07794 1.2589)}
-   :up   {:top 0  :step 1  :gain (* 0.85 3.17 0.07826 1.2589)}})
+  {;; K008 (round 22's knock-soft-accel-down) at the board's level, x0.31 of
+   ;; its script; C007 was :scoop at (* 0.85 3.17 0.07794 1.2589).
+   :down {:top 11 :step -1 :shot :knock-soft :gain (* 0.85 3.17 0.31)}
+   :up   {:top 0  :step 1  :shot :scoop :gain (* 0.85 3.17 0.07826 1.2589)}})
 
 (def ^:private arrival
   "The chirp held once where the run stops: low and settled going down, two
@@ -248,7 +254,8 @@
    with the patch's 0.15 output scale folded in. :ms is when it lands after
    the run starts, as in the board's after-C007/C008 takes Matt picked from:
    once the run's tail has faded, plus 0.2 s."
-  {:down {:base 36 :gain (* 0.15 1.303) :ms 4950}
+  {;; 3650 with K008, from the board's audition (2026-11-14); 4950 with C007.
+   :down {:base 36 :gain (* 0.15 1.303) :ms 3650}
    :up   {:base 60 :gain (* 0.15 0.867) :ms 5150}})
 
 (defn going-shots
@@ -257,7 +264,7 @@
    the 3 loudest 4 ms apart. Chromatic, so it sits in any floor's key; it is
    pitched by note because a new floor's key is not staged when it starts."
   [dir seed]
-  (let [{:keys [top step gain]} (going dir)]
+  (let [{:keys [top step gain shot]} (going dir)]
     (vec (mapcat
            (fn [i t]
              (let [s (mod (+ top (* step i)) 12)]
@@ -269,7 +276,7 @@
                     (take 3)
                     (map-indexed
                       (fn [j [o w]]
-                        {:shot :scoop :note (+ 36 (* 12 o) s) :gain (* gain w)
+                        {:shot shot :note (+ 36 (* 12 o) s) :gain (* gain w)
                          :pan (nth run-pans (mod i (count run-pans)))
                          :delay-ms (+ t (* 4 j)) :seed (det/combine seed [:run i o])
                          :floor true})))))
