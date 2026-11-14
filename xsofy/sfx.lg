@@ -171,9 +171,11 @@
         base {:shot :hit :note note :gain gain :pan 0.5 :delay-ms flight :seed seed}]
     (if (:killed ev)
       ;; The kill was a thud an octave down, ~35 Hz and inaudible; a bright
-      ;; tink two octaves up reads as the final blow.
+      ;; tink two octaves up reads as the final blow. 0.42 from 0.6
+      ;; (2026-11-14): with the cry on top a kill was the loudest thing in
+      ;; a fight.
       [base
-       {:shot :tink :note (+ note 24) :gain 0.6 :pan 0.5
+       {:shot :tink :note (+ note 24) :gain 0.42 :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
       [base])))
 
@@ -208,7 +210,9 @@
   [ev seed]
   [{:shot :cry
     :note (+ 52 (jit seed :note 4))
-    :gain (* 0.8 (attenuate (:dist ev)))
+    ;; 0.56 from 0.8 (2026-11-14), with the kill's tink: the two land
+    ;; within 90 ms of the blow and stacked too loud.
+    :gain (* 0.56 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}])
 

@@ -53,8 +53,9 @@
 
 ;; Board levels are set by ear against each other; this moves all of them
 ;; together. 0.75 (−2.5 dB) from 2026-11-14, when Matt found the sfx 2-3 dB
-;; too loud alongside the quieter music bed.
-(def sfx-gain 0.75)
+;; too loud alongside the quieter music bed; 0.6 (−1.9 dB more) the same
+;; day, still a bit loud.
+(def sfx-gain 0.6)
 
 ;; ---- the envelope ----
 
@@ -143,8 +144,9 @@
    loud enough that 50% system volume in headphones was barely comfortable
    and big shots were judged against it; 0.5 (about −24) from 2026-11-10.
    0.32 (−3.9 dB, about −28) from 2026-11-14: at 0.5 Matt had to drop
-   system volume to 50% where 75-80% should be comfortable."
-  0.32)
+   system volume to 50% where 75-80% should be comfortable. 0.25 (−2.1 dB
+   more) the same day, still a bit loud."
+  0.25)
 
 (def duck
   "The bed ducks under a floor change: down to :level of music-gain over
