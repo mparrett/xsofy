@@ -134,8 +134,10 @@
    trimming the bed is how the sfx stand out; 1.0 buried the quieter ones
    on laptop speakers (2026-10-29 playtest). 0.85 sat the bed near −19 LUFS,
    loud enough that 50% system volume in headphones was barely comfortable
-   and big shots were judged against it; 0.5 (about −24) from 2026-11-10."
-  0.5)
+   and big shots were judged against it; 0.5 (about −24) from 2026-11-10.
+   0.32 (−3.9 dB, about −28) from 2026-11-14: at 0.5 Matt had to drop
+   system volume to 50% where 75-80% should be comfortable."
+  0.32)
 
 (def duck
   "The bed ducks under a floor change: down to :level of music-gain over
