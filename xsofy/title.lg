@@ -2,7 +2,8 @@
   (:require [term]
             [xsofy.screenfx :as sfx]
             [xsofy.ui :as ui]
-            [xsofy.det :as det]))
+            [xsofy.det :as det]
+            [xsofy.audio :as audio]))
 
 ;; --- Procedural Title Generation ---
 
@@ -192,12 +193,12 @@
                                      (assoc st :frame payload :size cur
                                             :runes (sfx/scatter-runes nw nh 40 scheme)))))
                        ;; Any key ends the title — except the shell's resize
-                       ;; nudge (a lone BEL, 0x07), which wakes read-key on a
+                       ;; nudge (ui/resize-nudge), which arrives as a key on a
                        ;; browser resize but is not a user keypress. Without this
-                       ;; guard the nudge auto-dismisses the title. Match BEL
+                       ;; guard the nudge auto-dismisses the title. Match it
                        ;; exactly rather than via parse-key: space also parses to
                        ;; :unknown and must still start the game.
-                       :action (if (= payload (str (char 7))) st (reduced st))
+                       :action (if (= payload ui/resize-nudge) st (reduced st))
                        st)))
        :render   (fn [st]
                    (let [[tw th] (:size st)]
@@ -225,6 +226,7 @@
          msg (nth descending-messages (rand-int (count descending-messages)))
          depth-str (str "Depth " depth)
          runes (sfx/scatter-runes tw th 25 scheme)]
+    (audio/descent! depth)
     ;; clear
     (sfx/clear-screen tw th)
     ;; animate — runes drift upward, erase old position each frame
