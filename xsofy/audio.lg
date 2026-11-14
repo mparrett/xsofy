@@ -55,7 +55,7 @@
 ;; together. 0.75 (−2.5 dB) from 2026-11-14, when Matt found the sfx 2-3 dB
 ;; too loud alongside the quieter music bed; 0.6 (−1.9 dB more) the same
 ;; day, still a bit loud.
-(def sfx-gain 0.6)
+(def sfx-gain 0.67)
 
 ;; ---- the envelope ----
 
@@ -155,7 +155,11 @@
    report when a shot ends. Level and release tuned on the sfx board,
    2026-11-10; the hold spans the run and its arrival, which lands about 5 s
    in (xsofy.sfx/arrival-ms), since 2026-11-13."
-  {:level 0.4 :down 0.1 :hold-ms 5500 :release 1.5})
+  ;; 2026-11-14, from the board's audition over the title music: deeper (0.2
+  ;; from 0.4), so the run and arrival cut through; a slower drop; and a
+  ;; second duck from the arrival (:arrival-hold-ms), whose release is the
+  ;; floor's music coming in.
+  {:level 0.2 :down 0.46 :hold-ms 4200 :release 0.8 :arrival-hold-ms 3800})
 
 (defn register-shots!
   "Register xsofy's own patches (xsofy.sfx/custom-shots). Idempotent: a
@@ -204,17 +208,27 @@
     (glide music-gain title-fade-s)))
 
 (defn- duck!
-  "Duck the bed under a big shot (see duck). The release runs on its own
-   goroutine; a later duck bumps :duck-gen so an earlier timer cannot lift
-   the bed while the later shot still wants it down."
-  []
+  "Duck the bed under a big shot (see duck), held `hold-ms`. The release runs
+   on its own goroutine; a later duck bumps :duck-gen so an earlier timer
+   cannot lift the bed while the later shot still wants it down."
+  ([] (duck! (:hold-ms duck)))
+  ([hold-ms]
   (when-let [glide (:glide-music-gain natives)]
     (let [n (:duck-gen (swap! state update :duck-gen (fnil inc 0)))]
       (glide (* music-gain (:level duck)) (:down duck))
-      (go (<!! (timeout (:hold-ms duck)))
+      (go (<!! (timeout hold-ms))
           (when (= n (:duck-gen @state))
             (glide music-gain (:release duck))))
-      nil)))
+      nil))))
+
+(defn- duck-arrival!
+  "Duck again as the arrival lands, `delay-ms` from now, so it is not heard
+   over the bed coming back; its release brings the floor's music in."
+  [delay-ms]
+  (when (:glide-music-gain natives)
+    (go (<!! (timeout delay-ms))
+        (duck! (:arrival-hold-ms duck)))
+    nil))
 
 (defn arrive!
   "The arrival after descent!'s run: called when the new floor appears (the
@@ -225,8 +239,10 @@
   []
   (when-let [{:keys [at seed]} (and natives (:going @state))]
     (swap! state dissoc :going)
-    (let [elapsed (quot (.Sub (now) at) 1000000)]
-      (call :trigger (sfx/arrival-shots :down seed (max 0 (- (sfx/arrival-ms :down) elapsed)))))))
+    (let [elapsed (quot (.Sub (now) at) 1000000)
+          delay-ms (max 0 (- (sfx/arrival-ms :down) elapsed))]
+      (duck-arrival! delay-ms)
+      (call :trigger (sfx/arrival-shots :down seed delay-ms)))))
 
 (defn turn!
   "Play one turn's frame (xsofy.sfx/audio-frame): advance the envelope,
@@ -243,7 +259,10 @@
                   (do (arrive!) (vec (remove :floor (:triggers frame))))
                   (:triggers frame))]
         (when (seq trs)
-          (when (some :floor trs) (duck!))
+          (when (some :floor trs)
+            (duck!)
+            (when-let [at (some #(when (= :chirp-land (:shot %)) (:delay-ms %)) trs)]
+              (duck-arrival! at)))
           (call :trigger trs))))))
 
 (defn descent!
