@@ -35,23 +35,15 @@
 ;; renders and the game register the same patches.
 
 (def custom-shots
-  [;; Descending: the swirl under descent-shots' plucks. Two detuned saws
-   ;; with a slow pitch wobble and a resonant lowpass sweeping against it,
-   ;; for falling into another world rather than down a staircase (Matt's
-   ;; pick, S1 of the 2026-11 descent rounds; renders and notes in
-   ;; project-docs joint-xsofy/audio-candidates). It outlasts the ~1.1 s
-   ;; animation and rings out over the new floor.
-   {:name :descend :gate-ms 2000
-    :patch [[:lfo 1.0 0] [:pitch 4.5]
-            [:env 0.1 2.0 0 0.9] [:osc 0 :saw 0 1] [:mul]
-            [:lfo 0.9 0] [:svf 650 0.85 0 1.8] [:verb 0.45] [:out 0.4 0.5]
-            [:env 0.1 2.0 0 0.9] [:osc 0.15 :saw 0 1] [:mul]
-            [:lfo 0.9 1] [:svf 650 0.85 0 1.8] [:verb 0.45] [:out 0.4 0.5]]}
-   ;; Ascending: the mirror — rising sine, lowpass opening.
-   {:name :ascend :gate-ms 1400
-    :patch [[:env 0.02 1.4 0 0.6] [:osc 0 :sine -24 0.7] [:mul] [:verb 0.35] [:out 0.55 0.5]
-            [:env 0.25 1.1 0 0.6] [:osc 0 :noise 0 1] [:mul]
-            [:env 1.0 0.3 0 0.4] [:svf 300 0.3 0 3] [:verb 0.4] [:out 0.3 0.5]]}
+  [;; Changing floor: a chirp, each note scooping up 3 semitones into place,
+   ;; run as a Shepard scale (going-shots), then held once as the arrival
+   ;; (arrival-shots). Matt's picks from the 2026-11 rounds of the sfx board:
+   ;; C007/C008 going (round 19) and C038/C039 arriving (round 26); renders
+   ;; and notes in project-docs joint-xsofy/audio-candidates.
+   {:name :scoop :gate-ms 300
+    :patch [[:env 0.005 0.35 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.5] [:out 0.45 0.5]]}
+   {:name :chirp-land :gate-ms 400
+    :patch [[:env 0.005 0.45 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.55] [:out 0.45 0.5]]}
    ;; A step in water: band-passed noise plus a small rising blip.
    {:name :splash :gate-ms 140
     :patch [[:env 0.002 0.14 0 0.1] [:osc 0 :noise 0 1] [:mul] [:svf 1400 0.4 1 0] [:out 0.7 0.5]
@@ -220,38 +212,101 @@
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
-(def ^:private descent-plucks
-  "Scale positions (7 per octave) and gains of the plucks falling through the
-   descent swirl, 340 ms apart. The gains are the board's leveled mix: the
-   round 6 plucks x3.28 with the swirl at 0.9, picked 2026-11-10 against the
-   bed at music-gain 0.5."
-  [[9 2.79] [13 2.37] [11 1.95] [15 1.53] [13 1.12] [9 0.70]])
+;; ---- Changing floor: going, then arrived ----
+;; Every trigger carries :floor (undertone ignores unknown keys) so
+;; xsofy.audio can drop the frame's copy when descent! already played the run.
 
-(def ^:private pluck-pans [0.5 0.88 0.97 0.72 0.28 0.04])
+(defn- shepard-weight
+  "Round 17's loudness bell over the Shepard's three octaves: a copy
+   `pos` semitones above note 36 weighs exp(-(pos-14)^2 / 98), so copies fade
+   in at the top and out at the bottom and the run never seems to land."
+  [pos]
+  (Math/exp (- (/ (* (- pos 14) (- pos 14)) 98.0))))
+
+(def ^:private going-gaps
+  "Ms between the run's 16 steps: 330 shrinking to 70, geometrically (slow,
+   then faster)."
+  (mapv #(* 330 (Math/pow (/ 70.0 330) (/ % 14.0))) (range 15)))
+
+(def ^:private run-pans [0.5 0.88 0.97 0.72 0.28 0.04 0.12 0.45 0.86 0.97 0.7 0.25 0.03 0.15])
+
+(def ^:private going
+  "Each direction's run: the semitone it starts on, its step, and the gain
+   that puts it at the board's level: round 19's script gain (0.85 x 3.17
+   under the bell), the board's leveling factor for C007/C008, and Matt's
+   +2 dB (2026-11-12)."
+  {:down {:top 11 :step -1 :gain (* 0.85 3.17 0.07794 1.2589)}
+   :up   {:top 0  :step 1  :gain (* 0.85 3.17 0.07826 1.2589)}})
+
+(def ^:private arrival
+  "The chirp held once where the run stops: low and settled going down, two
+   octaves up going up. :gain is round 26's leveling (x1.303 down, x0.867 up)
+   with the patch's 0.15 output scale folded in. :ms is when it lands after
+   the run starts, as in the board's after-C007/C008 takes Matt picked from:
+   once the run's tail has faded, plus 0.2 s."
+  {:down {:base 36 :gain (* 0.15 1.303) :ms 4950}
+   :up   {:base 60 :gain (* 0.15 0.867) :ms 5150}})
+
+(defn going-shots
+  "The run (C007 down, C008 up): 16 chromatic steps, slow then faster, each
+   played by the octave copies (0-2 above note 36) audible under the bell,
+   the 3 loudest 4 ms apart. Chromatic, so it sits in any floor's key; it is
+   pitched by note because a new floor's key is not staged when it starts."
+  [dir seed]
+  (let [{:keys [top step gain]} (going dir)]
+    (vec (mapcat
+           (fn [i t]
+             (let [s (mod (+ top (* step i)) 12)]
+               (->> (for [o [0 1 2]
+                          :let [w (shepard-weight (+ (* 12 o) s))]
+                          :when (> w 0.03)]
+                      [o w])
+                    (sort-by (comp - second))
+                    (take 3)
+                    (map-indexed
+                      (fn [j [o w]]
+                        {:shot :scoop :note (+ 36 (* 12 o) s) :gain (* gain w)
+                         :pan (nth run-pans (mod i (count run-pans)))
+                         :delay-ms (+ t (* 4 j)) :seed (det/combine seed [:run i o])
+                         :floor true})))))
+           (range) (reductions + 0 going-gaps)))))
+
+(defn landing-pc
+  "The pitch class the run stops on, where the arrival lands so the run
+   resolves: G# going down, D# going up."
+  [dir]
+  (let [{:keys [top step]} (going dir)]
+    (mod (+ top (* step (count going-gaps))) 12)))
+
+(defn arrival-ms
+  "When the arrival lands, in ms after the run starts."
+  [dir]
+  (:ms (arrival dir)))
+
+(defn arrival-shots
+  "The arrival (C038 down, C039 up), `delay-ms` from now: the landing note
+   and its octave above at 0.35, 4 ms behind."
+  [dir seed delay-ms]
+  (let [{:keys [base gain]} (arrival dir)
+        n (+ base (landing-pc dir))]
+    [{:shot :chirp-land :note n :gain gain :pan 0.5 :delay-ms delay-ms :seed seed :floor true}
+     {:shot :chirp-land :note (+ n 12) :gain (* 0.35 gain) :pan 0.5 :delay-ms (+ delay-ms 4)
+      :seed (det/combine seed [:land]) :floor true}]))
 
 (defn descent-shots
-  "The descent: the :descend swirl and a falling run of plucks. Every trigger
-   carries :floor (undertone ignores unknown keys) so xsofy.audio can drop the
-   frame's copy when descent! already played it. The plucks cross as scale
-   DEGREES, so they land in whatever key the module has staged when they fire."
+  "The going-down run alone. descent! plays it as the descending animation
+   starts; xsofy.audio fires the arrival when the new floor appears."
   [seed]
-  (into [{:shot :descend :note 48 :gain 0.9 :pan 0.5 :seed seed :floor true}]
-        (map-indexed (fn [i [step gain]]
-                       {:shot :pluck :degree (mod step 7) :octave (quot step 7)
-                        :gain gain :pan (nth pluck-pans i) :delay-ms (* 340 i)
-                        :seed (det/combine seed [:pluck i]) :floor true})
-                     descent-plucks)))
+  (going-shots :down seed))
 
 (defn- floor-shots
-  "Changing floor — the longest sound in the game, because it scores a
-   transition rather than an action. Pitch crosses as a scale DEGREE so it
-   lands in the key of the floor you are arriving on, not the one you left:
-   the module resolves degrees against its staged parameters, which by this
-   point are already the new floor's."
+  "Changing floor: the run, then the arrival once it has rung out. A floor you
+   have visited appears at once, so both come from this frame. A new floor's
+   run started under the descending animation (xsofy.audio/descent!), which
+   drops this frame's copy and times the arrival itself."
   [ev seed]
-  (if (= (:dir-of-travel ev) :up)
-    [{:shot :ascend :degree 0 :octave 1 :gain 1.0 :pan 0.5 :seed seed :floor true}]
-    (descent-shots seed)))
+  (let [dir (if (= (:dir-of-travel ev) :up) :up :down)]
+    (into (going-shots dir seed) (arrival-shots dir seed (arrival-ms dir)))))
 
 (defn- blocked-shots
   "The game said no — you walked into water, a chasm or lava, and it wants

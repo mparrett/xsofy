@@ -138,11 +138,13 @@
   0.5)
 
 (def duck
-  "The bed ducks under the descent: down to :level of music-gain over :down
-   seconds, held :hold-ms from the shot's start, then back over :release
-   seconds. The hold runs from the start because undertone does not report
-   when a shot ends. Tuned on the sfx board, 2026-11-10."
-  {:level 0.4 :down 0.1 :hold-ms 2000 :release 1.5})
+  "The bed ducks under a floor change: down to :level of music-gain over
+   :down seconds, held :hold-ms from the shot's start, then back over
+   :release seconds. The hold runs from the start because undertone does not
+   report when a shot ends. Level and release tuned on the sfx board,
+   2026-11-10; the hold spans the run and its arrival, which lands about 5 s
+   in (xsofy.sfx/arrival-ms), since 2026-11-13."
+  {:level 0.4 :down 0.1 :hold-ms 5500 :release 1.5})
 
 (defn register-shots!
   "Register xsofy's own patches (xsofy.sfx/custom-shots). Idempotent: a
@@ -186,6 +188,18 @@
             (glide music-gain (:release duck))))
       nil)))
 
+(defn arrive!
+  "The arrival after descent!'s run: called when the new floor appears (the
+   first frame after it, or a new game's first floor). It lands then, or as
+   late as it does after the board's run (xsofy.sfx/arrival-ms) if the floor
+   appeared sooner, so a fast load still hears the run out and a slow one
+   hears it land as the floor shows. A no-op unless a run is going."
+  []
+  (when-let [{:keys [at seed]} (and natives (:going @state))]
+    (swap! state dissoc :going)
+    (let [elapsed (quot (.Sub (now) at) 1000000)]
+      (call :trigger (sfx/arrival-shots :down seed (max 0 (- (sfx/arrival-ms :down) elapsed)))))))
+
 (defn turn!
   "Play one turn's frame (xsofy.sfx/audio-frame): advance the envelope,
    restage the mood if it moved audibly, and fire the turn's one-shots."
@@ -193,23 +207,24 @@
   (when natives
     (let [t (:tension (swap! state update :tension envelope (:tension-target frame)))]
       (score! (:mood frame) (:seed frame) (:depth frame) t)
-      ;; descent! already played this floor change's shot at the start of
-      ;; the animation; the frame's copy, built after it, would double it.
-      (let [trs (if (:descent-fired @state)
-                  (do (swap! state dissoc :descent-fired)
-                      (vec (remove :floor (:triggers frame))))
+      ;; A new floor's run started under the descending animation (descent!);
+      ;; the frame's copy, built after it, would double it, so this frame
+      ;; only marks the arrival.
+      (let [floor? (some :floor (:triggers frame))
+            trs (if (and floor? (:going @state))
+                  (do (arrive!) (vec (remove :floor (:triggers frame))))
                   (:triggers frame))]
         (when (seq trs)
-          (when (some #(= :descend (:shot %)) trs) (duck!))
+          (when (some :floor trs) (duck!))
           (call :trigger trs))))))
 
 (defn descent!
-  "The descent shot, fired when the descending animation starts so the sound
-   spans it rather than arriving after it. Pitched by note, not degree: the
-   new floor's mood is not staged yet."
+  "The going-down run, fired when the descending animation starts so the
+   sound spans it rather than arriving after it. Pitched by note, not degree:
+   the new floor's mood is not staged yet. arrive! plays the arrival."
   [depth]
   (when natives
-    (swap! state assoc :descent-fired true)
+    (swap! state assoc :going {:at (now) :seed depth})
     (duck!)
     (call :trigger (sfx/descent-shots depth))))
 
