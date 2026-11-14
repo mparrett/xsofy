@@ -172,20 +172,36 @@
    it, the theme cuts in within one block. Calling start! again is safe —
    music-start is idempotent — which is what a new game after a death is."
   ([seed] (start! seed nil))
-  ([seed theme]
+  ([seed theme] (start! seed theme music-gain))
+  ([seed theme gain]
    (when natives
      (reset! state {:tension 0.0 :sent nil :outro false})
      (register-shots!)
-     (call :set-music-gain music-gain)
+     (call :set-music-gain gain)
      (call :set-sfx-gain sfx-gain)
      (score! :dungeon (music/music-seed {:seed-input seed :depth 1}) 1 0.0)
      (when theme (call :play-theme theme))
      (call :music-start))))
 
+(def title-fade-s
+  "How long the bed takes to rise on the title: from the first (black) frame
+   into the rune rise."
+  1.5)
+
 (defn title!
-  "start! with the title theme, for the title screen."
+  "start! with the title theme, for the title screen. The bed starts silent
+   and title-fade-in! brings it up; without a glide native it starts at its
+   level as before."
   [seed]
-  (start! seed title-theme))
+  ;; Silent from before music-start, so no frame plays at full level; a
+  ;; glide asked for before the first frame runs from it (undertone#90).
+  (start! seed title-theme (if (:glide-music-gain natives) 0.0 music-gain)))
+
+(defn title-fade-in!
+  "Raise the bed over title-fade-s: the title screen's on-start hook."
+  []
+  (when-let [glide (:glide-music-gain natives)]
+    (glide music-gain title-fade-s)))
 
 (defn- duck!
   "Duck the bed under a big shot (see duck). The release runs on its own
