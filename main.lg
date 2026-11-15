@@ -342,9 +342,8 @@
   (let [sd  (seed/boot-seed)
         rng {:seed sd}
         {:keys [title scheme rng]} (title/show-title-screen rng)
-        [quest rng] (title/generate-quest rng)
-        _ (title/show-descending-screen 1 scheme)]
-    (assemble-world sd title scheme quest)))
+        [quest rng] (title/generate-quest rng)]
+    (title/run-descending-screen 1 scheme #(assemble-world sd title scheme quest))))
 
 (defn build-game
   "Reconstruct a run's starting world from its seed, without the interactive

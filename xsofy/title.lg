@@ -2,7 +2,8 @@
   (:require [term]
             [xsofy.screenfx :as sfx]
             [xsofy.ui :as ui]
-            [xsofy.det :as det]))
+            [xsofy.det :as det]
+            [xsofy.gentick :as gt]))
 
 ;; --- Procedural Title Generation ---
 
@@ -264,53 +265,101 @@
    "Ancient stones groan..." "A distant echo fades..."
    "The torchlight flickers..." "You smell damp earth..."])
 
+(def descent-frames
+  "The descending screen's minimum length in frames; it runs longer while a
+   floor is still being built."
+  15)
+(def descent-frame-ms 60)
+
+;; While a floor is built under the descent screen, generation hands the
+;; thread back this often. Under Go wasm nothing else runs until it does:
+;; not the animation, not the audio pump. The audio lane measured (sleep 1)
+;; between chunks of up to ~45 ms keeping its 120 ms queue fed.
+(def descent-work-chunk-ms 30)
+(def descent-yield-ms 1)
+
+(defn- elapsed-ms [since] (/ (float (.Sub (now) since)) 1e6))
+
+(defn- draw-descent-frame [runes frame th cx cy depth-str msg]
+  (sfx/with-frame
+    (doseq [r runes]
+      (let [;; current y drifts upward (subtract), wrap around
+            cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
+            ;; previous y to erase
+            prev-y (rem (+ th (:y r) (- (quot (dec frame) 2))) th)
+            b (sfx/rune-brightness (:phase r) (* frame 3))
+            [cr cg cb] (:color r)]
+        ;; erase previous position (if it moved)
+        (when (not= cur-y prev-y)
+          (term/move-cursor (:x r) (inc prev-y))
+          (term/set-fg 10 10 10)
+          (term/set-bg 10 10 10)
+          (term/write " "))
+        ;; draw at new position — flicker and fade
+        (term/move-cursor (:x r) (inc cur-y))
+        (if (< b 0.05)
+          (do (term/set-fg 10 10 10) (term/set-bg 10 10 10) (term/write " "))
+          (do (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
+              (term/set-bg (int (* cr b 0.12)) (int (* cg b 0.12)) (int (* cb b 0.12)))
+              (term/write (:glyph r))))))
+    ;; depth label
+    (let [dx (max 1 (- cx (quot (count depth-str) 2)))
+          fade (min 1.0 (/ (float frame) 8.0))]
+      (term/move-cursor dx (- cy 1))
+      (term/set-fg (int (* 180 fade)) (int (* 160 fade)) (int (* 100 fade)))
+      (term/set-bg 10 10 10)
+      (term/write depth-str))
+    ;; message
+    (let [mx (max 1 (- cx (quot (count msg) 2)))
+          mfade (min 1.0 (max 0.0 (/ (float (- frame 5)) 8.0)))]
+      (term/move-cursor mx (+ cy 1))
+      (term/set-fg (int (* 120 mfade)) (int (* 110 mfade)) (int (* 90 mfade)))
+      (term/set-bg 10 10 10)
+      (term/write msg))))
+
+(defn run-descending-screen
+  "Show the descending screen while (build) runs, and return its value.
+   Runes rise and fade for at least descent-frames frames, longer if the
+   build takes longer. Floor generation calls xsofy.gentick/tick! as it
+   goes; the tick bound here draws the next frame when one is due and
+   otherwise yields after descent-work-chunk-ms of work, so the screen and
+   audio keep running while the floor is built. Headless (balance harness,
+   tests) it just calls (build)."
+  [depth scheme build]
+  (if-not (term/size)
+    (build)
+    (let [[tw th] (term/size)
+          cx (quot tw 2)
+          cy (quot th 2)
+          msg (nth descending-messages (rand-int (count descending-messages)))
+          depth-str (str "Depth " depth)
+          runes (sfx/scatter-runes tw th 25 scheme)
+          frame (atom 0)
+          last-frame (atom (now))
+          last-yield (atom (now))
+          draw! (fn []
+                  (draw-descent-frame runes @frame th cx cy depth-str msg)
+                  (swap! frame inc)
+                  (reset! last-frame (now)))
+          ;; Draws and yields only; never touches the world or the dice, so
+          ;; the floor comes out the same as without it.
+          tick (fn [_]
+                 (cond
+                   (>= (elapsed-ms @last-frame) descent-frame-ms)
+                   (do (draw!) (sleep descent-yield-ms) (reset! last-yield (now)))
+
+                   (>= (elapsed-ms @last-yield) descent-work-chunk-ms)
+                   (do (sleep descent-yield-ms) (reset! last-yield (now)))))]
+      (sfx/clear-screen tw th)
+      (draw!)
+      (let [result (binding [gt/*tick* tick] (build))]
+        ;; play out the rest of the minimum length, one frame per interval
+        (while (< @frame descent-frames)
+          (sfx/pause! (long (max 1 (- descent-frame-ms (elapsed-ms @last-frame)))))
+          (draw!))
+        result))))
+
 (defn show-descending-screen
-  "Display a brief animated descending screen. Runes rise and fade."
+  "The descending screen on its own, with nothing to build behind it."
   [depth scheme]
-  (when (term/size)            ;; no-op headless (balance harness / tests)
-   (let [[tw th] (term/size)
-         cx (quot tw 2)
-         cy (quot th 2)
-         msg (nth descending-messages (rand-int (count descending-messages)))
-         depth-str (str "Depth " depth)
-         runes (sfx/scatter-runes tw th 25 scheme)]
-    ;; clear
-    (sfx/clear-screen tw th)
-    ;; animate — runes drift upward, erase old position each frame
-    (dotimes [frame 15]
-      (sfx/with-frame
-      (doseq [r runes]
-        (let [;; current y drifts upward (subtract), wrap around
-              cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
-              ;; previous y to erase
-              prev-y (rem (+ th (:y r) (- (quot (dec frame) 2))) th)
-              b (sfx/rune-brightness (:phase r) (* frame 3))
-              [cr cg cb] (:color r)]
-          ;; erase previous position (if it moved)
-          (when (not= cur-y prev-y)
-            (term/move-cursor (:x r) (inc prev-y))
-            (term/set-fg 10 10 10)
-            (term/set-bg 10 10 10)
-            (term/write " "))
-          ;; draw at new position — flicker and fade
-          (term/move-cursor (:x r) (inc cur-y))
-          (if (< b 0.05)
-            (do (term/set-fg 10 10 10) (term/set-bg 10 10 10) (term/write " "))
-            (do (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
-                (term/set-bg (int (* cr b 0.12)) (int (* cg b 0.12)) (int (* cb b 0.12)))
-                (term/write (:glyph r))))))
-      ;; depth label
-      (let [dx (max 1 (- cx (quot (count depth-str) 2)))
-            fade (min 1.0 (/ (float frame) 8.0))]
-        (term/move-cursor dx (- cy 1))
-        (term/set-fg (int (* 180 fade)) (int (* 160 fade)) (int (* 100 fade)))
-        (term/set-bg 10 10 10)
-        (term/write depth-str))
-      ;; message
-      (let [mx (max 1 (- cx (quot (count msg) 2)))
-            mfade (min 1.0 (max 0.0 (/ (float (- frame 5)) 8.0)))]
-        (term/move-cursor mx (+ cy 1))
-        (term/set-fg (int (* 120 mfade)) (int (* 110 mfade)) (int (* 90 mfade)))
-        (term/set-bg 10 10 10)
-      (term/write msg)))
-      (sfx/pause! 60)))))
+  (run-descending-screen depth scheme (fn [] nil)))

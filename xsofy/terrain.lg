@@ -1,5 +1,6 @@
 (ns xsofy.terrain
-  (:require [xsofy.det :as det]
+  (:require [xsofy.gentick :as gt]
+            [xsofy.det :as det]
             [math]))
 
 ;; --- Tile Definitions ---
@@ -262,8 +263,10 @@
           survive-t (count-table survive)]
       (loop [i 0 c (pad-cells @cells bw bh)]
         (if (< i rounds)
-          (recur (inc i) (ca-step-padded c bw bh birth-t survive-t))
+          (do (gt/tick! :blob-round)
+              (recur (inc i) (ca-step-padded c bw bh birth-t survive-t)))
           (reset! cells (unpad-cells c bw bh)))))
+    (gt/tick! :blob-rounds)
     ;; find largest connected blob via flood fill using array BFS
     (let [labels (int-array sz)
           final-cells @cells]
@@ -371,6 +374,7 @@
   "Place a blob lake of the given type deterministically.
    Returns [placed? world']."
   [world grid w h deep-tile shallow-tile wreath-width size-class]
+  (gt/tick! :before-lake)
   (let [w-ctx (det/with-context world [:terrain :lake deep-tile size-class])
         [min-w extra-w min-h extra-h] (case (or size-class :medium)
                                          :small  [6 6 4 4]
@@ -613,6 +617,7 @@
         dirs [[1 0] [0 1] [-1 0] [0 -1]]
         max-attempts 160]
     (loop [built 0 attempts 0 w-cur w-ctx]
+      (gt/tick! :bridge-attempt)
       (if (or (>= built 6) (>= attempts max-attempts))
         w-cur
         (let [px (det/int-in w-cur 1 (dec w))
@@ -694,6 +699,7 @@
   "Try to attach a new room to an existing wall deterministically.
    Returns [new-center-or-nil world']."
   [world grid w h rooms]
+  (gt/tick! :before-attach)
   (let [find-result (find-wall-attachment-point world grid w h)
         anchor (first find-result)
         w1 (second find-result)]
@@ -806,6 +812,7 @@
   "Place a room (rect or cave) in a given sector deterministically.
    Returns world'."
   [world grid w h rooms sx sy sw sh cave-chance]
+  (gt/tick! :before-room)
   (let [w-ctx (det/with-context world [:terrain :place-room sx sy])
         pc (det/percent? w-ctx (int (* 100 cave-chance)))
         use-cave (first pc)
@@ -923,6 +930,7 @@
                         (recur (rest xs) w-after))))]
               (recur (rest ys) w-row))))
 
+        _ (gt/tick! :rooms-per-sector)
         ;; === Phase 1b: extra random rooms ===
         pextra (det/int-in w-phase1a 0 3)
         n-extra (+ 2 (first pextra))
@@ -934,6 +942,7 @@
             (recur (inc i)
                    (place-room-in-sector! w-cur grid w h rooms 0 0 w h cave-chance))))
 
+        _ (gt/tick! :extra-rooms)
         ;; === Phase 2: corridors ===
         shuf (det/permute w-phase1b @rooms)
         shuffled (first shuf)
@@ -955,6 +964,7 @@
                     (carve-h-corridor! grid w x1 x2 y2)))
               (recur (inc i) w-next))))
 
+        _ (gt/tick! :corridors)
         ;; === Phase 2b: attach extra rooms ===
         w-phase2b
         (loop [i 0 w-cur w-phase2]
@@ -963,9 +973,11 @@
             (let [r (attach-room! w-cur grid w h rooms)]
               (recur (inc i) (second r)))))
 
+        _ (gt/tick! :attach-rooms)
         ;; === Phase 2c: ensure connectivity ===
         w-phase2c (ensure-connectivity-dsu! w-phase2b grid w h)
 
+        _ (gt/tick! :connectivity)
         ;; === Phase 3: doors at corridor junctions ===
         w-phase3
         (loop [y 1 w-cur w-phase2c]
@@ -992,6 +1004,7 @@
                         (recur (inc x) w-x))))]
               (recur (inc y) w-row))))
 
+        _ (gt/tick! :doors)
         ;; === Phase 4: Lakes ===
         pwlakes (det/int-in w-phase3 0 2)
         n-water (+ 2 (first pwlakes))
@@ -1033,6 +1046,7 @@
               w-after-pct))
           w-cham)
 
+        _ (gt/tick! :lakes)
         ;; === Phase 5: Grass patches ===
         pgr (det/int-in w-lava 0 5)
         n-grass (+ 4 (first pgr))
@@ -1041,10 +1055,13 @@
         (loop [i 0 w-cur w-after-ng]
           (if (>= i n-grass)
             w-cur
-            (recur (inc i) (place-grass-patch! w-cur grid w h))))
+            (do (gt/tick! :grass-patch)
+                (recur (inc i) (place-grass-patch! w-cur grid w h)))))
 
+        _ (gt/tick! :grass)
         ;; === Phase 6: Bridges ===
         w-bridges (build-bridges! w-grass grid w h)
+        _ (gt/tick! :bridges-built)
 
         ;; Lakes and chasms can cut walking paths; reconnect once after all
         ;; terrain decoration rather than copying/checking the whole grid for
@@ -1054,6 +1071,7 @@
         ;; door's 1-wide passage → floating door; revert those to floor.
         _ (cleanup-floating-doors! grid w h)
 
+        _ (gt/tick! :bridges)
         ;; === Phase 7: Torches on walls — 4% chance per wall ===
         w-torches
         (loop [y 1 w-cur w-final-connectivity]
@@ -1077,6 +1095,7 @@
                         (recur (inc x) w-x))))]
               (recur (inc y) w-row))))
 
+        _ (gt/tick! :torches)
         ;; === Phase 8: Stairs (no rolls; on a passable, reachable room center) ===
         [sx sy] (stair-tile grid w @rooms false)
         [ex ey] (stair-tile grid w @rooms true)
