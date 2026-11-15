@@ -6,7 +6,8 @@
    signature + args ARE what gets folded into the chain."
   (:require [test :refer [deftest is testing]]
             [xsofy.check :as c]
-            [xsofy.det :as d]))
+            [xsofy.det :as d]
+            [xsofy.hash :as h]))
 
 ;; Helper: extract value from a [value world'] tuple (let-go's chained
 ;; vector destructure has been finicky; first/second is reliable).
@@ -311,3 +312,12 @@
       (let [w {:seed seed :other :kept}]
         (is (= (d/int-in w 0 100) (d/roll-100 w)) (str "seed " seed))))
     (is (= (d/int-in {} 0 100) (d/roll-100 {})) "missing :seed defaults to 0 both ways")))
+
+(deftest int-in-matches-combine
+  (testing "int-in's seed is (h/combine seed [:int-in lo hi]), cached span or not"
+    ;; 300 spans, past the cache's cap of 256, twice each: first roll fills
+    ;; the cache, second reads it (or encodes again once the cap is hit).
+    (doseq [_ [1 2] hi (range 1 301) seed [0 42 -7]]
+      (let [w {:seed seed}]
+        (is (= (h/combine seed [:int-in 0 hi]) (:seed (second (d/int-in w 0 hi))))
+            (str "seed " seed " hi " hi))))))

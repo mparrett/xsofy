@@ -71,6 +71,27 @@
 ;; Helpers — each returns [value world'] with seed advanced
 ;; -------------------------------------------------------------------------
 
+(def ^:private int-in-salts
+  "Encoded [:int-in lo hi] salts by [lo hi], filled on first use. Floor
+   generation rolls a few dozen distinct spans thousands of times. Capped,
+   because gameplay rolls like (int-in w 0 (count xs)) make a new span per
+   distinct size; past the cap a roll encodes its salt as before. An atom,
+   so rolls on another thread (a floor built on a future) can share it."
+  (atom {}))
+
+(def ^:private int-in-salt-cap 256)
+
+(defn- int-in-seed [seed lo hi]
+  (let [k [lo hi]]
+    (if-let [salt (get @int-in-salts k)]
+      (h/combine-encoded seed salt)
+      ;; encode-salt is the canonical encoder, so a cached salt can't drift
+      ;; from what combine and with-folded-salt hash.
+      (let [salt (byte-array (h/encode-salt [:int-in lo hi]))]
+        (when (< (count @int-in-salts) int-in-salt-cap)
+          (swap! int-in-salts assoc k salt))
+        (h/combine-encoded seed salt)))))
+
 (defn int-in
   "Integer in [lo, hi). Returns [lo world] if hi <= lo.
 
@@ -83,10 +104,10 @@
   [world lo hi]
   (if (<= hi lo)
     [lo world]
-    ;; Layer-1 fold: precompute the :int-in prefix bytes at compile time, so
-    ;; the per-roll hot path encodes only lo/hi. Value-identical to combine
-    ;; (with-folded-salt ≡ (h/combine seed [:int-in lo hi])).
-    (let [new-seed (h/with-folded-salt (or (:seed world) 0) [:int-in lo hi])
+    ;; lo/hi are runtime values, so with-folded-salt could fold only the
+    ;; :int-in prefix; the per-span cache skips encoding the rest too.
+    ;; Value-identical to (h/combine seed [:int-in lo hi]).
+    (let [new-seed (int-in-seed (or (:seed world) 0) lo hi)
           span     (unchecked-subtract hi lo)]
       [(unchecked-add lo (mod new-seed span))
        (assoc world :seed new-seed)])))
