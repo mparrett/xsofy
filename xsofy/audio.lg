@@ -135,6 +135,89 @@
             :bed  false}]
    :then :silence})
 
+;; ---- round 2 (2026-11-15) ----
+;; Longer title and outro, and two pieces that sit between them. Not wired
+;; into the game yet. All keep the title's motif 5 . . 4 3, bass on 1 6 4 5,
+;; two-bar grids over the bed; each new piece changes one thing, named in its
+;; docstring. Reasoning per grid: project-docs xsofy/title-theme/
+;; round2-composer-notes.md.
+
+(def title-theme-long
+  "The title theme at twice the length: v1's four grids unchanged, then a
+   second half that moves the motif up a third, peaks, and comes home before
+   handing back to the generator."
+  {:grids (into (:grids title-theme)
+                [{:lead [7 0 0 6 5 0 0 0 3 0 0 0 0 0 0 0]
+                  :bass [4 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0]
+                  :bed  true}
+                 {:lead [7 0 0 6 5 0 0 0 4 0 3 0 4 0 0 0]
+                  :bass [6 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0]
+                  :bed  true}
+                 {:lead  [8 0 0 7 8 0 0 0 6 0 0 7 5 0 0 0]
+                  :bass  [4 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0]
+                  :drums ["X...............X..............."]
+                  :bed   true}
+                 {:lead  [5 0 0 4 3 0 0 0 2 0 3 0 1 0 0 0]
+                  :bass  [5 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0]
+                  :drums ["X..............................."]
+                  :bed   true}])
+   :then :generate})
+
+(def outro-theme-long
+  "The outro at twice the length: the title's motif recalled in the outro's
+   even notes and a reach upward, then v1's two grids, so the fall and the
+   bed dropping out stay the last thing heard."
+  {:grids (into [{:lead [5 0 0 0 4 0 0 0 3 0 0 0 0 0 0 0]
+                  :bass [1 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0]
+                  :bed  true}
+                 {:lead [4 0 0 0 5 0 0 0 6 0 0 0 7 0 0 0]
+                  :bass [4 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0]
+                  :bed  true}]
+                (:grids outro-theme))
+   :then :silence})
+
+(def deeper-theme
+  "Going deeper. The one change: the motif moves into the bass, and the lead
+   answers it sparsely from above. The title's form, A A' B A''."
+  {:grids [{:lead [0 0 0 0 0 0 0 0 0 0 0 0 8 0 0 0]
+            :bass [5 0 0 4 3 0 0 0 1 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead [0 0 0 0 0 0 0 0 0 0 0 0 8 0 7 0]
+            :bass [5 0 0 4 3 0 0 0 2 0 3 0 1 0 0 0]
+            :bed  true}
+           {:lead  [8 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0]
+            :bass  [8 0 0 7 5 0 0 0 6 0 0 5 4 0 0 0]
+            :drums ["X...............X..............."]
+            :bed   true}
+           {:lead  [0 0 0 0 0 0 0 0 8 0 0 0 0 0 0 0]
+            :bass  [5 0 0 4 3 0 0 0 2 0 0 0 1 0 0 0]
+            :drums ["X..............................."]
+            :bed   true}]
+   :then :generate})
+
+(def last-stand-theme
+  "Last stand. The one change: the motif inverted, 3 . . 4 5 rising where
+   the title's falls, climbing to the octave by the third grid."
+  {:grids [{:lead [3 0 0 4 5 0 0 0 7 0 0 0 0 0 0 0]
+            :bass [1 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead [3 0 0 4 5 0 0 0 6 0 5 0 7 0 0 0]
+            :bass [1 0 0 0 0 0 0 0 4 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead  [4 0 0 5 6 0 0 0 6 0 0 7 8 0 0 0]
+            :bass  [6 0 0 0 0 0 0 0 4 0 0 0 0 0 0 0]
+            :drums ["X...............X..............."]
+            :bed   true}
+           {:lead  [3 0 0 4 5 0 0 0 7 0 0 0 8 0 0 0]
+            :bass  [5 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0]
+            :drums ["X..............................."]
+            :bed   true}]
+   :then :generate})
+
+;; Reserved: a third new piece, to be named by Matt. All that is known is that
+;; it will be less predictable than anything in rounds 1 and 2.
+;; (def ???-theme {:grids [] :then ...})
+
 ;; ---- the sink ----
 
 (def music-gain
