@@ -17,6 +17,45 @@
 
 (def distance u/distance)
 
+;; --- The :sfx outbox -------------------------------------------------------
+;; Alongside the text messages, deliver-sound appends an audio event
+;; descriptor to (:sfx world) — a per-turn outbox exactly like :vfx: the
+;; presentation seam (xsofy.play) drains it into the emitted audio frame and
+;; dissoc's it, so it never survives a turn and never reaches saves, the hash
+;; chain, or replay. Descriptors are declarative — {:kind :dist :dir} says
+;; what happened, never how it sounds (xsofy.sfx owns that mapping).
+;; Appending consumes no rng; the spatial data is what deliver-sound already
+;; computes for its near/mid/far text.
+
+(defn cue
+  "Append a non-spatial audio event (the player's own action — a pickup, a
+   blow landing). dist 0, centered. The optional map carries whatever the
+   event needs beyond its kind: `:severity` (0..1 fraction of the target's
+   max hp) and `:killed` for blows."
+  ([world kind] (cue world kind {}))
+  ([world kind extra]
+   (update world :sfx #(conj (or % []) (merge {:kind kind :dist 0} extra)))))
+
+(defn blow-severity
+  "How big a bite `dmg` took out of a target — a fraction of its max hp, so
+   the same number means the same thing whatever it landed on. Guards a
+   missing or zero max-hp, which would otherwise divide by zero on a
+   template that never declared one."
+  [target dmg]
+  (let [max-hp (max 1 (get-in target [:body :max-hp] 1))]
+    (max 0.0 (min 1.0 (/ (double (or dmg 0)) (double max-hp))))))
+
+(defn- audio-event
+  "The outbox append for a spatial sound, from the delivery math."
+  [world sound player-pos dist]
+  (if-let [kind (:kind sound)]
+    (let [[px _] player-pos
+          [sx _] (:pos sound)
+          ;; horizontal offset normalized by distance: -1..1, left..right
+          dir (if (pos? dist) (/ (double (- sx px)) (max 1.0 (double dist))) 0.0)]
+      (update world :sfx #(conj (or % []) {:kind kind :dist dist :dir dir})))
+    world))
+
 (defn deliver-sound [world sound]
   (let [player-pos (get-in world [:entities :player :pos])
         fov (or (:fov world) #{})
@@ -26,7 +65,8 @@
         visible (contains? fov spos)]
     (if (> dist radius)
       world ;; too far to hear
-      (let [msg (cond
+      (let [world (audio-event world sound player-pos dist)
+            msg (cond
                   visible           (:msg-near sound)
                   (< dist mid-threshold) (:msg-mid sound)
                   :else             (:msg-far sound))]
@@ -40,19 +80,22 @@
 ;; --- Sound Definitions ---
 
 (defn footstep [pos who]
-  {:pos pos :radius 10
+  {:kind :footstep
+   :pos pos :radius 10
    :msg-near nil  ;; you can see them, no need for sound
    :msg-mid  (str "You hear footsteps.")
    :msg-far  (str "You hear distant footsteps.")})
 
 (defn door-open [pos who]
-  {:pos pos :radius 15
+  {:kind :door
+   :pos pos :radius 15
    :msg-near (str "The " who " opens a door.")
    :msg-mid  "You hear hinges creak."
    :msg-far  "You hear a distant creak."})
 
 (defn snoring [pos who]
-  {:pos pos :radius 8
+  {:kind :idle
+   :pos pos :radius 8
    :msg-near (str "The " who " is snoring.")
    :msg-mid  "You hear snoring."
    :msg-far  nil})
@@ -60,13 +103,15 @@
 ;; --- Default death/combat sounds ---
 
 (defn death-cry [pos who]
-  {:pos pos :radius 20
+  {:kind :death
+   :pos pos :radius 20
    :msg-near (str "The " who " shrieks and falls!")
    :msg-mid  "You hear a shriek!"
    :msg-far  "You hear a distant shriek."})
 
 (defn combat-hit [pos who target]
-  {:pos pos :radius 12
+  {:kind :combat-hit
+   :pos pos :radius 12
    :msg-near nil
    :msg-mid  "You hear fighting."
    :msg-far  "You hear distant fighting."})
@@ -79,7 +124,8 @@
 (defn creature-death [pos who sounds]
   (let [d (:death sounds)]
     (if d
-      {:pos pos :radius 20
+      {:kind :death
+       :pos pos :radius 20
        :msg-near (or (:near d) (str "The " who " dies."))
        :msg-mid  (or (:mid d) "You hear something die.")
        :msg-far  (:far d)}
@@ -96,7 +142,8 @@
             pick (nth options pick-idx)
             [hit? w] (det/percent? w (or (:chance pick) 5))]
         (if hit?
-          [{:pos pos :radius (or (:radius pick) 10)
+          [{:kind :idle
+            :pos pos :radius (or (:radius pick) 10)
             :msg-near (:near pick)
             :msg-mid  (:mid pick)
             :msg-far  (:far pick)}
