@@ -323,10 +323,12 @@
   "The game said no — you walked into water, a chasm or lava, and it wants
    confirmation. The thunk is the refusal: quiet and unmusical on purpose, so
    it is not satisfying to trigger. The hazard's own sound rides on top at
-   about a mid-severity hit's level, because stepping off a ledge must be at
-   least as noticeable as landing a blow (measured 2026-10-29: the thunk alone
-   was ~2.5x quieter than a hit). Gains past 1 are fine; undertone does not
-   clamp them."
+   about a heavy blow's level, because stepping off a ledge must be at least
+   as noticeable as landing a blow (measured 2026-10-29: the thunk alone was
+   ~2.5x quieter than a hit). Water and the chasm sat 6 dB over the heavy blow
+   (2026-11-23, the sfx board's Levels, in dB over the ducked music), so they
+   were halved to sit with it and with lava. Gains past 1 are fine; undertone
+   does not clamp them."
   [ev seed]
   ;; Note 40 (~82 Hz) vanished on laptop speakers; 52 keeps it low and dull
   ;; but inside what small speakers reproduce.
@@ -335,8 +337,8 @@
                ;; Not :fall for water: a falling saw read as a creature's
                ;; death cry. Filtered noise reads as water and is its own
                ;; timbre; the chasm keeps :fall, low enough to sit under the cry.
-               :water {:shot :sink :note 60 :gain 1.4}
-               :fall  {:shot :fall :note 43 :gain 1.8}
+               :water {:shot :sink :note 60 :gain 0.7}
+               :fall  {:shot :fall :note 43 :gain 0.9}
                :fire  {:shot :zap :note 64 :gain 1.4}
                nil)]
     (if body
