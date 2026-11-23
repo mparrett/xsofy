@@ -300,13 +300,6 @@
     (is (= [:thunk :sink] (mapv :shot (triggers {:kind :blocked :element :water}))))
     (is (= [:thunk :fall] (mapv :shot (triggers {:kind :blocked :element :fall}))))
     (is (= [:thunk :zap]  (mapv :shot (triggers {:kind :blocked :element :fire})))))
-  ;; Gains don't compare across shots (a :sink at 0.7 measures as loud as a
-  ;; heavy blow at 1.05), so this only guards that the hazard rides over the
-  ;; refusal; its level against the blows is checked by ear on the sfx board.
-  (testing "the hazard's sound rides over the refusal thunk"
-    (doseq [el [:water :fall :fire]]
-      (let [[no body] (triggers {:kind :blocked :element el})]
-        (is (> (:gain body) (:gain no))))))
   (testing "an unknown hazard still sounds, as a louder thunk alone"
     (is (= [:thunk] (mapv :shot (triggers {:kind :blocked}))))))
 

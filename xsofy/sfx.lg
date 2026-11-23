@@ -177,9 +177,10 @@
       ;; The kill was a thud an octave down, ~35 Hz and inaudible; a bright
       ;; tink two octaves up reads as the final blow. 0.42 from 0.6
       ;; (2026-11-14): with the cry on top a kill was the loudest thing in
-      ;; a fight.
-      [base
-       {:shot :tink :note (+ note 24) :gain 0.42 :pan 0.5
+      ;; a fight. Both halved (2026-11-23, by ear on the sfx board): a kill
+      ;; sat with the heavy blow, +12 over the ducked music, and was too loud.
+      [(update base :gain * 0.5)
+       {:shot :tink :note (+ note 24) :gain 0.21 :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
       [base])))
 
@@ -191,7 +192,9 @@
   (let [s (severity ev)]
     [{:shot :thud
       :note (- 45 (int (* 9.0 s)) (jit seed :note 2))
-      :gain (+ 0.6 (* 0.4 s))
+      ;; Halved (2026-11-23, by ear on the sfx board): hits taken sat +13 to
+      ;; +14 over the ducked music, above every blow you land.
+      :gain (+ 0.3 (* 0.2 s))
       :pan  0.5
       :delay-ms (or (:flight-ms ev) 0)
       :seed seed}]))
@@ -201,9 +204,11 @@
    moving through the level, and it is the main way a closed map tells you it
    is not empty."
   [ev seed]
+  ;; 1.0 from 0.5 (2026-11-23): Matt could barely hear it; it sat −6 dB
+  ;; under the ducked music on the sfx board's Levels.
   [{:shot :creak
     :note (+ 40 (jit seed :note 3))
-    :gain (* 0.5 (attenuate (:dist ev)))
+    :gain (* 1.0 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
@@ -322,13 +327,12 @@
 (defn- blocked-shots
   "The game said no — you walked into water, a chasm or lava, and it wants
    confirmation. The thunk is the refusal: quiet and unmusical on purpose, so
-   it is not satisfying to trigger. The hazard's own sound rides on top at
-   about a heavy blow's level, because stepping off a ledge must be at least
-   as noticeable as landing a blow (measured 2026-10-29: the thunk alone was
-   ~2.5x quieter than a hit). Water and the chasm sat 6 dB over the heavy blow
-   (2026-11-23, the sfx board's Levels, in dB over the ducked music), so they
-   were halved to sit with it and with lava. Gains past 1 are fine; undertone
-   does not clamp them."
+   it is not satisfying to trigger. The hazard's own sound rides on top so
+   the prompt is noticed. It was once set at least as loud as a blow, but by
+   ear (Matt, 2026-11-23) that was far too loud for a prompt: water and the
+   chasm sat 6 dB over the heavy blow, lava with it. All three are now about
+   12 dB under where they were (water, chasm) and 6 dB under (lava), near
+   +6 to +7 over the ducked floor music on the sfx board's Levels."
   [ev seed]
   ;; Note 40 (~82 Hz) vanished on laptop speakers; 52 keeps it low and dull
   ;; but inside what small speakers reproduce.
@@ -337,9 +341,9 @@
                ;; Not :fall for water: a falling saw read as a creature's
                ;; death cry. Filtered noise reads as water and is its own
                ;; timbre; the chasm keeps :fall, low enough to sit under the cry.
-               :water {:shot :sink :note 60 :gain 0.7}
-               :fall  {:shot :fall :note 43 :gain 0.9}
-               :fire  {:shot :zap :note 64 :gain 1.4}
+               :water {:shot :sink :note 60 :gain 0.35}
+               :fall  {:shot :fall :note 43 :gain 0.45}
+               :fire  {:shot :zap :note 64 :gain 0.7}
                nil)]
     (if body
       [no (assoc body :pan 0.5 :delay-ms 40 :seed (det/combine seed [:hazard]))]
