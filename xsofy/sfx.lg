@@ -186,8 +186,9 @@
       ;; a fight. Both halved (2026-11-23, by ear on the sfx board): a kill
       ;; sat with the heavy blow, +12 over the ducked music, and was too loud.
       ;; x0.745 rather than x0.5 since the blow's gain fell, to keep it there.
-      [(update base :gain * 0.745)
-       {:shot :tink :note (+ note 24) :gain 0.21 :pan 0.5
+      ;; Both +1 dB (2026-11-24, second pass by ear); x0.836 also makes up the blow's own -3 dB.
+      [(update base :gain * 0.836)
+       {:shot :tink :note (+ note 24) :gain 0.236 :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
       [base])))
 
@@ -431,16 +432,17 @@
   [ev seed]
   (let [s (fn [k] (det/combine seed [k]))]
     (case (:item ev)
-      :potion  [{:shot :gulp :note 55 :gain 0.8 :pan 0.5 :seed seed}
-                {:shot :gulp :note 58 :gain 0.7 :pan 0.5 :delay-ms 130 :seed (s :g2)}
-                {:shot :gulp :note 53 :gain 0.7 :pan 0.5 :delay-ms 260 :seed (s :g3)}]
+      ;; Potion +0.5 dB, scroll -1, enchant -1.5 (2026-11-24, second pass by ear).
+      :potion  [{:shot :gulp :note 55 :gain 0.847 :pan 0.5 :seed seed}
+                {:shot :gulp :note 58 :gain 0.741 :pan 0.5 :delay-ms 130 :seed (s :g2)}
+                {:shot :gulp :note 53 :gain 0.741 :pan 0.5 :delay-ms 260 :seed (s :g3)}]
       ;; Scroll -3 dB, enchant -2 (2026-11-24, by ear on the sfx board).
-      :scroll  [{:shot :paper :note 60 :gain 0.991 :pan 0.5 :seed seed}
-                {:shot :pluck :degree 4 :octave 2 :gain 0.496 :pan 0.5 :delay-ms 220 :seed (s :chime)}]
-      :enchant [{:shot :pluck :degree 0 :octave 1 :gain 0.715 :pan 0.4 :seed seed}
-                {:shot :pluck :degree 2 :octave 1 :gain 0.715 :pan 0.47 :delay-ms 70 :seed (s :e2)}
-                {:shot :pluck :degree 4 :octave 1 :gain 0.715 :pan 0.53 :delay-ms 140 :seed (s :e3)}
-                {:shot :pluck :degree 0 :octave 2 :gain 0.794 :pan 0.6 :delay-ms 210 :seed (s :e4)}]
+      :scroll  [{:shot :paper :note 60 :gain 0.883 :pan 0.5 :seed seed}
+                {:shot :pluck :degree 4 :octave 2 :gain 0.442 :pan 0.5 :delay-ms 220 :seed (s :chime)}]
+      :enchant [{:shot :pluck :degree 0 :octave 1 :gain 0.602 :pan 0.4 :seed seed}
+                {:shot :pluck :degree 2 :octave 1 :gain 0.602 :pan 0.47 :delay-ms 70 :seed (s :e2)}
+                {:shot :pluck :degree 4 :octave 1 :gain 0.602 :pan 0.53 :delay-ms 140 :seed (s :e3)}
+                {:shot :pluck :degree 0 :octave 2 :gain 0.668 :pan 0.6 :delay-ms 210 :seed (s :e4)}]
       [])))
 
 (defn- equip-shots [ev seed]
@@ -452,8 +454,8 @@
   [{:shot :clink :note (+ 55 (jit seed :note 1)) :gain 0.4 :pan 0.5 :seed seed}])
 
 (defn- drop-shots [ev seed]
-  ;; 0.524 from 0.35, +3.5 dB (2026-11-24, by ear on the sfx board).
-  [{:shot :thud :note 52 :gain 0.524 :pan 0.5 :seed seed}])
+  ;; 0.524 from 0.35, +3.5 dB (2026-11-24, by ear on the sfx board); +1 more.
+  [{:shot :thud :note 52 :gain 0.588 :pan 0.5 :seed seed}])
 
 (defn- cursed-shots
   "A cursed item refusing to come off: the hazard prompt's refusal thunk."
@@ -495,10 +497,11 @@
    saw, quieter, for poison."
   [ev seed]
   (case (:status ev)
-    ;; Burn tick +2.5 dB (0.933 from 0.7), poison tick +1.5 (2026-11-24, by ear on the sfx board).
+    ;; Burn tick +2.5 dB (0.933 from 0.7), poison tick +1.5, then -0.5
+    ;; (2026-11-24, by ear on the sfx board).
     :burning [{:shot :sizzle :note (+ 60 (jit seed :note 2)) :gain 0.933 :pan 0.5 :seed seed}]
     ;; 0.35 from 0.5, -3 dB (2026-11-23, by ear).
-    :poison  [{:shot :sick :note (+ 48 (jit seed :note 1)) :gain 0.416 :pan 0.5 :seed seed}]
+    :poison  [{:shot :sick :note (+ 48 (jit seed :note 1)) :gain 0.393 :pan 0.5 :seed seed}]
     []))
 
 ;; ---- menus ----
