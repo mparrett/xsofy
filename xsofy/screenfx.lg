@@ -88,12 +88,17 @@
        ~@body
        (finally (xsofy.screenfx/flush-frame!)))))
 
+(defn paint-background!
+  "Paint the whole tw×th screen the dark background colour. Unframed, for use
+   inside a caller's with-frame; clear-screen is the standalone version."
+  [tw th]
+  (term/set-bg 10 10 10)
+  (term/set-fg 10 10 10)
+  (dotimes [y th]
+    (term/move-cursor 1 (inc y))
+    (term/write (apply str (repeat tw " ")))))
+
 (defn clear-screen
   "Paint the whole tw×th screen the dark background colour, as one synced frame."
   [tw th]
-  (with-frame
-    (term/set-bg 10 10 10)
-    (term/set-fg 10 10 10)
-    (dotimes [y th]
-      (term/move-cursor 1 (inc y))
-      (term/write (apply str (repeat tw " "))))))
+  (with-frame (paint-background! tw th)))
