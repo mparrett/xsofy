@@ -233,10 +233,12 @@
   (start! seed (title-theme-for) (if (:glide-music-gain natives) 0.0 music-gain)))
 
 (defn title-fade-in!
-  "Raise the bed over title-fade-s: the title screen's on-start hook."
-  []
-  (when-let [glide (:glide-music-gain natives)]
-    (glide music-gain title-fade-s)))
+  "Raise the bed over title-fade-s, or over :ms when the title's animation
+   says how long its rise is (it owns the title's timing, 2026-11-24)."
+  ([] (title-fade-in! {}))
+  ([{:keys [ms]}]
+   (when-let [glide (:glide-music-gain natives)]
+     (glide music-gain (if ms (/ ms 1000.0) title-fade-s)))))
 
 (defn- duck!
   "Duck the bed under a big shot (see duck), held `hold-ms`. The release runs
@@ -279,8 +281,10 @@
    first frame after it, or a new game's first floor). It lands then, or as
    late as it does after the board's run (xsofy.sfx/arrival-ms) if the floor
    appeared sooner, so a fast load still hears the run out and a slow one
-   hears it land as the floor shows. A no-op unless a run is going."
-  []
+   hears it land as the floor shows. A no-op unless a run is going. opts
+   {:first? bool} is the animation's: a new game's staged arrival or a later
+   floor's; accepted, unused until the later-floor transition exists."
+  [& [_opts]]
   (when-let [{:keys [at seed]} (and natives (:going @state))]
     (swap! state dissoc :going)
     (let [elapsed (quot (.Sub (now) at) 1000000)
@@ -324,8 +328,10 @@
 (defn descent!
   "The going-down run, fired when the descending animation starts so the
    sound spans it rather than arriving after it. Pitched by note, not degree:
-   the new floor's mood is not staged yet. arrive! plays the arrival."
-  [depth]
+   the new floor's mood is not staged yet. arrive! plays the arrival.
+   opts is the animation's plan, {:ms planned-ms}: accepted, unused while the
+   run is authored rather than stretched to fit."
+  [depth & [_opts]]
   (when natives
     (swap! state assoc :going {:at (now) :seed depth})
     (duck!)
