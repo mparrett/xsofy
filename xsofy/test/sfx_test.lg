@@ -467,3 +467,10 @@
       (is (= {:delay-ms 0 :cut? false} (sfx/arrival-plan (+ run-ms 500) 1500 true)))
       ;; and a cut-ms past the run's end never cuts: the run plays out
       (is (= {:delay-ms (- run-ms 1000) :cut? false} (sfx/arrival-plan 1000 (+ run-ms 1) true))))))
+
+(deftest round-31-creatures-have-their-own-cries
+  (doseq [[who shot] [["slime" :cry-sli-bubble] ["archer" :cry-arch-uh-swirl] ["goblin-shaman" :cry-sham-groan]]]
+    (testing who
+      (let [trs (triggers {:kind :death :creature who :dist 2 :dir 0})]
+        (is (some #(= shot (:shot %)) trs))
+        (is (not-any? #(= :cry (:shot %)) trs))))))

@@ -74,6 +74,20 @@
     :patch [[:env 0.001 0.02 0 0.01] [:osc 0 :noise 0 1] [:mul] [:hpf 3000] [:out 0.3 0.5]]}
    {:name :imp-harmonic :gate-ms 400
     :patch [[:env 0.02 0.3 0 0.2] [:lfo 6 0] [:scale 0.15 0.85] [:mul] [:osc 12 :sine 0 1] [:mul] [:verb 0.3] [:out 0.12 0.5] [:env 0.02 0.25 0 0.15] [:osc 19.02 :sine 0 1] [:mul] [:verb 0.3] [:out 0.06 0.5]]}
+   ;; Round 31's picks (Matt, 2026-11-24): slime V060, archer V068, goblin
+   ;; shaman V071; patches as rendered on the sfx board.
+   {:name :cry-sli-bubble :gate-ms 400
+    :patch [[:env 0.002 0.05 0 0.03] [:osc 0 :sine -7 0.03] [:mul] [:lpf 1400] [:verb 0.15] [:out 0.5 0.5]]}
+   {:name :cry-sli-hiss :gate-ms 700
+    :patch [[:env 0.12 0.45 0 0.3] [:osc 0 :noise 0 1] [:mul] [:lfo 30 2] [:scale 0.3 0.7] [:mul] [:env 0.12 0.45 0 0.3] [:svf 900 0.3 0 1] [:verb 0.08] [:out 0.4 0.5]]}
+   {:name :cry-arch-uh-swirl :gate-ms 400
+    :patch [[:env 0.01 0.24 0 0.1] [:osc 0 :saw 4 0.25] [:mul] [:lfo 4 0] [:svf 600 0.75 1 0.6] [:drive 1.6 0.1] [:verb 0.2] [:out 0.5 0.5] [:env 0.01 0.24 0 0.1] [:osc 0 :saw 4 0.25] [:mul] [:lfo 4 1] [:svf 1150 0.8 1 0.5] [:verb 0.2] [:out 0.28 0.5]]}
+   {:name :cry-body-thud :gate-ms 400
+    :patch [[:env 0.002 0.18 0 0.08] [:pluck 0 0.9] [:mul] [:lpf 320] [:verb 0.2] [:out 0.8 0.5] [:env 0.001 0.05 0 0.03] [:osc 0 :noise 0 1] [:mul] [:lpf 800] [:out 0.3 0.5]]}
+   {:name :cry-fizzle :gate-ms 500
+    :patch [[:env 0.01 0.35 0 0.15] [:lfo 40 2] [:scale 0.5 0.5] [:mul] [:osc 0 :noise 0 1] [:mul] [:hpf 3000] [:verb 0.2] [:out 0.25 0.5]]}
+   {:name :cry-sham-groan :gate-ms 400
+    :patch [[:lfo 5 0] [:pitch 0.3] [:env 0.02 0.32 0 0.12] [:osc 0 :saw 3 0.3] [:mul] [:svf 520 0.75 1 0] [:drive 1.6 0.1] [:verb 0.2] [:out 0.5 0.5] [:env 0.02 0.32 0 0.12] [:osc 0 :saw 3 0.3] [:mul] [:svf 1000 0.8 1 0] [:drive 1.6 0.1] [:verb 0.2] [:out 0.25 0.5]]}
    {:name :chirp-land :gate-ms 400
     :patch [[:env 0.005 0.45 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.55] [:out 0.45 0.5]]}
    ;; A step in water: band-passed noise plus a small rising blip.
@@ -244,7 +258,9 @@
    A creature with several takes plays one per death, picked by the seed:
    Matt wanted the rat's three shuffled (2026-11-22). The rest keep the old
    shared cry. Goblin and fire imp were drawn at random from the ones Matt
-   had vetted (V012-V015, V027-V029; 2026-11-24)."
+   had vetted (V012-V015, V027-V029; 2026-11-24). Slime, archer and goblin
+   shaman are Matt's round 31 picks. Every cry is set to read as the shared
+   one does on the board's Levels (-6.3 over the music, 2026-11-24)."
   {"rat"      [[[0 :cry-rat-squeak 86 0.63]]                       ; V009
                [[0 :cry-rat-squeal 86 0.324]]                        ; V010
                [[0 :cry-rat-chit 88 0.259] [32 :cry-rat-chit 86 0.227] ; V025
@@ -254,7 +270,12 @@
    "goblin"   [[[0 :cry-gob-whine 62 0.543]]]                       ; V013
    "fire-imp" [[[0 :cry-imp-poof-short 70 0.388] [20 :crackle 70 0.194] ; V028
                 [60 :crackle 70 0.136] [105 :crackle 70 0.097]
-                [30 :imp-harmonic 70 0.388]]]})
+                [30 :imp-harmonic 70 0.388]]]
+   "slime"    [[[0 :cry-sli-bubble 62 0.488] [45 :cry-sli-bubble 67 0.39] ; V060
+                [95 :cry-sli-bubble 60 0.439] [135 :cry-sli-bubble 65 0.293]
+                [200 :cry-sli-bubble 58 0.244] [60 :cry-sli-hiss 50 0.293]]]
+   "archer"   [[[0 :cry-arch-uh-swirl 55 0.566] [210 :cry-body-thud 45 0.453]]] ; V068
+   "goblin-shaman" [[[0 :cry-fizzle 74 0.4] [60 :cry-sham-groan 55 0.445]]]}) ; V071
 
 (defn- creature-cry
   "A creature's own cry, nil when it has none."
