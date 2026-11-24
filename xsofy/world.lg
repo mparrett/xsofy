@@ -931,7 +931,10 @@
                       (log-msg w (str "The " atk-name " kills you!"))
                       (snd/cue (log-msg w (str "The " atk-name " hits you for " dmg "."))
                                :hit-taken
-                               {:severity (snd/blow-severity target dmg)}))
+                               ;; :creature lets a creature hit in its own
+                               ;; voice (a rat's bite), as a death cries in it.
+                               {:severity (snd/blow-severity target dmg)
+                                :creature atk-name}))
                     ;; creature vs creature
                     :else
                     (let [w (if killed
