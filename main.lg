@@ -344,14 +344,12 @@
   (let [sd  (seed/boot-seed)
         rng {:seed sd}
         _   (audio/title! sd)
-        {:keys [title scheme rng]} (title/show-title-screen rng {:on-start audio/title-fade-in!})
-        [quest rng] (title/generate-quest rng)
-        _ (title/show-descending-screen 1 scheme)
-        world (assemble-world sd title scheme quest)]
-    ;; Entering the game is a descent: the run played under the descending
-    ;; screen, and the first floor is its arrival.
-    (audio/arrive!)
-    world))
+        ;; The music rises with the runes; title-fade-in! takes their {:ms}.
+        {:keys [title scheme rng handoff]} (title/show-title-screen
+                                             rng {:on-runes-rise audio/title-fade-in!})
+        [quest rng] (title/generate-quest rng)]
+    (title/run-descending-screen 1 scheme #(assemble-world sd title scheme quest)
+                                 {:handoff handoff :first? true})))
 
 (defn build-game
   "Reconstruct a run's starting world from its seed, without the interactive
@@ -578,8 +576,19 @@
              (recur result result (term/size))
              result)))))))
 
+(defn- install-audio-hooks!
+  "The opening's animation owns descent and arrival timing; audio hooks on
+   (2026-11-24). Installed once at startup, so every descent hears them: a
+   new game's, a floor change's, and those in a replay."
+  []
+  (title/set-descent-hooks!
+    {:min-ms    audio/descent-min-ms
+     :on-start  #(audio/descent! (:depth %) %)
+     :on-arrive audio/arrive!}))
+
 (defn -main []
   (init-terminal)
+  (install-audio-hooks!)
   (try
     (let [code (seed/boot-replay)]
       (game-loop (if code (play-replay code) (new-game))))
