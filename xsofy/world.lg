@@ -716,21 +716,24 @@
                        (str "You ascend to depth " new-depth ".")))))
       ;; generate new floor
       (do
-          (let [new-player (assoc player :pos [0 0])  ;; pos set by generate-floor
-                new-world (title/run-descending-screen
-                           new-depth (or (:scheme world) [80 120 220])
-                           #(generate-floor width height new-depth new-player (:seed-input saved)))
-                spawn-pos (get-in new-world [:entities :player :pos])]
-            ;; re-inject with proper items
-            ;; reset player ticks to 0 so they act first on new floor
-            (let [player (assoc player :ticks 0 :last-arrival-pos spawn-pos)]
-              (-> new-world
-                  (carry-run-state saved)
-                  (inject-player player items spawn-pos)
-                  spawn-runestones
-                  ;; final step: continue the gameplay chain from the saved world
-                  (assoc :seed (:seed saved))
-                  (log-msg (str "You descend to depth " new-depth ".")))))))))
+          (let [new-player (assoc player :pos [0 0])]  ;; pos set by generate-floor
+            ;; The whole floor is built under the descent screen, so the
+            ;; arrival can capture and fade in the world as it will be played.
+            (title/run-descending-screen
+             new-depth (or (:scheme world) [80 120 220])
+             (fn []
+               (let [new-world (generate-floor width height new-depth new-player (:seed-input saved))
+                     spawn-pos (get-in new-world [:entities :player :pos])
+                     ;; re-inject with proper items
+                     ;; reset player ticks to 0 so they act first on new floor
+                     player (assoc player :ticks 0 :last-arrival-pos spawn-pos)]
+                 (-> new-world
+                     (carry-run-state saved)
+                     (inject-player player items spawn-pos)
+                     spawn-runestones
+                     ;; final step: continue the gameplay chain from the saved world
+                     (assoc :seed (:seed saved))
+                     (log-msg (str "You descend to depth " new-depth ".")))))))))))
 
 (defn descend [world]
   (let [{:keys [terrain width depth]} world

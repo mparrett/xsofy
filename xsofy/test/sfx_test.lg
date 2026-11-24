@@ -509,3 +509,8 @@
               tr (sfx/for-event ev 7)]
         (is (= 0 (:send tr)) (str ev))
         (is (not-any? #(#{:verb :delay} (first %)) (get patches (:shot tr))) (str ev))))))
+
+(deftest a-later-floors-arrival-lands-with-its-floor
+  (testing "with no minimum (a later floor), the run is cut and the arrival
+            lands at once, however early the floor shows"
+    (is (= {:delay-ms 0 :cut? true} (sfx/arrival-plan 900 0 true)))))

@@ -340,12 +340,29 @@
 (def descent-label-fade-steps 13)
 (def descent-msg-start-step 8)
 (def descent-fresh-runes 25)      ;; runes scattered when none are handed over
+;; Floor to floor (not the run's first descent): shorter, the length the
+;; screen had before the opening was tuned. Untuned.
+(def descent-later-steps 15)
+
+;; The arrival, in ms from the end of the descent. The runes fade out, the
+;; label and message fade out in reverse of their fade-in, then the floor
+;; fades in, and on the first floor of a run the log, quest line and sidebar
+;; follow on their own timings, each [start length] from the floor's start.
+(def arrival-runes-out-ms 500)
+(def arrival-floor-start-ms 800)
+(def arrival-floor-in-ms 1100)
+(def arrival-parts {:log [450 600] :quest [1950 600] :side [2150 400]})
+;; Later floors: everything together, quicker. Untuned.
+(def arrival-later-runes-out-ms 300)
+(def arrival-later-floor-start-ms 300)
+(def arrival-later-floor-in-ms 400)
 
 (def ^:private descent-step-per-frame (/ (float descent-frame-ms) 60.0))
+(defn- steps->frames [steps] (int (+ 0.5 (/ steps descent-step-per-frame))))
 (def descent-frames
   "The descending screen's minimum length in frames; it runs longer while a
    floor is still being built."
-  (int (+ 0.5 (/ descent-steps descent-step-per-frame))))
+  (steps->frames descent-steps))
 
 ;; While a floor is built under the descent screen, generation hands the
 ;; thread back this often. Under Go wasm nothing else runs until it does:
@@ -360,11 +377,18 @@
 ;;   :min-ms     (fn []) -> a floor on the screen's length, in ms
 ;;   :on-start   (fn [{:keys [depth ms]}]) on the first frame; ms is the
 ;;               planned length, before any wait for the floor
-;;   :on-arrive  (fn [{:keys [depth first?]}]) when the screen hands over to
-;;               the floor
+;;   :on-arrive  (fn [{:keys [depth first?]}]) when the floor starts to fade
+;;               in (or, with no :capture, when the screen hands over)
+;;   :capture    (fn [world first?]) -> the floor's visible cells, as
+;;               render/capture-frame returns them; without it the floor cuts
+;;               in
 (def ^:private descent-hooks (atom {}))
 
-(defn set-descent-hooks! [hooks] (reset! descent-hooks hooks))
+(defn set-descent-hooks!
+  "Install descent hooks, merged over those already installed, so the audio
+   and render sides can each install their own."
+  [hooks]
+  (swap! descent-hooks merge hooks))
 
 (defn- elapsed-ms [since] (/ (float (.Sub (now) since)) 1e6))
 
@@ -402,8 +426,10 @@
           (term/set-bg (from-bg (* cr 0.12) b) (from-bg (* cg 0.12) b) (from-bg (* cb 0.12) b))
           (term/write (:glyph r))))))
 
-(defn- draw-descent-frame
-  [{:keys [runes text tw th depth-str msg]} frame]
+(defn- draw-descent!
+  "One descent frame, unframed. `out` scales the runes, label and message
+   down as the arrival fades them out; 1.0 each while the descent plays."
+  [{:keys [runes text tw th depth-str msg]} frame out]
   (let [cx (quot tw 2)
         cy (quot th 2)
         spf descent-step-per-frame
@@ -411,7 +437,7 @@
         ;; with title text to fade out, the labels wait for it
         lt (if text (max 0.0 (- t descent-text-fade-steps)) t)
         ease (if (pos? descent-ease-steps) (min 1.0 (/ t descent-ease-steps)) 1.0)]
-    (sfx/with-frame
+    (do
       ;; clear inside the first frame, so the screen never shows a blank
       ;; frame between the previous screen and the runes
       (when (zero? frame) (sfx/paint-background! tw th))
@@ -427,7 +453,7 @@
               ;; first descent frame
               dim (or (:dim r) 1.0)
               depth-b (+ 1.0 (* (- (:depth-b r) 1.0) ease))
-              b (* depth-b
+              b (* (:runes out) depth-b
                    (+ dim (* (- 1.0 dim) ease))
                    (sfx/rune-brightness (:phase r) (* t descent-pulse-mult)))
               [lo frac] (descent-row r frame th)
@@ -443,18 +469,81 @@
           (draw-rune-cell r (rem (inc lo) th) (* b frac))))
       ;; depth label
       (let [dx (max 1 (- cx (quot (count depth-str) 2)))
-            f (min 1.0 (/ lt descent-label-fade-steps))]
+            f (* (:label out) (min 1.0 (/ lt descent-label-fade-steps)))]
         (term/move-cursor dx (- cy 1))
         (term/set-fg (from-bg 180 f) (from-bg 160 f) (from-bg 100 f))
         (term/set-bg bg bg bg)
         (term/write depth-str))
       ;; message
       (let [mx (max 1 (- cx (quot (count msg) 2)))
-            f (min 1.0 (max 0.0 (/ (- lt descent-msg-start-step) descent-label-fade-steps)))]
+            f (* (:msg out) (min 1.0 (max 0.0 (/ (- lt descent-msg-start-step) descent-label-fade-steps))))]
         (term/move-cursor mx (+ cy 1))
         (term/set-fg (from-bg 120 f) (from-bg 110 f) (from-bg 90 f))
         (term/set-bg bg bg bg)
         (term/write msg)))))
+
+(def ^:private full-out {:runes 1.0 :label 1.0 :msg 1.0})
+
+(defn- draw-descent-frame [ctx frame]
+  (sfx/with-frame (draw-descent! ctx frame full-out)))
+
+(defn- ramp-in
+  "0 before `from`, 1 after `from`+`len`, linear between; a step when len is 0."
+  [t from len]
+  (if (pos? len) (ramp t [from (+ from len)]) (if (>= t from) 1.0 0.0)))
+
+(defn- draw-cells!
+  "Redraw captured cells, each at the brightness (part-f (:part cell))."
+  [cells part-f]
+  (doseq [{:keys [x y s fg bg part]} cells]
+    (let [f (part-f part)]
+      (when (pos? f)
+        (let [[fr fg' fb] fg
+              [br bg' bb] bg]
+          (term/move-cursor x y)
+          (term/set-fg (from-bg fr f) (from-bg fg' f) (from-bg fb f))
+          (term/set-bg (from-bg br f) (from-bg bg' f) (from-bg bb f))
+          (term/write s))))))
+
+(defn- run-arrival!
+  "Fade the descent out and the captured floor in, starting at `frame`.
+   Calls (on-arrive) once, when the floor starts to fade in."
+  [ctx frame cells first? on-arrive]
+  (let [runes-out (if first? arrival-runes-out-ms arrival-later-runes-out-ms)
+        floor-start (if first? arrival-floor-start-ms arrival-later-floor-start-ms)
+        floor-in (if first? arrival-floor-in-ms arrival-later-floor-in-ms)
+        parts (if first? arrival-parts {})
+        ;; the label and message leave in reverse of how they came in: the
+        ;; message first, the label msg-start steps after it
+        text-len (* descent-label-fade-steps 60)
+        label-lag (* descent-msg-start-step 60)
+        descent-ms (max runes-out (+ label-lag text-len))
+        total (+ floor-start
+                 (reduce max floor-in (map (fn [[from len]] (+ from len)) (vals parts))))
+        t0 (now)
+        arrived? (atom false)]
+    (loop [frame frame]
+      (let [t (elapsed-ms t0)
+            tf (- t floor-start)
+            part-f (fn [part]
+                     (if-let [[from len] (get parts part)]
+                       (ramp-in tf from len)
+                       (ramp-in tf 0 floor-in)))]
+        (when (and (not @arrived?) (>= tf 0))
+          (reset! arrived? true)
+          (when on-arrive (on-arrive)))
+        (sfx/with-frame
+          ;; One frame past the descent's fade, so its cells end on background.
+          (when (< t (+ descent-ms (* 2 descent-frame-ms)))
+            (draw-descent! ctx frame
+                           {:runes (- 1.0 (ramp-in t 0 runes-out))
+                            :msg (- 1.0 (ramp-in t 0 text-len))
+                            :label (- 1.0 (ramp-in t label-lag text-len))}))
+          (draw-cells! cells (if (>= t total) (constantly 1.0) part-f)))
+        (when (< t total)
+          (sfx/pause! (long (max 1 (- descent-frame-ms (- (elapsed-ms t0) t)))))
+          (recur (inc frame)))))
+    (when (and on-arrive (not @arrived?)) (on-arrive))))
 
 (defn run-descending-screen
   "Show the descending screen while (build) runs, and return its value.
@@ -465,12 +554,17 @@
    so the screen and audio keep running while the floor is built. Headless
    (balance harness, tests) it just calls (build).
 
+   With a :capture hook, the floor then fades in over the descent (see
+   run-arrival!) rather than cutting in.
+
    Opts: :handoff, the title screen's (see show-title-screen), to continue
-   from its runes and fade its text out; :first?, passed to :on-arrive, true
-   for the run's first floor."
+   from its runes and fade its text out; :first?, true for the run's first
+   floor, which gets the full-length descent and the staged arrival;
+   :capture, in place of the hook for this descent."
   ([depth scheme build] (run-descending-screen depth scheme build {}))
-  ([depth scheme build {:keys [handoff first?]}]
-  (let [{:keys [min-ms on-start on-arrive]} @descent-hooks]
+  ([depth scheme build {:keys [handoff first?] :as opts}]
+  (let [{:keys [min-ms on-start on-arrive]} @descent-hooks
+        capture (or (:capture opts) (:capture @descent-hooks))]
   (if-not (term/size)
     (build)
     (let [[tw th] (term/size)
@@ -480,7 +574,7 @@
                :tw tw :th th
                :depth-str (str "Depth " depth)
                :msg (nth descending-messages (rand-int (count descending-messages)))}
-          min-frames (max descent-frames
+          min-frames (max (if first? descent-frames (steps->frames descent-later-steps))
                           (if min-ms (quot (+ (long (min-ms)) descent-frame-ms -1) descent-frame-ms) 0))
           frame (atom 0)
           last-frame (atom (now))
@@ -505,7 +599,11 @@
         (while (< @frame min-frames)
           (sfx/pause! (long (max 1 (- descent-frame-ms (elapsed-ms @last-frame)))))
           (draw!))
-        (when on-arrive (on-arrive {:depth depth :first? (boolean first?)}))
+        (let [arrive! #(when on-arrive (on-arrive {:depth depth :first? (boolean first?)}))
+              cells (when capture (seq (capture result (boolean first?))))]
+          (if cells
+            (run-arrival! ctx @frame cells first? arrive!)
+            (arrive!)))
         result))))))
 
 (defn show-descending-screen

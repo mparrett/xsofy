@@ -282,13 +282,17 @@
    late as it does after the board's run (xsofy.sfx/arrival-ms) if the floor
    appeared sooner, so a fast load still hears the run out and a slow one
    hears it land as the floor shows. A no-op unless a run is going. opts
-   {:first? bool} is the animation's: a new game's staged arrival or a later
-   floor's; accepted, unused until the later-floor transition exists."
-  [& [_opts]]
+   {:first? bool} is the animation's: on a later floor ({:first? false}) the
+   arrival lands at once, with its floor fading in."
+  [& [opts]]
   (when-let [{:keys [at seed]} (and natives (:going @state))]
     (swap! state dissoc :going)
     (let [elapsed (quot (.Sub (now) at) 1000000)
-          {:keys [delay-ms cut?]} (sfx/arrival-plan elapsed sfx/run-cut-ms (some? (:cut natives)))]
+          ;; A later floor's arrival lands as its floor fades in: the
+          ;; animation owns that moment, and holding the arrival to the
+          ;; first descent's minimum would land it after the floor showed.
+          cut-ms (if (false? (:first? opts)) 0 sfx/run-cut-ms)
+          {:keys [delay-ms cut?]} (sfx/arrival-plan elapsed cut-ms (some? (:cut natives)))]
       (when cut?
         ;; The arrival's own triggers are timed by the synth; the cut by the
         ;; host, a few ms off at worst, which the fade covers.
@@ -321,9 +325,12 @@
 (defn descent-min-ms
   "How long the descending screen should last at least, so the floor does
    not appear before the run's arrival lands: the run's cut point
-   (xsofy.sfx/run-cut-ms) when sound is on, else 0 (Matt, 2026-11-24)."
-  []
-  (if natives (or sfx/run-cut-ms 0) 0))
+   (xsofy.sfx/run-cut-ms) when sound is on, else 0 (Matt, 2026-11-24). Only
+   the first descent: Matt asked for a minimum there, and later floors keep
+   the animation's own length, so {:first? false} is 0."
+  ([] (descent-min-ms {}))
+  ([{:keys [first?]}]
+   (if (and natives (not (false? first?))) (or sfx/run-cut-ms 0) 0)))
 
 (defn descent!
   "The going-down run, fired when the descending animation starts so the
