@@ -259,8 +259,8 @@
    Matt wanted the rat's three shuffled (2026-11-22). The rest keep the old
    shared cry. Goblin and fire imp were drawn at random from the ones Matt
    had vetted (V012-V015, V027-V029; 2026-11-24). Slime, archer and goblin
-   shaman are Matt's round 31 picks. Gains are the board's levelling (the
-   shared cry's loudness) over attenuate at one tile."
+   shaman are Matt's round 31 picks. Every cry is set to read as the shared
+   one does on the board's Levels (-6.3 over the music, 2026-11-24)."
   {"rat"      [[[0 :cry-rat-squeak 86 0.63]]                       ; V009
                [[0 :cry-rat-squeal 86 0.324]]                        ; V010
                [[0 :cry-rat-chit 88 0.259] [32 :cry-rat-chit 86 0.227] ; V025
@@ -271,11 +271,11 @@
    "fire-imp" [[[0 :cry-imp-poof-short 70 0.388] [20 :crackle 70 0.194] ; V028
                 [60 :crackle 70 0.136] [105 :crackle 70 0.097]
                 [30 :imp-harmonic 70 0.388]]]
-   "slime"    [[[0 :cry-sli-bubble 62 0.401] [45 :cry-sli-bubble 67 0.321] ; V060
-                [95 :cry-sli-bubble 60 0.361] [135 :cry-sli-bubble 65 0.241]
-                [200 :cry-sli-bubble 58 0.201] [60 :cry-sli-hiss 50 0.241]]]
-   "archer"   [[[0 :cry-arch-uh-swirl 55 0.471] [210 :cry-body-thud 45 0.377]]] ; V068
-   "goblin-shaman" [[[0 :cry-fizzle 74 0.333] [60 :cry-sham-groan 55 0.37]]]}) ; V071
+   "slime"    [[[0 :cry-sli-bubble 62 0.488] [45 :cry-sli-bubble 67 0.39] ; V060
+                [95 :cry-sli-bubble 60 0.439] [135 :cry-sli-bubble 65 0.293]
+                [200 :cry-sli-bubble 58 0.244] [60 :cry-sli-hiss 50 0.293]]]
+   "archer"   [[[0 :cry-arch-uh-swirl 55 0.566] [210 :cry-body-thud 45 0.453]]] ; V068
+   "goblin-shaman" [[[0 :cry-fizzle 74 0.4] [60 :cry-sham-groan 55 0.445]]]}) ; V071
 
 (defn- creature-cry
   "A creature's own cry, nil when it has none."
