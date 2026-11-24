@@ -151,10 +151,10 @@
   0.25)
 
 (def duck
-  "The bed ducks under a floor change: down to :level of music-gain over
-   :down seconds, held :hold-ms from the shot's start, then back over
-   :release seconds, after waiting :delay-ms. The hold runs from the drop because undertone does not
-   report when a shot ends. Level and release tuned on the sfx board,
+  "The bed ducks under a floor change: after :delay-ms, down to :level of
+   music-gain over :down seconds, held :hold-ms from the drop, then back over
+   :release seconds. The hold is timed because undertone does not report
+   when a shot ends. Level and release tuned on the sfx board,
    2026-11-10; the hold spans the run and its arrival, which lands about 5 s
    in (xsofy.sfx/arrival-ms), since 2026-11-13."
   ;; 2026-11-14, from the board's audition over the title music: deeper (0.2
