@@ -497,3 +497,15 @@
       (is (contains? (shots {:kind :hit-dealt :creature "rat" :severity 0.3}) :cry-rat-chit))
       (is (not (contains? (shots {:kind :hit-dealt :creature "rat" :severity 0.2}) :cry-rat-chit)))
       (is (not (contains? (shots {:kind :hit-dealt :creature "rat" :severity 0.5 :killed true}) :cry-rat-chit))))))
+
+(deftest footsteps-have-no-echo
+  (testing "Matt, 2026-11-24: no footstep echoes by default: no send to the
+            music's delay, and no reverb in the step's own patch"
+    (let [patches (into {} (map (juxt :name :patch)) sfx/custom-shots)]
+      (doseq [ev [{:kind :footstep :dist 0}
+                  {:kind :footstep :dist 4 :dir -0.8}
+                  {:kind :footstep :dist 0 :surface :water}
+                  {:kind :footstep :dist 0 :surface :grass}]
+              tr (sfx/for-event ev 7)]
+        (is (= 0 (:send tr)) (str ev))
+        (is (not-any? #(#{:verb :delay} (first %)) (get patches (:shot tr))) (str ev))))))
