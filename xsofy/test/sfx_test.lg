@@ -218,10 +218,10 @@
 
 (deftest new-kinds-are-voiced
   (testing "the kinds producers already emitted but nothing rendered"
-    (is (= :creak (:shot (first (triggers {:kind :door :dist 4 :dir 0.5})))))
+    (is (= :thunk (:shot (first (triggers {:kind :door :dist 4 :dir 0.5})))))
     (is (= :cry   (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
     (is (= :twang (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
-    (is (= :thunk (:shot (first (triggers {:kind :blocked}))))))
+    (is (= :creak (:shot (first (triggers {:kind :blocked}))))))
   (testing "spatial kinds attenuate with distance like every other one"
     (is (> (:gain (first (triggers {:kind :death :dist 1})))
            (:gain (first (triggers {:kind :death :dist 9}))))))
@@ -300,8 +300,8 @@
     (is (= [:thunk :sink] (mapv :shot (triggers {:kind :blocked :element :water}))))
     (is (= [:thunk :fall] (mapv :shot (triggers {:kind :blocked :element :fall}))))
     (is (= [:thunk :zap]  (mapv :shot (triggers {:kind :blocked :element :fire})))))
-  (testing "an unknown hazard still sounds, as a louder thunk alone"
-    (is (= [:thunk] (mapv :shot (triggers {:kind :blocked}))))))
+  (testing "a plain refusal, no hazard, is the creak (swapped with the door, 2026-11-24)"
+    (is (= [:creak] (mapv :shot (triggers {:kind :blocked}))))))
 
 ;; ---- items, statuses, menus, grass (2026-11-09 playtest) ----
 

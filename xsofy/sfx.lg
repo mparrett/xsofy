@@ -214,9 +214,11 @@
   [ev seed]
   ;; 1.0 from 0.5 (2026-11-23): Matt could barely hear it; it sat −6 dB
   ;; under the ducked music on the sfx board's Levels. +4.5 dB more (2026-11-24, by ear on the sfx board).
-  [{:shot :creak
-    :note (+ 40 (jit seed :note 3))
-    :gain (* 1.679 (attenuate (:dist ev)))
+  ;; The refusal's thunk since 2026-11-24 (Matt swapped the two on the sfx
+  ;; board, G018/G022); each kept the level it had been set to by ear.
+  [{:shot :thunk
+    :note 52
+    :gain (* 0.95 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
@@ -362,8 +364,9 @@
       (let [layers [no (assoc body :pan 0.5 :delay-ms 40 :seed (det/combine seed [:hazard]))]]
         ;; Deep water -1 dB, both layers (2026-11-24, by ear on the sfx board).
         (if (= :water (:element ev)) (mapv #(update % :gain * 0.891) layers) layers))
-      ;; 0.95 from 1.2, -2 dB (2026-11-23, by ear).
-      [(assoc no :gain 0.95)])))
+      ;; The door's creak since 2026-11-24 (swapped with the door, G018/G022),
+      ;; at the door's level. The hazard prompts above keep the thunk.
+      [{:shot :creak :note (+ 40 (jit seed :note 3)) :gain 1.679 :pan 0.5 :seed seed}])))
 
 (defn- web-shots
   "A web: tearing free is a sharp snap, still being stuck is the same sound
