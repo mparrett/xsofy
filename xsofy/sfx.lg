@@ -374,8 +374,9 @@
    before the run has played out: the arrival then lands at the later of the
    floor appearing and this. nil hears every run out to its arrival, as
    before undertone could cut a run (#166). The descending screen lasts at
-   least 0.9 s and the run 3.65 s, so a value under that cuts most runs."
-  nil)
+   least 0.9 s and the run 3.65 s, so a value under that cuts most runs.
+   1200 (Matt, 2026-11-24): a load slower than that is cut when it ends."
+  1200)
 
 (def run-cut-fade-ms
   "How fast a cut run fades: quick, so it reads as stopping, not dying away."
