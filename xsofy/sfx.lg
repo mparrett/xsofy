@@ -49,6 +49,11 @@
    ;; a screen change (Matt, 2026-11-23). The pickup keeps the echo.
    {:name :pluck-dry :gate-ms 60
     :patch [[:env 0.001 2.5 0 0.4] [:pluck 0 0.996] [:mul] [:lpf 2600] [:out 0.55 0.55]]}
+   ;; The built-in :twang (undertone sfx.go) without its send, for the bow:
+   ;; its echoes smeared a volley together (Matt, 2026-11-23).
+   {:name :twang-dry :gate-ms 30
+    :patch [[:env 0.001 0.22 0 0.1] [:pluck 0 0.972] [:mul] [:lpf 3200] [:out 0.6 0.5]
+            [:env 0.001 0.03 0 0.02] [:osc 0 :noise 0 1] [:mul] [:lpf 3800] [:out 0.3 0.5]]}
    {:name :knock-soft :gate-ms 500
     :patch [[:env 0.003 0.3 0 0.15] [:pluck 0 0.96] [:mul] [:lpf 600] [:verb 0.45] [:out 0.8 0.5]]}
    {:name :chirp-land :gate-ms 400
@@ -379,7 +384,7 @@
   "A bow releasing. Spatial, because being shot AT from somewhere is the
    information — a shot you cannot place is just a noise."
   [ev seed]
-  [{:shot :twang
+  [{:shot :twang-dry
     :note (+ 57 (jit seed :note 3))
     ;; x1.585, +4 dB (2026-11-23, by ear on the sfx board).
     :gain (* 0.55 1.585 (attenuate (:dist ev)))
