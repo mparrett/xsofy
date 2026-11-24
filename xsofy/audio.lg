@@ -44,6 +44,7 @@
        ;; Newer again (undertone#167); without it the title theme plays its
        ;; length once and hands over then (title-theme-for).
        :end-theme      (some-> (resolve 'undertone/end-theme) deref)
+       :theme-playing? (some-> (resolve 'undertone/theme-playing?) deref)
        :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
       (catch e nil))))
 
@@ -185,7 +186,11 @@
   ;; :delay-ms so the run's first hit lands over the music, and is quicker
   ;; and shallower (0.3 from 0.2).
   {:level 0.3 :delay-ms 150 :down 0.23 :hold-ms 4200 :release 0.8
-   :arrival-hold-ms 200 :arrival-release 1.8})
+   :arrival-hold-ms 200 :arrival-release 1.8
+   ;; Matt, 2026-11-24: the bed comes back as the floor's music, never as the
+   ;; title theme rising before it hands over, so the arrival's release waits
+   ;; for the theme to end (title-hand-over), at most this long.
+   :theme-wait-ms 4000})
 
 (defn register-shots!
   "Register xsofy's own patches (xsofy.sfx/custom-shots). Idempotent: a
@@ -236,9 +241,11 @@
 (defn- duck!
   "Duck the bed under a big shot (see duck), held `hold-ms`. The release runs
    on its own goroutine; a later duck bumps :duck-gen so an earlier timer
-   cannot lift the bed while the later shot still wants it down."
-  ([] (duck! (:hold-ms duck) (:release duck) (:delay-ms duck)))
-  ([hold-ms release-s delay-ms]
+   cannot lift the bed while the later shot still wants it down. With
+   theme-wait-ms, the release also waits, up to that long, for a playing
+   theme to end."
+  ([] (duck! (:hold-ms duck) (:release duck) (:delay-ms duck) 0))
+  ([hold-ms release-s delay-ms theme-wait-ms]
   (when-let [glide (:glide-music-gain natives)]
     (let [n (:duck-gen (swap! state update :duck-gen (fnil inc 0)))
           down! #(glide (* music-gain (:level duck)) (:down duck))]
@@ -248,6 +255,10 @@
         (down!))
       ;; The hold runs from the start of the drop.
       (go (<!! (timeout (+ delay-ms hold-ms)))
+          (loop [left theme-wait-ms]
+            (when (and (pos? left) (call :theme-playing?))
+              (<!! (timeout 50))
+              (recur (- left 50))))
           (when (= n (:duck-gen @state))
             (glide music-gain release-s)))
       nil))))
@@ -260,7 +271,7 @@
     (go (<!! (timeout delay-ms))
         ;; No delay: the bed is usually down already, and when a slow load
         ;; let it come back, the arrival should not land over it.
-        (duck! (:arrival-hold-ms duck) (:arrival-release duck) 0))
+        (duck! (:arrival-hold-ms duck) (:arrival-release duck) 0 (:theme-wait-ms duck)))
     nil))
 
 (defn arrive!
