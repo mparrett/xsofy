@@ -51,6 +51,10 @@
    ;; in place of C007 on 2026-11-14.
    {:name :knock-soft :gate-ms 500
     :patch [[:env 0.003 0.3 0 0.15] [:pluck 0 0.96] [:mul] [:lpf 600] [:verb 0.45] [:out 0.8 0.5]]}
+   ;; Z011/Z014's tube ping (round 29, from undertone v0.3.0's textures): a
+   ;; noise tick through a tuned comb. The short phrase for a visited floor.
+   {:name :tube-ping :gate-ms 100
+    :patch [[:env 0.0 0.003 0.0 0.002] [:osc 0 :noise 0 1] [:mul] [:comb 0.0 0.98 0.3] [:out 0.3 0.5]]}
    {:name :chirp-land :gate-ms 400
     :patch [[:env 0.005 0.45 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.55] [:out 0.45 0.5]]}
    ;; A step in water: band-passed noise plus a small rising blip.
@@ -312,14 +316,37 @@
   [seed]
   (going-shots :down seed))
 
+(def ^:private visited
+  "A floor you have visited: Z011's four tube pings climbing going up, Z014's
+   falling going down (round 29), then the arrival. The long run is kept for
+   a floor you have not seen (Matt, 2026-11-24). Each phrase is transposed to
+   end on the arrival's pitch class, as the run does; as rendered, both
+   ended a semitone off it. :ms is when the arrival lands: the phrase has
+   rung out by about 1.15 s, plus 0.2."
+  {:shape [0 3 7 10] :gap-ms 300 :gain 0.335 :ms 1350})
+
+(defn visited-shots
+  "The phrase for changing to a visited floor, then the arrival."
+  [dir seed]
+  (let [{:keys [shape gap-ms gain ms]} visited
+        pc (landing-pc dir)
+        notes (if (= dir :up)
+                (mapv #(+ 50 pc %) shape)
+                (mapv #(+ 48 pc %) (rseq shape)))]
+    (into (vec (map-indexed (fn [i n]
+                              {:shot :tube-ping :note n :gain gain :pan 0.5
+                               :delay-ms (* i gap-ms) :seed (det/combine seed [:visited i])
+                               :floor true})
+                            notes))
+          (arrival-shots dir seed ms))))
+
 (defn- floor-shots
-  "Changing floor: the run, then the arrival once it has rung out. A floor you
-   have visited appears at once, so both come from this frame. A new floor's
-   run started under the descending animation (xsofy.audio/descent!), which
-   drops this frame's copy and times the arrival itself."
+  "Changing floor. This frame's copy is what plays only for a floor you have
+   visited, which appears at once: the short phrase and the arrival. A new
+   floor's run started under the descending animation (xsofy.audio/descent!),
+   which drops this copy and times the arrival itself."
   [ev seed]
-  (let [dir (if (= (:dir-of-travel ev) :up) :up :down)]
-    (into (going-shots dir seed) (arrival-shots dir seed (arrival-ms dir)))))
+  (visited-shots (if (= (:dir-of-travel ev) :up) :up :down) seed))
 
 (defn- blocked-shots
   "The game said no — you walked into water, a chasm or lava, and it wants
