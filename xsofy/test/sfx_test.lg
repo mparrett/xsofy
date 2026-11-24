@@ -474,3 +474,10 @@
       (let [trs (triggers {:kind :death :creature who :dist 2 :dir 0})]
         (is (some #(= shot (:shot %)) trs))
         (is (not-any? #(= :cry (:shot %)) trs))))))
+
+(deftest round-32-creatures-have-their-own-cries
+  (doseq [[who shot] [["spider" :cry-spi-rasp-soft] ["wraith" :cry-wra-moan]]]
+    (testing who
+      (let [trs (triggers {:kind :death :creature who :dist 2 :dir 0})]
+        (is (some #(= shot (:shot %)) trs))
+        (is (not-any? #(= :cry (:shot %)) trs))))))

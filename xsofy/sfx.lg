@@ -88,6 +88,15 @@
     :patch [[:env 0.01 0.35 0 0.15] [:lfo 40 2] [:scale 0.5 0.5] [:mul] [:osc 0 :noise 0 1] [:mul] [:hpf 3000] [:verb 0.2] [:out 0.25 0.5]]}
    {:name :cry-sham-groan :gate-ms 400
     :patch [[:lfo 5 0] [:pitch 0.3] [:env 0.02 0.32 0 0.12] [:osc 0 :saw 3 0.3] [:mul] [:svf 520 0.75 1 0] [:drive 1.6 0.1] [:verb 0.2] [:out 0.5 0.5] [:env 0.02 0.32 0 0.12] [:osc 0 :saw 3 0.3] [:mul] [:svf 1000 0.8 1 0] [:drive 1.6 0.1] [:verb 0.2] [:out 0.25 0.5]]}
+   ;; Round 32's picks (Matt, 2026-11-24): spider V086, wraith V090.
+   {:name :cry-spi-click :gate-ms 400
+    :patch [[:env 0.001 0.008 0 0.004] [:osc 0 :noise 0 1] [:mul] [:svf 3600 0.65 1 0] [:out 0.5 0.5]]}
+   {:name :cry-spi-rasp-soft :gate-ms 400
+    :patch [[:env 0.01 0.3 0 0.1] [:lfo 35 2] [:scale 0.5 0.5] [:mul] [:osc 0 :saw 3 0.3] [:mul] [:svf 1200 0.6 1 0] [:drive 1.2 0.05] [:verb 0.12] [:out 0.4 0.5]]}
+   {:name :cry-wra-mist :gate-ms 500
+    :patch [[:env 0.07 0.32 0 0.18] [:osc 0 :noise 0 1] [:mul] [:env 0.06 0.35 0 0.18] [:svf 900 0.5 1 1.5] [:verb 0.35] [:out 0.3 0.5]]}
+   {:name :cry-wra-moan :gate-ms 400
+    :patch [[:env 0.04 0.28 0 0.14] [:lfo 6 0] [:scale 0.3 0.7] [:mul] [:osc 0 :sine 5 0.28] [:mul] [:verb 0.35] [:out 0.2 0.5] [:env 0.04 0.28 0 0.14] [:osc 0.12 :sine 5 0.28] [:mul] [:verb 0.35] [:out 0.15 0.5]]}
    {:name :chirp-land :gate-ms 400
     :patch [[:env 0.005 0.45 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.55] [:out 0.45 0.5]]}
    ;; A step in water: band-passed noise plus a small rising blip.
@@ -259,8 +268,9 @@
    Matt wanted the rat's three shuffled (2026-11-22). The rest keep the old
    shared cry. Goblin and fire imp were drawn at random from the ones Matt
    had vetted (V012-V015, V027-V029; 2026-11-24). Slime, archer and goblin
-   shaman are Matt's round 31 picks. Every cry is set to read as the shared
-   one does on the board's Levels (-6.3 over the music, 2026-11-24)."
+   shaman are Matt's round 31 picks, spider and wraith round 32's. Every cry
+   is set to read as the shared one does on the board's Levels (-6.3 over
+   the music, 2026-11-24)."
   {"rat"      [[[0 :cry-rat-squeak 86 0.63]]                       ; V009
                [[0 :cry-rat-squeal 86 0.324]]                        ; V010
                [[0 :cry-rat-chit 88 0.259] [32 :cry-rat-chit 86 0.227] ; V025
@@ -275,7 +285,13 @@
                 [95 :cry-sli-bubble 60 0.439] [135 :cry-sli-bubble 65 0.293]
                 [200 :cry-sli-bubble 58 0.244] [60 :cry-sli-hiss 50 0.293]]]
    "archer"   [[[0 :cry-arch-uh-swirl 55 0.566] [210 :cry-body-thud 45 0.453]]] ; V068
-   "goblin-shaman" [[[0 :cry-fizzle 74 0.4] [60 :cry-sham-groan 55 0.445]]]}) ; V071
+   "goblin-shaman" [[[0 :cry-fizzle 74 0.4] [60 :cry-sham-groan 55 0.445]]] ; V071
+   ;; V086: a soft creak, then the legs curling, ticks slowing and sinking.
+   "spider"   [[[0 :cry-spi-rasp-soft 67 0.937]
+                [200 :cry-spi-click 79 1.311] [228 :cry-spi-click 78 1.245] [260 :cry-spi-click 78 1.179]
+                [296 :cry-spi-click 76 1.114] [340 :cry-spi-click 75 0.983] [392 :cry-spi-click 74 0.852]
+                [455 :cry-spi-click 72 0.721] [530 :cry-spi-click 71 0.524] [620 :cry-spi-click 69 0.393]]]
+   "wraith"   [[[0 :cry-wra-mist 64 0.427] [40 :cry-wra-moan 64 0.533]]]})     ; V090
 
 (defn- creature-cry
   "A creature's own cry, nil when it has none."
