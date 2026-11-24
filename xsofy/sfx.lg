@@ -97,6 +97,12 @@
     :patch [[:env 0.07 0.32 0 0.18] [:osc 0 :noise 0 1] [:mul] [:env 0.06 0.35 0 0.18] [:svf 900 0.5 1 1.5] [:verb 0.35] [:out 0.3 0.5]]}
    {:name :cry-wra-moan :gate-ms 400
     :patch [[:env 0.04 0.28 0 0.14] [:lfo 6 0] [:scale 0.3 0.7] [:mul] [:osc 0 :sine 5 0.28] [:mul] [:verb 0.35] [:out 0.2 0.5] [:env 0.04 0.28 0 0.14] [:osc 0.12 :sine 5 0.28] [:mul] [:verb 0.35] [:out 0.15 0.5]]}
+   ;; A creature's attack, and its pain (round 34, Matt 2026-11-24): teeth
+   ;; and claws, with the rat's chit (:cry-rat-chit) for its squeak.
+   {:name :bite-snap :gate-ms 200
+    :patch [[:env 0.001 0.018 0 0.01] [:osc 0 :noise 0 1] [:mul] [:svf 2400 0.65 1 0] [:drive 2 0.1] [:verb 0.1] [:out 0.6 0.5] [:env 0.001 0.01 0 0.006] [:pluck 24 0.5] [:mul] [:out 0.3 0.5]]}
+   {:name :bite-scrape :gate-ms 200
+    :patch [[:env 0.004 0.06 0 0.03] [:osc 0 :noise 0 1] [:mul] [:env 0.001 0.06 0 0.03] [:svf 2200 0.7 1 1.2] [:verb 0.1] [:out 0.5 0.5]]}
    {:name :chirp-land :gate-ms 400
     :patch [[:env 0.005 0.45 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.55] [:out 0.45 0.5]]}
    ;; A step in water: band-passed noise plus a small rising blip.
@@ -206,6 +212,36 @@
   [ev]
   (max 0.0 (min 1.0 (double (or (:severity ev) 0.3)))))
 
+(defn- voice-take
+  "One take of a creature's voice, [[ms shot note gain] ...], as triggers:
+   the notes jittered together by the seed, panned and delayed as given."
+  [take seed tag pan delay-ms]
+  (let [j (jit seed :note 1)]
+    (vec (map-indexed (fn [i [ms shot note g]]
+                        {:shot shot :note (+ note j) :gain g :pan pan
+                         :delay-ms (+ delay-ms ms) :seed (det/combine seed [tag i])})
+                      take))))
+
+(defn- pick-take
+  "One of takes, chosen by the seed, so repeats alternate."
+  [takes seed]
+  (nth takes (mod (bit-and (det/combine seed [:take]) 0xffffff) (count takes))))
+
+(def ^:private creature-hits
+  "A creature's own sound when it hits you, in place of the thud, keyed by
+   template name (the hit-taken event's :creature). Takes alternate. Rat:
+   J008 and its sibling J009, two claw scrapes (Matt, 2026-11-24); a rat's
+   hit is always light, so the thud's severity pitch is not missed. Gains
+   are round 34's levelling, to the light hit taken."
+  {"rat" [[[0 :bite-scrape 62 1.834] [50 :bite-scrape 58 1.376]]    ; J008
+          [[0 :bite-scrape 60 1.451] [42 :bite-scrape 64 1.813]]]}) ; J009
+
+(def ^:private pains
+  "A creature's cry of pain when your blow takes at least :min of its health
+   and does not kill it (a kill has its death cry). Rat: J005, a snap and a
+   squeak, from a quarter of its health (Matt, 2026-11-24)."
+  {"rat" {:min 0.25 :take [[0 :bite-snap 60 1.877] [40 :cry-rat-chit 88 1.502]]}})
+
 (defn- hit-dealt-shots
   "Damage YOU deal. Severity drives pitch and level together: a glancing blow
    is a high quick tick, a heavy one drops nearly an octave and hits harder —
@@ -233,20 +269,27 @@
       [(update base :gain * 0.836)
        {:shot :tink :note (+ note 24) :gain 0.236 :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
-      [base])))
+      (let [pain (get pains (:creature ev))]
+        (if (and pain (>= s (:min pain)))
+          ;; Just behind the blow, so the blow is heard first.
+          (into [base] (voice-take (:take pain) seed :pain 0.5 (+ flight 30)))
+          [base])))))
 
 (defn- hit-taken-shots
   "Damage you TAKE — its own patch (dull and low, no bright crack) rather than
    a louder copy of the blow you land. Same severity curve, so a scratch and a
-   near-fatal blow are told apart by ear before the log is read."
+   near-fatal blow are told apart by ear before the log is read. A creature
+   with its own attack sound (creature-hits) plays that instead."
   [ev seed]
-  (let [s (severity ev)]
-    [{:shot :thud
-      :note (- 45 (int (* 9.0 s)) (jit seed :note 2))
-      :gain (+ 0.4 (* 0.267 s))
-      :pan  0.5
-      :delay-ms (or (:flight-ms ev) 0)
-      :seed seed}]))
+  (if-let [takes (get creature-hits (:creature ev))]
+    (voice-take (pick-take takes seed) seed :hit 0.5 (or (:flight-ms ev) 0))
+    (let [s (severity ev)]
+      [{:shot :thud
+        :note (- 45 (int (* 9.0 s)) (jit seed :note 2))
+        :gain (+ 0.4 (* 0.267 s))
+        :pan  0.5
+        :delay-ms (or (:flight-ms ev) 0)
+        :seed seed}])))
 
 (defn- door-shots
   "A door swinging. Spatial and unhurried: it is almost always something else

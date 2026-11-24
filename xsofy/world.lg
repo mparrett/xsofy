@@ -921,7 +921,9 @@
                               (log-msg w (str "You hit the " def-name " for " dmg "." sneak-txt)))
                           w (snd/cue w :hit-dealt
                                      {:severity (snd/blow-severity target dmg)
-                                      :killed killed})]
+                                      :killed killed
+                                      ;; for the creature's cry of pain
+                                      :creature def-name})]
                       (if killed
                         (snd/deliver-sound w death-sound)
                         w))

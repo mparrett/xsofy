@@ -481,3 +481,19 @@
       (let [trs (triggers {:kind :death :creature who :dist 2 :dir 0})]
         (is (some #(= shot (:shot %)) trs))
         (is (not-any? #(= :cry (:shot %)) trs))))))
+
+(deftest a-rat-scratches-and-squeals
+  (let [shots (fn [ev] (set (map :shot (triggers ev))))
+        rat-hit {:kind :hit-taken :creature "rat" :severity 0.1}]
+    (testing "a rat's hit is its claws, not the thud; other creatures thud"
+      (is (= #{:bite-scrape} (shots rat-hit)))
+      (is (= #{:thud} (shots (assoc rat-hit :creature "goblin")))))
+    (testing "the two scratch takes (J008 falling, J009 rising) alternate by seed"
+      (is (= #{-4 4} (set (for [seed (range 40)]
+                            (let [[a b] (map :note (sfx/for-event rat-hit seed))]
+                              (- b a)))))))
+    (testing "your blow on a rat squeals from a quarter of its health, not
+              below, and not on a kill"
+      (is (contains? (shots {:kind :hit-dealt :creature "rat" :severity 0.3}) :cry-rat-chit))
+      (is (not (contains? (shots {:kind :hit-dealt :creature "rat" :severity 0.2}) :cry-rat-chit)))
+      (is (not (contains? (shots {:kind :hit-dealt :creature "rat" :severity 0.5 :killed true}) :cry-rat-chit))))))
