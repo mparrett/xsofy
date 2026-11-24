@@ -344,7 +344,10 @@
         {:keys [title scheme rng handoff]} (title/show-title-screen rng)
         [quest rng] (title/generate-quest rng)]
     (title/run-descending-screen 1 scheme #(assemble-world sd title scheme quest)
-                                 {:handoff handoff :first? true})))
+                                 {:handoff handoff :first? true
+                                  ;; The quest line ("You must retrieve ...") gets its
+                                  ;; own fade; the gate line before it is the log's.
+                                  :capture (fn [w _] (render/capture-frame w [(last (:messages quest))]))})))
 
 (defn build-game
   "Reconstruct a run's starting world from its seed, without the interactive
@@ -567,6 +570,8 @@
 
 (defn -main []
   (init-terminal)
+  ;; every descent fades its floor in from a captured frame (title.lg)
+  (title/set-descent-hooks! {:capture (fn [w _] (render/capture-frame w nil))})
   (try
     (let [code (seed/boot-replay)]
       (game-loop (if code (play-replay code) (new-game))))

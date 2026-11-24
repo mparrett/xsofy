@@ -1,5 +1,6 @@
 (ns xsofy.render
   (:require [term]
+            [clojure.string :as str]
             [math]
             [xsofy.terrain :as terrain]
             [xsofy.entities :as ent]
@@ -1519,3 +1520,47 @@
         (render-log world (:log panels))
         (render-status world (:status panels)))))
     (commit-camera! world mr)))
+
+;; --- Frame capture (the arrival fade-in) ---
+;; render-full costs 100-170 ms on Go wasm, nearly all of it computing the
+;; frame (lighting, memory, camera), not emitting it. The arrival fades the
+;; first frame in at 25 fps, so it renders once with the terminal calls
+;; recorded, and redraws only the cells that show something at each step's
+;; brightness: 60-250 cells on a first floor, 2-7 ms a frame (2026-11-24).
+
+(defn- in-rect? [r x y]
+  (and r (>= x (:x r)) (< x (+ (:x r) (:w r)))
+         (>= y (:y r)) (< y (+ (:y r) (:h r)))))
+
+(defn capture-frame
+  "Render `world` as render-full would, without drawing it, and return the
+   visible cells as [{:x :y :s :fg :bg :part}]. A write that is blank on the
+   background is left out: the screen is already that. :part is the panel the
+   cell falls in (:map, :log, :side for the sidebar, top bar and status line),
+   or :quest for a log line that starts one of `quest-lines`."
+  [world quest-lines]
+  (let [[tw th] (term-dims)
+        panels (ui/layout tw th)
+        ops (atom [])
+        cur (atom {:x 1 :y 1 :fg ui/bg :bg ui/bg})]
+    (with-redefs [term/move-cursor (fn [x y] (swap! cur assoc :x x :y y) nil)
+                  term/set-fg (fn [r g b] (swap! cur assoc :fg [r g b]) nil)
+                  term/set-bg (fn [r g b] (swap! cur assoc :bg [r g b]) nil)
+                  term/write (fn [s]
+                               (let [{:keys [x y fg bg]} @cur]
+                                 (when-not (and (= bg ui/bg) (str/blank? s))
+                                   (swap! ops conj {:x x :y y :s s :fg fg :bg bg}))
+                                 (swap! cur update :x + (count s)))
+                               nil)]
+      (render-full world))
+    ;; the pen recorded colors that were never sent
+    (pen-reset!)
+    (let [quest? (fn [s] (let [t (str/trim s)]
+                           (and (seq t) (some #(str/starts-with? % t) quest-lines))))]
+      (mapv (fn [{:keys [x y s] :as c}]
+              (assoc c :part
+                     (cond
+                       (in-rect? (:map panels) x y) :map
+                       (in-rect? (:log panels) x y) (if (quest? s) :quest :log)
+                       :else :side)))
+            @ops))))
