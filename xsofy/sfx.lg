@@ -44,16 +44,6 @@
     :patch [[:env 0.005 0.35 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.5] [:out 0.45 0.5]]}
    ;; K008's going-down run (round 22): a soft, dark knock, tried in game
    ;; in place of C007 on 2026-11-14.
-   ;; The built-in :pluck (undertone engine.go) without its send to the
-   ;; music's delay, for the menus: their echoes rang on for seconds after
-   ;; a screen change (Matt, 2026-11-23). The pickup keeps the echo.
-   {:name :pluck-dry :gate-ms 60
-    :patch [[:env 0.001 2.5 0 0.4] [:pluck 0 0.996] [:mul] [:lpf 2600] [:out 0.55 0.55]]}
-   ;; The built-in :twang (undertone sfx.go) without its send, for the bow:
-   ;; its echoes smeared a volley together (Matt, 2026-11-23).
-   {:name :twang-dry :gate-ms 30
-    :patch [[:env 0.001 0.22 0 0.1] [:pluck 0 0.972] [:mul] [:lpf 3200] [:out 0.6 0.5]
-            [:env 0.001 0.03 0 0.02] [:osc 0 :noise 0 1] [:mul] [:lpf 3800] [:out 0.3 0.5]]}
    {:name :knock-soft :gate-ms 500
     :patch [[:env 0.003 0.3 0 0.15] [:pluck 0 0.96] [:mul] [:lpf 600] [:verb 0.45] [:out 0.8 0.5]]}
    {:name :chirp-land :gate-ms 400
@@ -384,7 +374,7 @@
   "A bow releasing. Spatial, because being shot AT from somewhere is the
    information — a shot you cannot place is just a noise."
   [ev seed]
-  [{:shot :twang-dry
+  [{:shot :twang
     :note (+ 57 (jit seed :note 3))
     ;; x1.585, +4 dB (2026-11-23, by ear on the sfx board).
     :gain (* 0.55 1.585 (attenuate (:dist ev)))
@@ -495,6 +485,22 @@
 
 ;; ---- menus ----
 
+;; ---- the music's echo ----
+;; Most sounds sit dry of the delay the music sends to: on 2026-11-23 the
+;; menus, the bow and the hits taken rang on in it for seconds, and Matt
+;; ruled the echo the exception. A trigger leaves it with :send 0 (undertone
+;; #165, a scale on the patch's send, 1 as authored); the kinds here keep it.
+;; The floor change's run and arrival keep it too: they are the one big
+;; transition, and the music ducks under them. The player's death is the
+;; outro, music, which keeps its own.
+
+(def ^:private echo-kinds #{:floor})
+
+(defn- dry
+  "Triggers with no send to the music's delay, unless one says otherwise."
+  [trs]
+  (mapv #(if (contains? % :send) % (assoc % :send 0)) trs))
+
 (defn menu-shots
   "Menu sounds for a change of screen, `from` -> `to` (nil is the game):
    opening rises a third, closing falls it, and moving between two screens is
@@ -502,20 +508,23 @@
    menus are UI, so they never touch the world."
   [from to]
   (let [seed 77]
-    (cond
+    (dry
+     (cond
       (= from to) []
-      (nil? from) [{:shot :pluck-dry :degree 2 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
-                   {:shot :pluck-dry :degree 4 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
+      (nil? from) [{:shot :pluck :degree 2 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
+                   {:shot :pluck :degree 4 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
                     :seed (det/combine seed [:open])}]
-      (nil? to)   [{:shot :pluck-dry :degree 4 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
-                   {:shot :pluck-dry :degree 2 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
+      (nil? to)   [{:shot :pluck :degree 4 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
+                   {:shot :pluck :degree 2 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
                     :seed (det/combine seed [:close])}]
-      :else       [{:shot :pluck-dry :degree 3 :octave 2 :gain 0.45 :pan 0.5 :seed seed}])))
+      :else       [{:shot :pluck :degree 3 :octave 2 :gain 0.45 :pan 0.5 :seed seed}]))))
 
 (defn for-event
-  "One event descriptor -> a vector of trigger maps."
+  "One event descriptor -> a vector of trigger maps, dry of the music's echo
+   unless its kind is one of echo-kinds."
   [ev seed]
-  (case (:kind ev)
+  (cond->
+   (case (:kind ev)
     :footstep   (footstep-shots ev seed)
     :hit-dealt  (hit-dealt-shots ev seed)
     :hit-taken  (hit-taken-shots ev seed)
@@ -536,7 +545,8 @@
     :cursed     (cursed-shots ev seed)
     :status     (status-shots ev seed)
     :status-tick (status-tick-shots ev seed)
-    []))
+    [])
+   (not (echo-kinds (:kind ev))) dry))
 
 (defn for-events
   "The turn's event list -> one flat trigger vector. `salt` names the turn."

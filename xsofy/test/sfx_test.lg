@@ -220,7 +220,7 @@
   (testing "the kinds producers already emitted but nothing rendered"
     (is (= :creak (:shot (first (triggers {:kind :door :dist 4 :dir 0.5})))))
     (is (= :cry   (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
-    (is (= :twang-dry (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
+    (is (= :twang (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
     (is (= :thunk (:shot (first (triggers {:kind :blocked}))))))
   (testing "spatial kinds attenuate with distance like every other one"
     (is (> (:gain (first (triggers {:kind :death :dist 1})))
@@ -387,3 +387,19 @@
     (testing "dropping cues :drop"
       (is (= [[:drop nil]] (kinds (w/drop-action world :pot-1)))))))
 
+
+(deftest echo-is-the-exception
+  ;; Every sound but a floor change sits dry of the music's delay (Matt,
+  ;; 2026-11-23); the floor change's run and arrival keep the echo.
+  (testing "a turn's sounds and the menus send nothing to the delay"
+    (doseq [ev [{:kind :footstep :dist 0} {:kind :hit-dealt :severity 0.5}
+                {:kind :hit-taken :severity 0.5} {:kind :death :dist 2 :dir 0}
+                {:kind :shoot :dist 4 :dir 0.6} {:kind :drop} {:kind :pickup}]]
+      (is (every? #(= 0 (:send %)) (triggers ev)) (str (:kind ev) " is dry")))
+    (is (every? #(= 0 (:send %)) (sfx/menu-shots nil :inventory))))
+  (testing "a floor change keeps its echo"
+    (let [trs (triggers {:kind :floor :dir-of-travel :down})]
+      (is (seq trs))
+      (is (not-any? :send trs)))
+    (is (not-any? :send (sfx/descent-shots 3)))
+    (is (not-any? :send (sfx/arrival-shots :down 3 0)))))
