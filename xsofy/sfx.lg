@@ -186,7 +186,7 @@
       ;; a fight. Both halved (2026-11-23, by ear on the sfx board): a kill
       ;; sat with the heavy blow, +12 over the ducked music, and was too loud.
       ;; x0.745 rather than x0.5 since the blow's gain fell, to keep it there.
-      ;; Both +1 dB (2026-11-24, second pass by ear); x0.836 also makes up the blow's own -3 dB.
+      ;; Both +1 dB (2026-11-24, second pass by ear): 0.745 x 1.122.
       [(update base :gain * 0.836)
        {:shot :tink :note (+ note 24) :gain 0.236 :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
