@@ -41,6 +41,9 @@
        :set-sfx-gain   (some-> (resolve 'undertone/set-sfx-gain) deref)
        ;; Newer again (undertone#166); without it a run always plays out.
        :cut            (some-> (resolve 'undertone/cut) deref)
+       ;; Newer again (undertone#167); without it the title theme plays its
+       ;; length once and hands over then (title-theme-for).
+       :end-theme      (some-> (resolve 'undertone/end-theme) deref)
        :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
       (catch e nil))))
 
@@ -126,6 +129,21 @@
             :bed   true}]
    :then :generate})
 
+(def title-hand-over
+  "How much of the title theme plays on after the descent starts before the
+   floor's music takes over: the rest of the bar, so the hand-over lands while
+   the bed is ducked under the run (a bar is 3.6 s at the dungeon's 67 bpm; a
+   grid, 7.2 s, often outlasted the duck). Matt, 2026-11-24."
+  {:bars 1})
+
+(defn- title-theme-for
+  "The title theme loops while the title waits, so a player who lingers does
+   not drop into generated music on the title, and descent! ends it on a
+   phrase boundary. Without end-theme a loop would never end, so it plays
+   once and hands over, as before."
+  []
+  (if (:end-theme natives) (assoc title-theme :then :loop) title-theme))
+
 (def outro-theme
   "Plays over the death screen: the title's motif falling, the bed dropping
    out under the last grid, then silence until the next run's title."
@@ -207,7 +225,7 @@
   [seed]
   ;; Silent from before music-start, so no frame plays at full level; a
   ;; glide asked for before the first frame runs from it (undertone#90).
-  (start! seed title-theme (if (:glide-music-gain natives) 0.0 music-gain)))
+  (start! seed (title-theme-for) (if (:glide-music-gain natives) 0.0 music-gain)))
 
 (defn title-fade-in!
   "Raise the bed over title-fade-s: the title screen's on-start hook."
@@ -300,6 +318,9 @@
   (when natives
     (swap! state assoc :going {:at (now) :seed depth})
     (duck!)
+    ;; A new game's descent: the title theme finishes its bar under the duck.
+    ;; Later descents have no theme playing, and end-theme does nothing.
+    (call :end-theme title-hand-over)
     (call :trigger (sfx/descent-shots depth))))
 
 (defn menu!
