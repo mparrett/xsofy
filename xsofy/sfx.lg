@@ -55,6 +55,25 @@
    ;; noise tick through a tuned comb. The short phrase for a visited floor.
    {:name :tube-ping :gate-ms 100
     :patch [[:env 0.0 0.003 0.0 0.002] [:osc 0 :noise 0 1] [:mul] [:comb 0.0 0.98 0.3] [:out 0.3 0.5]]}
+   ;; Death cries by creature (2026-11-24): Matt's picks from rounds 28 and
+   ;; 29, patches as rendered on the sfx board. Rat V009/V010/V025, kobold
+   ;; V030, goblin V013, fire imp V028 (see cries).
+   {:name :cry-rat-squeak :gate-ms 400
+    :patch [[:env 0.003 0.12 0 0.05] [:pitch 7] [:env 0.004 0.14 0 0.06] [:osc 0 :saw 0 1] [:mul] [:env 0.002 0.1 0 0.05] [:svf 2600 0.7 1 1.2] [:drive 1.6 0.1] [:verb 0.25] [:out 0.5 0.5] [:env 0.001 0.025 0 0.015] [:osc 0 :noise 0 1] [:mul] [:svf 5200 0.4 1 0] [:out 0.15 0.5]]}
+   {:name :cry-rat-squeal :gate-ms 400
+    :patch [[:lfo 16 2] [:pitch 1.5] [:env 0.006 0.3 0 0.1] [:osc 0 :saw 6 0.28] [:mul] [:svf 3000 0.65 1 0] [:drive 2.2 0.15] [:verb 0.3] [:out 0.45 0.5]]}
+   {:name :cry-gob-whine :gate-ms 400
+    :patch [[:lfo 7 0] [:pitch 0.7] [:env 0.02 0.42 0 0.2] [:osc 0 :saw 9 0.4] [:mul] [:svf 1400 0.85 1 0] [:drive 1.6 0.1] [:verb 0.3] [:out 0.5 0.5] [:env 0.02 0.4 0 0.2] [:osc 0 :saw 9 0.4] [:mul] [:svf 2900 0.85 1 0] [:out 0.2 0.5]]}
+   {:name :cry-rat-chit :gate-ms 400
+    :patch [[:env 0.002 0.025 0 0.012] [:osc 0 :saw 3 0.02] [:mul] [:svf 3200 0.7 1 0] [:drive 1.5 0.1] [:verb 0.15] [:out 0.4 0.5]]}
+   {:name :cry-kob-yrrr-short :gate-ms 400
+    :patch [[:env 0.008 0.15 0 0.06] [:lfo 26 0] [:scale 0.45 0.55] [:mul] [:osc 0 :saw 2 0.15] [:mul] [:svf 500 0.7 1 0] [:drive 2 0.12] [:verb 0.2] [:out 0.5 0.5] [:env 0.008 0.15 0 0.06] [:lfo 26 0] [:scale 0.45 0.55] [:mul] [:osc 0 :saw 2 0.15] [:mul] [:svf 1400 0.8 1 0] [:out 0.28 0.5]]}
+   {:name :cry-imp-poof-short :gate-ms 400
+    :patch [[:env 0.03 0.12 0 0.08] [:osc 0 :noise 0 1] [:mul] [:env 0.04 0.12 0 0.08] [:svf 600 0.6 1 2.2] [:verb 0.25] [:out 0.5 0.5] [:lfo 5 2] [:pitch 0.3] [:env 0.03 0.25 0 0.15] [:osc 24 :sine 0 1] [:mul] [:verb 0.35] [:out 0.08 0.5] [:env 0.03 0.2 0 0.12] [:osc 31.2 :sine 0 1] [:mul] [:verb 0.35] [:out 0.04 0.5]]}
+   {:name :crackle :gate-ms 400
+    :patch [[:env 0.001 0.02 0 0.01] [:osc 0 :noise 0 1] [:mul] [:hpf 3000] [:out 0.3 0.5]]}
+   {:name :imp-harmonic :gate-ms 400
+    :patch [[:env 0.02 0.3 0 0.2] [:lfo 6 0] [:scale 0.15 0.85] [:mul] [:osc 12 :sine 0 1] [:mul] [:verb 0.3] [:out 0.12 0.5] [:env 0.02 0.25 0 0.15] [:osc 19.02 :sine 0 1] [:mul] [:verb 0.3] [:out 0.06 0.5]]}
    {:name :chirp-land :gate-ms 400
     :patch [[:env 0.005 0.45 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.55] [:out 0.45 0.5]]}
    ;; A step in water: band-passed noise plus a small rising blip.
@@ -218,17 +237,50 @@
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
+;; Takes as [ms shot note gain], from the board's renders of each pick,
+;; then levelled to the shared cry's -6.3 over the music (2026-11-24).
+(def ^:private cries
+  "Death cries by creature, keyed by template name (the event's :creature).
+   A creature with several takes plays one per death, picked by the seed:
+   Matt wanted the rat's three shuffled (2026-11-22). The rest keep the old
+   shared cry. Goblin and fire imp were drawn at random from the ones Matt
+   had vetted (V012-V015, V027-V029; 2026-11-24)."
+  {"rat"      [[[0 :cry-rat-squeak 86 0.63]]                       ; V009
+               [[0 :cry-rat-squeal 86 0.324]]                        ; V010
+               [[0 :cry-rat-chit 88 0.259] [32 :cry-rat-chit 86 0.227] ; V025
+                [70 :cry-rat-chit 89 0.259] [101 :cry-rat-chit 85 0.194]
+                [135 :cry-rat-squeal 86 0.324]]]
+   "kobold"   [[[0 :cry-kob-yrrr-short 47 1.146]]]                  ; V030
+   "goblin"   [[[0 :cry-gob-whine 62 0.543]]]                       ; V013
+   "fire-imp" [[[0 :cry-imp-poof-short 70 0.388] [20 :crackle 70 0.194] ; V028
+                [60 :crackle 70 0.136] [105 :crackle 70 0.097]
+                [30 :imp-harmonic 70 0.388]]]})
+
+(defn- creature-cry
+  "A creature's own cry, nil when it has none."
+  [ev seed]
+  (when-let [takes (get cries (:creature ev))]
+    (let [take (nth takes (mod (bit-and (det/combine seed [:take]) 0xffffff) (count takes)))
+          j    (jit seed :note 1)
+          a    (attenuate (:dist ev))
+          pan  (pan-of (:dir ev))]
+      (vec (map-indexed (fn [i [ms shot note g]]
+                          {:shot shot :note (+ note j) :gain (* g a) :pan pan
+                           :delay-ms ms :seed (det/combine seed [:cry i])})
+                        take)))))
+
 (defn- death-shots
   "Something died. Louder than the blow that killed it and longer than any
    impact, because it is the outcome rather than the exchange — and spatial,
    so a death out in the dark still tells you where."
   [ev seed]
-  [{:shot :cry
-    :note (+ 52 (jit seed :note 4))
-    ;; Kept down: it lands within 90 ms of the blow and the kill's tink.
-    :gain (* 0.445 (attenuate (:dist ev)))
-    :pan  (pan-of (:dir ev))
-    :seed seed}])
+  (or (creature-cry ev seed)
+      [{:shot :cry
+        :note (+ 52 (jit seed :note 4))
+        ;; Kept down: it lands within 90 ms of the blow and the kill's tink.
+        :gain (* 0.445 (attenuate (:dist ev)))
+        :pan  (pan-of (:dir ev))
+        :seed seed}]))
 
 ;; ---- Changing floor: going, then arrived ----
 ;; Every trigger carries :floor (undertone ignores unknown keys) so
