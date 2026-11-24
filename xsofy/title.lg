@@ -356,7 +356,9 @@
       (draw!)
       (let [result (binding [gt/*tick* tick] (build))]
         ;; play out the rest of the minimum length, one frame per interval
-        (while (< @frame descent-frames)
+        ;; longer with sound on, so the floor does not appear before the
+        ;; run's arrival: see audio/descent-min-ms
+        (while (< @frame (max descent-frames (quot (+ (audio/descent-min-ms) (dec descent-frame-ms)) descent-frame-ms)))
           (sfx/pause! (long (max 1 (- descent-frame-ms (elapsed-ms @last-frame)))))
           (draw!))
         result))))
