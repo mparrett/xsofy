@@ -1,0 +1,19 @@
+(ns xsofy.gentick
+  "A hook floor generation calls between phases and inside its longer loops,
+   so a caller can keep the screen and audio alive while a floor is built.
+
+   Under Go wasm the game has one thread and nothing preempts a busy
+   goroutine, so generation runs start to finish unless it hands the thread
+   back itself. The descent screen binds *tick* to a fn that draws a frame
+   and yields; tests, replay and native play leave it nil.
+
+   A tick must not touch the world or roll dice: floors have to come out
+   the same whether or not anything is bound.")
+
+(def ^:dynamic *tick* nil)
+
+(defn tick!
+  "Call the bound tick, if any, with a keyword naming the work just done
+   (for measuring where the gaps between ticks are)."
+  [done]
+  (when *tick* (*tick* done)))

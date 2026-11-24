@@ -14,6 +14,7 @@
             [xsofy.status :as status]
             [xsofy.items :as items]
             [xsofy.det :as det]
+            [xsofy.gentick :as gt]
             [xsofy.debug :as dbg]
             [xsofy.bestiary]
             [xsofy.title :as title]
@@ -274,6 +275,7 @@
         world-after-terrain (second terrain-result)
         [px py] (first rooms)]
     (dbg/log "  rooms:" (count rooms) "player-pos:" [px py])
+    (gt/tick! :terrain)
     (let [lights (light/collect-terrain-lights grid w h)
           ;; Start from the canonical skeleton. :seed is taken across
           ;; explicitly rather than by merging world-after-terrain wholesale:
@@ -293,6 +295,7 @@
       (let [;; spawn creatures per room (each call returns world')
             with-creatures (reduce (fn [wrld room]
                                      (dbg/log "    populate room:" room)
+                                     (gt/tick! :populate-room)
                                      (populate-room-creatures wrld room grid w h depth))
                                    world
                                    (rest rooms))
@@ -302,6 +305,7 @@
             with-loot (distribute-loot with-loot-world loot-bag rooms grid w h)
             with-rooms (assoc with-loot :rooms-cache rooms)]
         (dbg/log "  rooms populated, running update-fov")
+        (gt/tick! :loot)
         (let [result (update-fov with-rooms)]
           (dbg/log "  generate-floor done")
           result)))))
@@ -711,9 +715,11 @@
                        (str "You descend to depth " new-depth ".")
                        (str "You ascend to depth " new-depth ".")))))
       ;; generate new floor
-      (do (title/show-descending-screen new-depth (or (:scheme world) [80 120 220]))
+      (do
           (let [new-player (assoc player :pos [0 0])  ;; pos set by generate-floor
-                new-world (generate-floor width height new-depth new-player (:seed-input saved))
+                new-world (title/run-descending-screen
+                           new-depth (or (:scheme world) [80 120 220])
+                           #(generate-floor width height new-depth new-player (:seed-input saved)))
                 spawn-pos (get-in new-world [:entities :player :pos])]
             ;; re-inject with proper items
             ;; reset player ticks to 0 so they act first on new floor
