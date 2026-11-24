@@ -39,6 +39,8 @@
        :glide-music-gain (some-> (resolve 'undertone/glide-music-gain) deref)
        ;; Newer again (undertone#89); without it the sfx play at board level.
        :set-sfx-gain   (some-> (resolve 'undertone/set-sfx-gain) deref)
+       ;; Newer again (undertone#166); without it a run always plays out.
+       :cut            (some-> (resolve 'undertone/cut) deref)
        :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
       (catch e nil))))
 
@@ -240,7 +242,12 @@
   (when-let [{:keys [at seed]} (and natives (:going @state))]
     (swap! state dissoc :going)
     (let [elapsed (quot (.Sub (now) at) 1000000)
-          delay-ms (max 0 (- (sfx/arrival-ms :down) elapsed))]
+          {:keys [delay-ms cut?]} (sfx/arrival-plan elapsed sfx/run-cut-ms (some? (:cut natives)))]
+      (when cut?
+        ;; The arrival's own triggers are timed by the synth; the cut by the
+        ;; host, a few ms off at worst, which the fade covers.
+        (go (<!! (timeout delay-ms))
+            (call :cut {:group :descent :fade-ms sfx/run-cut-fade-ms})))
       (duck-arrival! delay-ms)
       (call :trigger (sfx/arrival-shots :down seed delay-ms)))))
 

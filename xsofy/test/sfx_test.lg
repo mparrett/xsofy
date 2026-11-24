@@ -449,3 +449,21 @@
 
 (deftest creature-cries-are-spatial
   (is (> (goblin-gain 1) (goblin-gain 9))))
+
+(deftest the-descent-run-is-cut-only-when-asked
+  (let [run-ms (sfx/arrival-ms :down)]
+    (testing "every note of the run is tagged, so undertone/cut can stop it"
+      (is (every? #(= :descent (:group %)) (sfx/descent-shots 7))))
+    (testing "with no cut-ms, or an lg that cannot cut, the arrival waits
+              for the run, and the run plays out"
+      (is (= {:delay-ms (- run-ms 1000) :cut? false} (sfx/arrival-plan 1000 nil true)))
+      (is (= {:delay-ms (- run-ms 1000) :cut? false} (sfx/arrival-plan 1000 1500 false))))
+    (testing "with a cut-ms, a floor that appears early lands the arrival at
+              cut-ms and cuts the run there; one that appears after cut-ms
+              lands at once"
+      (is (= {:delay-ms 500 :cut? true} (sfx/arrival-plan 1000 1500 true)))
+      (is (= {:delay-ms 0 :cut? true} (sfx/arrival-plan 2000 1500 true))))
+    (testing "a floor that appears after the run has played out is never cut"
+      (is (= {:delay-ms 0 :cut? false} (sfx/arrival-plan (+ run-ms 500) 1500 true)))
+      ;; and a cut-ms past the run's end never cuts: the run plays out
+      (is (= {:delay-ms (- run-ms 1000) :cut? false} (sfx/arrival-plan 1000 (+ run-ms 1) true))))))
