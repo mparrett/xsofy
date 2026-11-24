@@ -44,6 +44,11 @@
     :patch [[:env 0.005 0.35 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.5] [:out 0.45 0.5]]}
    ;; K008's going-down run (round 22): a soft, dark knock, tried in game
    ;; in place of C007 on 2026-11-14.
+   ;; The built-in :pluck (undertone engine.go) without its send to the
+   ;; music's delay, for the menus: their echoes rang on for seconds after
+   ;; a screen change (Matt, 2026-11-23). The pickup keeps the echo.
+   {:name :pluck-dry :gate-ms 60
+    :patch [[:env 0.001 2.5 0 0.4] [:pluck 0 0.996] [:mul] [:lpf 2600] [:out 0.55 0.55]]}
    {:name :knock-soft :gate-ms 500
     :patch [[:env 0.003 0.3 0 0.15] [:pluck 0 0.96] [:mul] [:lpf 600] [:verb 0.45] [:out 0.8 0.5]]}
    {:name :chirp-land :gate-ms 400
@@ -170,10 +175,10 @@
         ;; ±2 rather than ±1: at ±1 a run of blows on one enemy sounded
         ;; like the same sample repeated.
         note (- 48 (int (* 11.0 s)) (jit seed :note 2))
-        ;; The heavy blow -4 dB, the glancing one unchanged (2026-11-23, by
-        ;; ear on the sfx board): level now barely rises with severity, and
-        ;; the drop in pitch carries the weight.
-        gain (+ 0.59 (* 0.05 s))
+        ;; The heavy blow -4 dB, then the glancing one -2 (2026-11-23, by ear
+        ;; on the sfx board): level rises less with severity than it did,
+        ;; and the drop in pitch carries more of the weight.
+        gain (+ 0.45 (* 0.2 s))
         ;; A ranged blow lands after the release, not with it: without the
         ;; flight time the impact started with the twang and masked it.
         flight (or (:flight-ms ev) 0)
@@ -184,8 +189,8 @@
       ;; (2026-11-14): with the cry on top a kill was the loudest thing in
       ;; a fight. Both halved (2026-11-23, by ear on the sfx board): a kill
       ;; sat with the heavy blow, +12 over the ducked music, and was too loud.
-      ;; x0.69 rather than x0.5 since the blow's gain flattened, to keep it there.
-      [(update base :gain * 0.69)
+      ;; x0.745 rather than x0.5 since the blow's gain fell, to keep it there.
+      [(update base :gain * 0.745)
        {:shot :tink :note (+ note 24) :gain 0.21 :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
       [base])))
@@ -227,7 +232,8 @@
     :note (+ 52 (jit seed :note 4))
     ;; 0.56 from 0.8 (2026-11-14), with the kill's tink: the two land
     ;; within 90 ms of the blow and stacked too loud.
-    :gain (* 0.56 (attenuate (:dist ev)))
+    ;; 0.445, -2 dB more (2026-11-23, by ear on the sfx board).
+    :gain (* 0.445 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
@@ -349,12 +355,14 @@
                ;; death cry. Filtered noise reads as water and is its own
                ;; timbre; the chasm keeps :fall, low enough to sit under the cry.
                :water {:shot :sink :note 60 :gain 0.35}
-               :fall  {:shot :fall :note 43 :gain 0.45}
+               ;; 0.32 from 0.45, -3 dB more (2026-11-23).
+               :fall  {:shot :fall :note 43 :gain 0.32}
                :fire  {:shot :zap :note 64 :gain 0.7}
                nil)]
     (if body
       [no (assoc body :pan 0.5 :delay-ms 40 :seed (det/combine seed [:hazard]))]
-      [(assoc no :gain 1.2)])))
+      ;; 0.95 from 1.2, -2 dB (2026-11-23, by ear).
+      [(assoc no :gain 0.95)])))
 
 (defn- web-shots
   "A web: tearing free is a sharp snap, still being stuck is the same sound
@@ -404,8 +412,9 @@
    own scale (the same derivation that pitched the music), so the chime is
    in key by construction — the trick a sample library can't do."
   [ev seed]
-  [{:shot :pluck :degree 0 :octave 2 :gain 0.65 :pan 0.45 :seed seed}
-   {:shot :pluck :degree 4 :octave 2 :gain 0.55 :pan 0.55 :delay-ms 70
+  ;; Both -2 dB, from 0.65 and 0.55 (2026-11-23, by ear).
+  [{:shot :pluck :degree 0 :octave 2 :gain 0.52 :pan 0.45 :seed seed}
+   {:shot :pluck :degree 4 :octave 2 :gain 0.44 :pan 0.55 :delay-ms 70
     :seed (det/combine seed [:second])}])
 
 ;; ---- the player's own items ----
@@ -428,10 +437,12 @@
       [])))
 
 (defn- equip-shots [ev seed]
-  [{:shot :clink :note (+ 60 (jit seed :note 1)) :gain 0.6 :pan 0.5 :seed seed}])
+  ;; 0.38 from 0.6, -4 dB (2026-11-23, by ear).
+  [{:shot :clink :note (+ 60 (jit seed :note 1)) :gain 0.38 :pan 0.5 :seed seed}])
 
 (defn- unequip-shots [ev seed]
-  [{:shot :clink :note (+ 55 (jit seed :note 1)) :gain 0.45 :pan 0.5 :seed seed}])
+  ;; 0.40 from 0.45, -1 dB (2026-11-23, by ear).
+  [{:shot :clink :note (+ 55 (jit seed :note 1)) :gain 0.4 :pan 0.5 :seed seed}])
 
 (defn- drop-shots [ev seed]
   [{:shot :thud :note 52 :gain 0.35 :pan 0.5 :seed seed}])
@@ -488,13 +499,13 @@
   (let [seed 77]
     (cond
       (= from to) []
-      (nil? from) [{:shot :pluck :degree 2 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
-                   {:shot :pluck :degree 4 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
+      (nil? from) [{:shot :pluck-dry :degree 2 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
+                   {:shot :pluck-dry :degree 4 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
                     :seed (det/combine seed [:open])}]
-      (nil? to)   [{:shot :pluck :degree 4 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
-                   {:shot :pluck :degree 2 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
+      (nil? to)   [{:shot :pluck-dry :degree 4 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
+                   {:shot :pluck-dry :degree 2 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
                     :seed (det/combine seed [:close])}]
-      :else       [{:shot :pluck :degree 3 :octave 2 :gain 0.45 :pan 0.5 :seed seed}])))
+      :else       [{:shot :pluck-dry :degree 3 :octave 2 :gain 0.45 :pan 0.5 :seed seed}])))
 
 (defn for-event
   "One event descriptor -> a vector of trigger maps."
