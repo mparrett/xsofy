@@ -153,7 +153,7 @@
 (def duck
   "The bed ducks under a floor change: down to :level of music-gain over
    :down seconds, held :hold-ms from the shot's start, then back over
-   :release seconds. The hold runs from the start because undertone does not
+   :release seconds, after waiting :delay-ms. The hold runs from the drop because undertone does not
    report when a shot ends. Level and release tuned on the sfx board,
    2026-11-10; the hold spans the run and its arrival, which lands about 5 s
    in (xsofy.sfx/arrival-ms), since 2026-11-13."
@@ -161,7 +161,13 @@
   ;; from 0.4), so the run and arrival cut through; a slower drop; and a
   ;; second duck from the arrival (:arrival-hold-ms), whose release is the
   ;; floor's music coming in.
-  {:level 0.2 :down 0.46 :hold-ms 4200 :release 0.8 :arrival-hold-ms 3800})
+  ;; 2026-11-24, Matt in the game: the arrival's 3.8 s hold left about 2 s of
+  ;; near-silence after the arrival ended. Now the bed starts back 0.2 s after
+  ;; the arrival and is full 2 s after it (:arrival-release). The drop waits
+  ;; :delay-ms so the run's first hit lands over the music, and is quicker
+  ;; and shallower (0.3 from 0.2).
+  {:level 0.3 :delay-ms 150 :down 0.23 :hold-ms 4200 :release 0.8
+   :arrival-hold-ms 200 :arrival-release 1.8})
 
 (defn register-shots!
   "Register xsofy's own patches (xsofy.sfx/custom-shots). Idempotent: a
@@ -213,14 +219,19 @@
   "Duck the bed under a big shot (see duck), held `hold-ms`. The release runs
    on its own goroutine; a later duck bumps :duck-gen so an earlier timer
    cannot lift the bed while the later shot still wants it down."
-  ([] (duck! (:hold-ms duck)))
-  ([hold-ms]
+  ([] (duck! (:hold-ms duck) (:release duck) (:delay-ms duck)))
+  ([hold-ms release-s delay-ms]
   (when-let [glide (:glide-music-gain natives)]
-    (let [n (:duck-gen (swap! state update :duck-gen (fnil inc 0)))]
-      (glide (* music-gain (:level duck)) (:down duck))
-      (go (<!! (timeout hold-ms))
+    (let [n (:duck-gen (swap! state update :duck-gen (fnil inc 0)))
+          down! #(glide (* music-gain (:level duck)) (:down duck))]
+      (if (pos? delay-ms)
+        (go (<!! (timeout delay-ms))
+            (when (= n (:duck-gen @state)) (down!)))
+        (down!))
+      ;; The hold runs from the start of the drop.
+      (go (<!! (timeout (+ delay-ms hold-ms)))
           (when (= n (:duck-gen @state))
-            (glide music-gain (:release duck))))
+            (glide music-gain release-s)))
       nil))))
 
 (defn- duck-arrival!
@@ -229,7 +240,9 @@
   [delay-ms]
   (when (:glide-music-gain natives)
     (go (<!! (timeout delay-ms))
-        (duck! (:arrival-hold-ms duck)))
+        ;; No delay: the bed is usually down already, and when a slow load
+        ;; let it come back, the arrival should not land over it.
+        (duck! (:arrival-hold-ms duck) (:arrival-release duck) 0))
     nil))
 
 (defn arrive!
