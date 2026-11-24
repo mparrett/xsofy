@@ -53,7 +53,9 @@
           [sx _] (:pos sound)
           ;; horizontal offset normalized by distance: -1..1, left..right
           dir (if (pos? dist) (/ (double (- sx px)) (max 1.0 (double dist))) 0.0)]
-      (update world :sfx #(conj (or % []) {:kind kind :dist dist :dir dir})))
+      ;; :creature rides along so a death can cry in its own voice.
+      (update world :sfx #(conj (or % []) (cond-> {:kind kind :dist dist :dir dir}
+                                            (:creature sound) (assoc :creature (:creature sound))))))
     world))
 
 (defn deliver-sound [world sound]
@@ -103,7 +105,7 @@
 ;; --- Default death/combat sounds ---
 
 (defn death-cry [pos who]
-  {:kind :death
+  {:kind :death :creature who
    :pos pos :radius 20
    :msg-near (str "The " who " shrieks and falls!")
    :msg-mid  "You hear a shriek!"
@@ -124,7 +126,7 @@
 (defn creature-death [pos who sounds]
   (let [d (:death sounds)]
     (if d
-      {:kind :death
+      {:kind :death :creature who
        :pos pos :radius 20
        :msg-near (or (:near d) (str "The " who " dies."))
        :msg-mid  (or (:mid d) "You hear something die.")

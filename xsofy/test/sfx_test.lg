@@ -408,3 +408,44 @@
       (is (not-any? :send trs)))
     (is (not-any? :send (sfx/descent-shots 3)))
     (is (not-any? :send (sfx/arrival-shots :down 3 0)))))
+
+;; ---- death cries by creature (2026-11-24) ----
+
+(defn- died [who]
+  (first (:sfx (snd/deliver-sound base (snd/death-cry [7 5] who)))))
+
+(defn- cry-shots [who]
+  (set (map :shot (triggers {:kind :death :creature who :dist 2 :dir 0}))))
+
+(deftest a-death-names-its-creature
+  (testing "the outbox carries who died, so the cry can be theirs"
+    (is (= "kobold" (:creature (died "kobold"))))
+    (let [snd (snd/creature-death [7 5] "rat" {:death {:near "x"}})]
+      (is (= "rat" (:creature (first (:sfx (snd/deliver-sound base snd))))))))
+  (testing "other sounds carry no creature"
+    (let [ev (first (:sfx (snd/deliver-sound base (snd/combat-hit [8 5] "orc" "rat"))))]
+      (is (not (contains? ev :creature))))))
+
+(deftest each-picked-creature-cries-in-its-own-voice
+  (is (contains? (cry-shots "kobold") :cry-kob-yrrr-short))
+  (is (contains? (cry-shots "goblin") :cry-gob-whine))
+  (is (contains? (cry-shots "fire-imp") :cry-imp-poof-short))
+  (is (some #{:cry-rat-squeak :cry-rat-squeal :cry-rat-chit} (cry-shots "rat")))
+  (testing "anything else keeps the shared cry"
+    (is (= #{:cry} (cry-shots "troll")))
+    (is (= #{:cry} (cry-shots nil)))))
+
+(defn- rat-take [salt]
+  (mapv :shot (sfx/for-events base salt [{:kind :death :creature "rat" :dist 1}])))
+
+(deftest the-rat-shuffles-its-three-cries
+  (testing "a death picks one take, the same one every replay"
+    (is (= (rat-take 7) (rat-take 7))))
+  (testing "over many deaths all three come up"
+    (is (= 3 (count (set (map rat-take (range 60))))))))
+
+(defn- goblin-gain [d]
+  (reduce + (map :gain (triggers {:kind :death :creature "goblin" :dist d :dir 0}))))
+
+(deftest creature-cries-are-spatial
+  (is (> (goblin-gain 1) (goblin-gain 9))))
