@@ -18,4 +18,4 @@
  :go/build-tags ["audio_oto"]
 
  :deps {github.com/mparrett/undertone/letgo
-        {:go/version "9e0af80c5a5980fb2b2f8f188b3ed946d355bc33"}}}
+        {:go/version "dc7a3c29754cb5dc695b8e05387997f43d632ae3"}}}

@@ -364,9 +364,34 @@
 
 (defn descent-shots
   "The going-down run alone. descent! plays it as the descending animation
-   starts; xsofy.audio fires the arrival when the new floor appears."
+   starts; xsofy.audio fires the arrival when the new floor appears. Tagged
+   :descent so arrival-plan can have it cut (undertone/cut)."
   [seed]
-  (going-shots :down seed))
+  (mapv #(assoc % :group :descent) (going-shots :down seed)))
+
+(def run-cut-ms
+  "How far into the going-down run it may be cut when the new floor appears
+   before the run has played out: the arrival then lands at the later of the
+   floor appearing and this. nil hears every run out to its arrival, as
+   before undertone could cut a run (#166). The descending screen lasts at
+   least 0.9 s and the run 3.65 s, so a value under that cuts most runs."
+  nil)
+
+(def run-cut-fade-ms
+  "How fast a cut run fades: quick, so it reads as stopping, not dying away."
+  120)
+
+(defn arrival-plan
+  "When the arrival lands, as ms from now, given the run started elapsed-ms
+   ago, and whether the run is cut then: {:delay-ms n :cut? bool}. Cut only
+   with a cut-ms and an lg that can cut (can-cut?), and only if the run would
+   still be going; otherwise the arrival waits for the run, as ever."
+  [elapsed-ms cut-ms can-cut?]
+  (let [run-ms (arrival-ms :down)
+        land (if (and cut-ms can-cut?) (max elapsed-ms cut-ms) run-ms)]
+    (if (< land run-ms)
+      {:delay-ms (- land elapsed-ms) :cut? true}
+      {:delay-ms (max 0 (- run-ms elapsed-ms)) :cut? false})))
 
 (def ^:private visited
   "A floor you have visited: Z011's four tube pings climbing going up, Z014's
