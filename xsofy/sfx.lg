@@ -133,7 +133,9 @@
     ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
     ;; step entirely, and the gain is what keeps it subtle, not the register.
     :note (+ 55 (jit seed :note 2))
-    :gain (* 0.32 (attenuate (:dist ev)))
+    ;; Was 0.32 on every surface; by ear on the sfx board (2026-11-23) the
+    ;; plain step +1 dB, water and grass -1 dB.
+    :gain (* (case (:surface ev) (:water :grass) 0.285 0.36) (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
@@ -168,7 +170,10 @@
         ;; ±2 rather than ±1: at ±1 a run of blows on one enemy sounded
         ;; like the same sample repeated.
         note (- 48 (int (* 11.0 s)) (jit seed :note 2))
-        gain (+ 0.55 (* 0.5 s))
+        ;; The heavy blow -4 dB, the glancing one unchanged (2026-11-23, by
+        ;; ear on the sfx board): level now barely rises with severity, and
+        ;; the drop in pitch carries the weight.
+        gain (+ 0.59 (* 0.05 s))
         ;; A ranged blow lands after the release, not with it: without the
         ;; flight time the impact started with the twang and masked it.
         flight (or (:flight-ms ev) 0)
@@ -179,7 +184,8 @@
       ;; (2026-11-14): with the cry on top a kill was the loudest thing in
       ;; a fight. Both halved (2026-11-23, by ear on the sfx board): a kill
       ;; sat with the heavy blow, +12 over the ducked music, and was too loud.
-      [(update base :gain * 0.5)
+      ;; x0.69 rather than x0.5 since the blow's gain flattened, to keep it there.
+      [(update base :gain * 0.69)
        {:shot :tink :note (+ note 24) :gain 0.21 :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
       [base])))
@@ -247,11 +253,11 @@
   "Each direction's run: the semitone it starts on, its step, and the gain
    that puts it at the board's level: round 19's script gain (0.85 x 3.17
    under the bell), the board's leveling factor for C007/C008, and Matt's
-   +2 dB (2026-11-12)."
+   +2 dB (2026-11-12). Both runs -2 dB again (2026-11-23, x0.7943)."
   {;; K008 (round 22's knock-soft-accel-down) at the board's level, x0.31 of
    ;; its script; C007 was :scoop at (* 0.85 3.17 0.07794 1.2589).
-   :down {:top 11 :step -1 :shot :knock-soft :gain (* 0.85 3.17 0.31)}
-   :up   {:top 0  :step 1  :shot :scoop :gain (* 0.85 3.17 0.07826 1.2589)}})
+   :down {:top 11 :step -1 :shot :knock-soft :gain (* 0.85 3.17 0.31 0.7943)}
+   :up   {:top 0  :step 1  :shot :scoop :gain (* 0.85 3.17 0.07826 1.2589 0.7943)}})
 
 (def ^:private arrival
   "The chirp held once where the run stops: low and settled going down, two
@@ -260,7 +266,8 @@
    the run starts, as in the board's after-C007/C008 takes Matt picked from:
    once the run's tail has faded, plus 0.2 s."
   {;; 3650 with K008, from the board's audition (2026-11-14); 4950 with C007.
-   :down {:base 36 :gain (* 0.15 1.303) :ms 3650}
+   ;; Down +2 dB (2026-11-23, x1.2589).
+   :down {:base 36 :gain (* 0.15 1.303 1.2589) :ms 3650}
    :up   {:base 60 :gain (* 0.15 0.867) :ms 5150}})
 
 (defn going-shots
@@ -366,7 +373,8 @@
   [ev seed]
   [{:shot :twang
     :note (+ 57 (jit seed :note 3))
-    :gain (* 0.55 (attenuate (:dist ev)))
+    ;; x1.585, +4 dB (2026-11-23, by ear on the sfx board).
+    :gain (* 0.55 1.585 (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}])
 
@@ -442,14 +450,15 @@
   (let [s (fn [k] (det/combine seed [k]))]
     (if (:on ev)
       (case (:status ev)
-        :burning  [{:shot :ignite :note 64 :gain 1.1 :pan 0.5 :seed seed}
-                   {:shot :sizzle :note 60 :gain 0.6 :pan 0.5 :delay-ms 120 :seed (s :tail)}]
-        :poison   [{:shot :sick :note 50 :gain 0.9 :pan 0.5 :seed seed}]
+        ;; Burning -3 dB, poison -4, slowed -3 (2026-11-23, by ear on the sfx board).
+        :burning  [{:shot :ignite :note 64 :gain 0.78 :pan 0.5 :seed seed}
+                   {:shot :sizzle :note 60 :gain 0.42 :pan 0.5 :delay-ms 120 :seed (s :tail)}]
+        :poison   [{:shot :sick :note 50 :gain 0.57 :pan 0.5 :seed seed}]
         :frozen   [{:shot :tink :degree 4 :octave 2 :gain 0.6 :pan 0.45 :seed seed}
                    {:shot :tink :degree 6 :octave 2 :gain 0.5 :pan 0.55 :delay-ms 50 :seed (s :f2)}]
         :confused [{:shot :pluck :degree 1 :octave 1 :gain 0.9 :pan 0.4 :seed seed}
                    {:shot :pluck :degree 2 :octave 1 :gain 0.9 :pan 0.6 :delay-ms 20 :seed (s :c2)}]
-        :slowed   [{:shot :sink :note 55 :gain 0.7 :pan 0.5 :seed seed}]
+        :slowed   [{:shot :sink :note 55 :gain 0.5 :pan 0.5 :seed seed}]
         :haste    [{:shot :pluck :degree 0 :octave 2 :gain 0.8 :pan 0.45 :seed seed}
                    {:shot :pluck :degree 2 :octave 2 :gain 0.8 :pan 0.5 :delay-ms 45 :seed (s :h2)}
                    {:shot :pluck :degree 4 :octave 2 :gain 0.8 :pan 0.55 :delay-ms 90 :seed (s :h3)}]
@@ -464,7 +473,8 @@
   [ev seed]
   (case (:status ev)
     :burning [{:shot :sizzle :note (+ 60 (jit seed :note 2)) :gain 0.7 :pan 0.5 :seed seed}]
-    :poison  [{:shot :sick :note (+ 48 (jit seed :note 1)) :gain 0.5 :pan 0.5 :seed seed}]
+    ;; 0.35 from 0.5, -3 dB (2026-11-23, by ear).
+    :poison  [{:shot :sick :note (+ 48 (jit seed :note 1)) :gain 0.35 :pan 0.5 :seed seed}]
     []))
 
 ;; ---- menus ----
