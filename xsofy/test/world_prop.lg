@@ -209,3 +209,23 @@
       (is (= 200 imp-ticks))
       ;; Item is untouched — no :ticks key materialized.
       (is (nil? (get-in restored [:entities :sword-1 :ticks]))))))
+
+(deftest a-creature-hit-on-the-player-names-the-creature
+  (testing "the :hit-taken cue carries the attacker's template, so its sound
+            can be the creature's own (a rat's bite)"
+    (let [world (-> (g/minimal-stone-room)
+                    (assoc-in [:entities :player]
+                      {:id :player :template :player :pos [2 2]
+                       :ticks 0 :status {} :statuses {} :inventory []
+                       :body {:hp 300 :max-hp 300 :strength 5 :armor 0}})
+                    (assoc-in [:entities :rat-1]
+                      {:id :rat-1 :template :rat :pos [3 2]
+                       :ticks 0 :status {} :statuses {}
+                       :body {:hp 5 :max-hp 5 :strength 3 :armor 0}}))
+          ;; Hit or miss is the world's rng: attack until one lands.
+          hits (->> (iterate #(w/melee-attack (assoc % :sfx []) :rat-1 :player) world)
+                    (take 40)
+                    (mapcat :sfx)
+                    (filter #(= :hit-taken (:kind %))))]
+      (is (seq hits))
+      (is (every? #(= "rat" (:creature %)) hits)))))
