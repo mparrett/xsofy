@@ -220,7 +220,7 @@
   (testing "the kinds producers already emitted but nothing rendered"
     (is (= :creak (:shot (first (triggers {:kind :door :dist 4 :dir 0.5})))))
     (is (= :cry   (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
-    (is (= :twang (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
+    (is (= :twang-dry (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
     (is (= :thunk (:shot (first (triggers {:kind :blocked}))))))
   (testing "spatial kinds attenuate with distance like every other one"
     (is (> (:gain (first (triggers {:kind :death :dist 1})))
