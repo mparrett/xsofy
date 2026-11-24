@@ -279,7 +279,9 @@
     ;; clear
     (sfx/clear-screen tw th)
     ;; animate — runes drift upward, erase old position each frame
-    (dotimes [frame 15]
+    ;; At least 15 frames of 60 ms, longer with sound on: see
+    ;; audio/descent-min-ms.
+    (dotimes [frame (max 15 (quot (+ (audio/descent-min-ms) 59) 60))]
       (sfx/with-frame
       (doseq [r runes]
         (let [;; current y drifts upward (subtract), wrap around

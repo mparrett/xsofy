@@ -272,6 +272,13 @@
               (duck-arrival! at)))
           (call :trigger trs))))))
 
+(defn descent-min-ms
+  "How long the descending screen should last at least, so the floor does
+   not appear before the run's arrival lands: the run's cut point
+   (xsofy.sfx/run-cut-ms) when sound is on, else 0 (Matt, 2026-11-24)."
+  []
+  (if natives (or sfx/run-cut-ms 0) 0))
+
 (defn descent!
   "The going-down run, fired when the descending animation starts so the
    sound spans it rather than arriving after it. Pitched by note, not degree:
