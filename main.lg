@@ -400,10 +400,11 @@
      (let [screen (or (:screen world) :game)]
        (case screen
          :messages
-         (let [w (ui/modal-loop world render/render-messages-screen messages-input)]
+         (let [w (ui/modal-loop world render/render-messages-screen messages-input
+                                {:background! (repaint-after-first world)})]
            (if (:screen w)
              (recur w w prev-size)
-             (do (render/render-full w)
+             (do (render/close-panel! w world)
                  (recur w w (term/size)))))
 
          :rune-codex

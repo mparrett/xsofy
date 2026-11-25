@@ -193,3 +193,10 @@
                 (render/render-map-tile render-test-rect 7 7 nil false nil nil nil nil)
                 (render/render-map-tile render-test-rect 8 7 nil false nil nil nil nil))]
       (is (= 1 (count (re-seq #"38;2" out)))))))
+
+(deftest message-panel-is-most-of-the-height-with-a-floor
+  (is (= 27 (render/messages-panel-h 36)))
+  (is (= 12 (render/messages-panel-h 14)))
+  (is (= 8 (render/messages-panel-h 10)))
+  (testing "visible rows leave room for border, padding and footer"
+    (is (= 22 (render/message-visible-lines 36)))))

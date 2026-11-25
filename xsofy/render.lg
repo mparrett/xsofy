@@ -609,8 +609,19 @@
     (str (:msg entry) " (x" (:count entry) ")")
     (str entry)))
 
-(defn message-visible-lines [term-height]
-  (max 1 (- term-height 3)))
+;; The log screen is a centred panel: the inventory's width, three quarters of
+;; the terminal's height but never under 12 rows, so it reads as a window over
+;; the game rather than a page that replaces it.
+(def ^:private messages-panel-w 76)
+
+(defn messages-panel-h [term-height]
+  (min (- term-height 2) (max 12 (quot (* 3 term-height) 4))))
+
+(defn message-visible-lines
+  "Log rows the panel shows: its height less the border, the blank row inside
+   it at top and bottom, and the footer."
+  [term-height]
+  (max 1 (- (messages-panel-h term-height) 2 ui/panel-pad-rows 1)))
 
 (defn message-log-window [log visible-lines scroll-offset]
   (let [log (vec (or log []))
@@ -927,6 +938,9 @@
 ;; Where the open panel was last drawn, so closing it redraws only that.
 (def ^:private open-panel-rect (atom nil))
 
+;; Panels over the game share one background, a shade off the map's.
+(def ^:private panel-bg [20 18 16])
+
 (defn render-quick-menu [world]
   (sfx/with-frame
   (let [[tw th] (term-dims)
@@ -970,15 +984,15 @@
 (defn render-messages-screen [world]
   (sfx/with-frame
   (let [[tw th] (term-dims)
-        r (ui/rect 1 1 tw th)
-        inner (ui/box r "Message Log" [180 170 140] ui/bg)
+        r (ui/centered-rect tw th messages-panel-w (messages-panel-h th))
+        _ (reset! open-panel-rect r)
+        inner (ui/pad-rows (ui/box r "Message Log" [180 170 140] panel-bg))
         visible-lines (message-visible-lines th)
         window (message-log-window (:log world) visible-lines (:message-scroll world))
         entries (:entries window)
         cnt (count entries)]
-    (ui/clear-rect inner)
     (if (= cnt 0)
-      (ui/write-line inner 0 " No messages yet." [90 90 90] ui/bg)
+      (ui/write-line inner 0 " No messages yet." [90 90 90] panel-bg)
       (dotimes [i cnt]
         (let [msg (format-log-entry (nth entries i))
               age (- cnt i 1)
@@ -987,14 +1001,18 @@
                          [brightness
                           (max 60 (- brightness 20))
                           (max 40 (- brightness 80))]
-                         ui/bg))))
-    (ui/write-line inner (dec (:h inner))
-                   (str " "
-                        (if (> (:count window) 0)
-                          (str (inc (:start window)) "-" (:end window) "/" (:count window))
-                          "0/0")
-                        "  [k/up older  j/down newer  PgUp/PgDn  g/G  Esc]")
-                   [80 80 80] ui/bg))))
+                         panel-bg))))
+    (let [pos (if (> (:count window) 0)
+                (str (inc (:start window)) "-" (:end window) "/" (:count window))
+                "0/0")
+          ;; widest first: a narrow panel keeps the hints that matter rather
+          ;; than showing a cut-off row
+          options [(str " " pos "  [j/k] scroll  [PgUp/PgDn] page  [g/G] ends  [esc] close")
+                   (str " " pos "  [j/k] scroll  [esc] close")
+                   " [j/k] scroll  [esc] close"]]
+      (ui/write-line inner (dec (:h inner))
+                     (or (first (filter #(<= (count %) (:w inner)) options)) (last options))
+                     [80 80 80] panel-bg)))))
 
 ;; --- Help Screen (modal) ---
 
@@ -1043,8 +1061,6 @@
 
 ;; The inventory and inscribe screens share one panel, so moving between them
 ;; (s on an item, then esc or enter) doesn't make the box jump.
-(def ^:private panel-bg [20 18 16])
-
 (def ^:private inventory-panel-w 76)
 (def ^:private inventory-list-w 32)
 
