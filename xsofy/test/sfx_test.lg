@@ -578,4 +578,8 @@
           blow (first trs)
           answer (last trs)]
       (is (= 0 (or (:delay-ms blow) 0)))
-      (is (= sfx/response-ms (:delay-ms answer))))))
+      (is (some #{(:delay-ms answer)} sfx/response-ms))))
+  (testing "the gap varies from turn to turn"
+    (let [gap (fn [salt] (:delay-ms (last (sfx/for-events base salt [{:kind :hit-dealt :severity 0.3}
+                                                                     {:kind :hit-taken :severity 0.3}]))))]
+      (is (< 1 (count (set (map gap (range 20)))))))))
