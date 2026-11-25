@@ -354,7 +354,7 @@
 (def arrival-parts {:log [450 600] :quest [1950 600] :side [2150 400]})
 ;; Later floors: everything together, quicker. Untuned.
 (def arrival-later-runes-out-ms 300)
-(def arrival-later-floor-start-ms 300)
+(def arrival-later-floor-start-ms 500)
 (def arrival-later-floor-in-ms 400)
 
 (def ^:private descent-step-per-frame (/ (float descent-frame-ms) 60.0))
