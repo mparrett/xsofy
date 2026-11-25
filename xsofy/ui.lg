@@ -124,6 +124,14 @@
             (recur (rest ws) cand out)
             (recur ws "" (conj out line))))))))
 
+;; A blank row inside the frame above and below the contents, so a panel
+;; doesn't read as cramped. Panels ask ui/box for 2 more rows and pad
+;; the inner rect it returns.
+(def panel-pad-rows 2)
+
+(defn pad-rows [inner]
+  (rect (:x inner) (inc (:y inner)) (:w inner) (max 1 (- (:h inner) 2))))
+
 ;; --- Box ---
 
 (defn box [r title fg bgg]

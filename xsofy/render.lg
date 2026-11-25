@@ -934,7 +934,7 @@
         items (menu-filter world action)
         sel (or (:menu-sel world) -1)
         letters "abcdefghijklmnopqrstuvwxyz"
-        menu-h (+ (max 1 (count items)) 4)
+        menu-h (+ (max 1 (count items)) 4 ui/panel-pad-rows)
         hint (if (empty? items)
                " [any key] close"
                " [letter] choose  [any other key] cancel")
@@ -944,7 +944,7 @@
         my (- (quot th 2) (quot menu-h 2))
         r (ui/rect mx my menu-w menu-h)
         _ (reset! open-panel-rect r)
-        inner (ui/box r (menu-title action) [220 200 160] [20 18 16])]
+        inner (ui/pad-rows (ui/box r (menu-title action) [220 200 160] [20 18 16]))]
     (ui/clear-rect inner)
     (if (empty? items)
       (ui/write-line inner 0 " Nothing available." [80 80 80] [20 18 16])
@@ -1053,7 +1053,7 @@
    header, the backpack and the hint, with room for an item's details."
   [world tw th]
   (let [n (count (or (get-in world [:entities :player :inventory]) []))]
-    (ui/centered-rect tw th inventory-panel-w (+ 2 (max 16 (+ 10 n))))))
+    (ui/centered-rect tw th inventory-panel-w (+ 2 ui/panel-pad-rows (max 16 (+ 10 n))))))
 
 (defn render-item-detail
   "Render item description and available commands starting at row y."
@@ -1106,7 +1106,7 @@
   (let [[tw th] (term-dims)
         r (inventory-panel-rect world tw th)
         _ (reset! open-panel-rect r)
-        inner (ui/box r "Inventory" [180 170 140] panel-bg)
+        inner (ui/pad-rows (ui/box r "Inventory" [180 170 140] panel-bg))
         inv (or (get-in world [:entities :player :inventory]) [])
         equipment (or (get-in world [:entities :player :equipment]) {})
         sel (or (:inv-sel world) -1)
@@ -1370,7 +1370,7 @@
   (let [[tw th] (term-dims)
         r (inventory-panel-rect world tw th)
         _ (reset! open-panel-rect r)
-        inner (ui/box r "Inscribe Runes" [200 160 240] panel-bg)
+        inner (ui/pad-rows (ui/box r "Inscribe Runes" [200 160 240] panel-bg))
         rune-table (or (:rune-table world) {})
         item-id (:inscribe-item-id world)
         item (get-in world [:entities item-id])
@@ -1490,7 +1490,7 @@
           lines (hazard-panel-lines world)
           w (+ 4 (reduce max (map count lines)))]
       (when at
-        (when-let [rect (hazard-panel-rect mr at (or (:hazard-dy world) 0) w (+ 2 (count lines)))]
+        (when-let [rect (hazard-panel-rect mr at (or (:hazard-dy world) 0) w (+ 2 ui/panel-pad-rows (count lines)))]
           [rect lines mr])))))
 
 (defn render-hazard-panel
@@ -1502,7 +1502,7 @@
           {:keys [fg bg]} (get hazard-panel-colors
                                (:element (get terrain/hazard-info tile))
                                (:water hazard-panel-colors))
-          inner (ui/box rect nil fg bg)]
+          inner (ui/pad-rows (ui/box rect nil fg bg))]
       (ui/write-at inner 1 0 (first lines) fg bg)
       ;; the warning sign in amber, over the tinted first line
       (ui/write-at inner 1 0 "⚠" hazard-warn-color bg)
