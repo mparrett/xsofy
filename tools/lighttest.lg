@@ -105,12 +105,12 @@
      :tsize nil           ; last-seen terminal size, to detect resize
      :help? false         ; full-screen help overlay (? key)
      :stats {:drawn 0 :sgr 0}
-     ;; spike: ambient flicker + move fade (see "--- flicker & fade ---")
+     ;; spike: ambient flicker, move trail and rise (see "--- flicker, trail & rise ---")
      :flicker 3           ; index into flicker-amts (30%, Matt's pick 2026-11-25) (`f` cycles)
      :flick []            ; per-light brightness factor, parallel to all-lights
      :flick-at 0          ; ms of the last flicker step
      :trail 2             ; index into trail-modes (2 frames) (`g` cycles)
-     :trail-ms 0          ; index into trail-step-ms (50 ms) (`G` cycles)
+     :trail-ms 0          ; index into trail-step-ms, 50 ms (`G` cycles)
      :rise 2              ; index into rise-modes (2 frames) (`i` cycles)
      :trail-walls? false  ; trail lingers in cells that just went behind a wall (`w`)
      :ghosts nil          ; earlier frames' light grids, newest first; nil = settled
@@ -142,10 +142,10 @@
     (into (vec (:tlights st)) (:lights st))
     (vec (:lights st))))
 
-;; --- flicker & fade (spike) ---
+;; --- flicker, trail & rise (spike) ---
 ;; Flicker: each light's brightness wanders a little around full strength, each
-;; on its own, eased so it breathes rather than strobes. Trail: the light sets of
-;; the last few frames linger at falling strength (50%, 25%, 10%), so the edge of
+;; on its own, eased so it breathes rather than strobes. Trail: the light of the
+;; last few frames lingers at falling strength (see trail-modes), so the edge of
 ;; the pool softens instead of snapping. A "frame" is a move or, at rest, one
 ;; trail step of time, so a light that stops sheds its trail within a few steps.
 ;; Rise is the same in reverse: a newly lit cell shows the average of its last
@@ -205,7 +205,7 @@
                  :ghost-at (millis))
       st')))
 
-(defn- with-fade
+(defn- after-move
   "st' is st after a light moved: push st's frame onto the history."
   [st st']
   (assoc (push-frame st st') :still 0))
@@ -343,7 +343,7 @@
 
 (defn- update-state [st k]
   (cond
-    (contains? dir-keys k)    (let [[dx dy] (get dir-keys k)] (with-fade st (move-active st dx dy)))
+    (contains? dir-keys k)    (let [[dx dy] (get dir-keys k)] (after-move st (move-active st dx dy)))
     (= k "f")                 (update st :flicker (fn [i] (mod (inc i) (count flicker-amts))))
     (= k "g")                 (-> st (update :trail (fn [i] (mod (inc i) (count trail-modes))))
                                   (assoc :ghosts nil))
@@ -369,8 +369,9 @@
     (= k "a")                 (add-light st)
     (= k "x")                 (del-light st)
     (= k "o")                 (update st :occlude? not)
-    (= k "t")                 (update st :terrain-lights? not)
-    (= k "N")                 (new-seed st)
+    (= k "t")                 (-> st (update :terrain-lights? not) (assoc :ghosts nil))
+    ;; a new map or a change in which lights exist makes the history wrong
+    (= k "N")                 (assoc (new-seed st) :ghosts nil)
     (or (= k "q") (= k esc) (= k (str (char 3)))) (assoc st :running false)
     :else                     st))
 
@@ -628,7 +629,7 @@
           :else (let [st1 (if (and (pos? (:flicker st1))
                                    (>= (- (millis) (:flick-at st1)) flicker-ms))
                             (flicker-step st1) st1)
-                      st2 (render! (with-fade st1 (demo-step st1)))]
+                      st2 (render! (after-move st1 (demo-step st1)))]
                   (sleep (:frame-ms st2))
                   (recur st2))))
       ;; flicker on, or a trail still lingering: poll rather than block, so the
