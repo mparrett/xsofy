@@ -1513,7 +1513,8 @@
           lines (hazard-panel-lines world)
           w (+ 4 (reduce max (map count lines)))]
       (when at
-        (when-let [rect (hazard-panel-rect mr at (or (:hazard-dy world) 0) w (+ 2 ui/panel-pad-rows (count lines)))]
+        ;; no padding rows: the panel sits next to the player and must stay small
+        (when-let [rect (hazard-panel-rect mr at (or (:hazard-dy world) 0) w (+ 2 (count lines)))]
           [rect lines mr])))))
 
 (defn render-hazard-panel
@@ -1525,7 +1526,7 @@
           {:keys [fg bg]} (get hazard-panel-colors
                                (:element (get terrain/hazard-info tile))
                                (:water hazard-panel-colors))
-          inner (ui/pad-rows (ui/box rect nil fg bg))]
+          inner (ui/box rect nil fg bg)]
       (ui/write-at inner 1 0 (first lines) fg bg)
       ;; the warning sign in amber, over the tinted first line
       (ui/write-at inner 1 0 "⚠" hazard-warn-color bg)
