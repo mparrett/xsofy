@@ -73,6 +73,9 @@
     ;; generate-level returns [ {:grid :rooms} world' ]; we only need the grid.
     (:grid (first (terrain/generate-level w h depth {:seed seed})))))
 
+;; defined in the fire & lava section further down
+(declare scan-fx fx-light-factor)
+
 (defn- init-state [cfg]
   (let [{:keys [w h depth seed]} cfg
         grid (gen-grid cfg)]
@@ -80,6 +83,7 @@
      ;; terrain torches/lava/fire already emit light — collect once per grid so
      ;; the movable light plays against them, not an empty field.
      :tlights (light/collect-terrain-lights grid w h)
+     :fx (scan-fx {:grid grid :w w :h h :fx {}})
      :lights [{:lx (quot w 2) :ly (quot h 2)
                :radius 8 :preset 0 :color (nth color-presets 0)}]
      :active 0
@@ -116,6 +120,11 @@
      :ghosts nil          ; earlier frames' light grids, newest first; nil = settled
      :still 0             ; trail steps since the last move
      :lv nil              ; last frame's live light per cell, so a move can remember it
+     ;; spike: animated fire and lava (see "--- fire & lava ---")
+     :fx? true            ; animate fire/lava tiles (`v`)
+     :fx {}               ; [x y] -> {:i heat 0..1 :ch glyph :tile 15|7}
+     :fx-at 0             ; ms of the last fx step
+     :embers []           ; [{:x :y :ttl}] sparks rising off fire
      :ghost-at 0          ; ms of the last move or trail step
      :running true}))
 
@@ -168,12 +177,16 @@
 (defn- lit-lights
   "all-lights with each light's current flicker factor applied to its colour."
   [st]
-  (let [ls (all-lights st) fl (:flick st)]
-    (if (zero? (:flicker st))
+  (let [ls (all-lights st) fl (:flick st) fx (when (:fx? st) (:fx st))]
+    (if (and (zero? (:flicker st)) (empty? fx))
       ls
       (vec (map-indexed
              (fn [i l]
-               (let [f (nth fl i 1.0)]
+               ;; a fire/lava cell's light follows its heat, not the generic flicker
+               (let [c (get fx [(:lx l) (:ly l)])
+                     f (cond c (fx-light-factor c)
+                             (zero? (:flicker st)) 1.0
+                             :else (nth fl i 1.0))]
                  (assoc l :color (mapv (fn [c] (min 255 (int (* c f)))) (:color l)))))
              ls)))))
 
@@ -265,6 +278,98 @@
           [r g b]))
       [r g b])))
 
+;; --- fire & lava (spike) ---
+;; Each fire or lava cell has its own heat (0..1) that eases toward fresh random
+;; targets on a timer, so the tile animates at rest instead of only when a turn
+;; redraws it. Heat drives the tile's colour, fire's glyph, and the strength of the
+;; light the tile casts, so the room pulses with the flame. Lava is the same idea,
+;; slower and smoother, with a travelling wave so the pool seems to flow. Fire
+;; throws off the odd ember that drifts up a cell or two. All cosmetic, `rand` only.
+
+(def fire-tile 15)
+(def lava-tile 7)
+(def fx-ms 70)
+
+(defn- ramp
+  "Colour along stops [[t rgb] ...] (t ascending) at heat i."
+  [stops i]
+  (let [i (clamp i 0.0 1.0)
+        [[t0 c0] [t1 c1]] (or (first (filter (fn [[[a _] [b _]]] (<= a i b))
+                                             (map vector stops (rest stops))))
+                              [(last stops) (last stops)])
+        f (if (= t0 t1) 0.0 (/ (- i t0) (- t1 t0)))]
+    (mapv (fn [a b] (int (+ a (* f (- b a))))) c0 c1)))
+
+(def fire-fg [[0.0 [130 25 0]] [0.5 [255 110 10]] [1.0 [255 225 110]]])
+(def fire-bg [[0.0 [35 8 0]] [1.0 [140 45 8]]])
+(def lava-fg [[0.0 [100 18 4]] [0.5 [225 70 10]] [1.0 [255 175 55]]])
+(def lava-bg [[0.0 [45 8 2]] [1.0 [150 38 6]]])
+
+(defn- fire-glyph [i]
+  (rand-nth (cond (> i 0.75) ["^" "^" "*"]
+                  (> i 0.4)  ["^" "'" "^"]
+                  :else      ["'" "," "'"])))
+
+(defn- scan-fx
+  "Every fire and lava cell on the grid, keeping the heat of ones already known."
+  [st]
+  (let [{:keys [grid w h fx]} st]
+    (into {}
+          (for [y (range h) x (range w)
+                :let [t (terrain/tget grid w x y)]
+                :when (or (= t fire-tile) (= t lava-tile))]
+            [[x y] (or (get fx [x y])
+                       {:tile t :i (rand) :ch (if (= t fire-tile) "^" "~")})]))))
+
+(defn- fx-step [st]
+  (let [ms (millis)
+        fx (into {}
+                 (map (fn [[[x y] c]]
+                        [[x y]
+                         (if (= (:tile c) fire-tile)
+                           ;; fire: quick, ragged; a fresh target every step
+                           (let [i (+ (:i c) (* 0.55 (- (+ 0.15 (* 0.85 (rand))) (:i c))))]
+                             (assoc c :i i
+                                    :ch (if (< (rand) 0.3) (fire-glyph i) (:ch c))))
+                           ;; lava: slow; a wave rolling across the pool plus a little noise
+                           (let [wave (math/sin (+ (* 0.7 x) (* 0.4 y) (/ ms 700.0)))
+                                 target (+ 0.5 (* 0.3 wave) (* 0.15 (- (rand) 0.5)))]
+                             (assoc c :i (+ (:i c) (* 0.2 (- target (:i c)))))))])
+                      (:fx st)))
+        ;; embers: rise one row a step, wander a little, die after a few steps
+        old (keep (fn [{:keys [x y ttl]}]
+                    (when (> ttl 1)
+                      {:x (+ x (if (< (rand) 0.3) (dec (rand-int 3)) 0)) :y (dec y) :ttl (dec ttl)}))
+                  (:embers st))
+        new (keep (fn [[[x y] c]]
+                    (when (and (= (:tile c) fire-tile) (> (:i c) 0.6) (< (rand) 0.05))
+                      {:x x :y (dec y) :ttl (+ 2 (rand-int 3))}))
+                  fx)]
+    (assoc st :fx fx :fx-at ms :embers (vec (concat old new)))))
+
+(defn- fx-due? [st]
+  (and (:fx? st) (seq (:fx st)) (>= (- (millis) (:fx-at st)) fx-ms)))
+
+(defn- fx-light-factor
+  "How strongly a fire/lava cell's light shines at its current heat."
+  [c]
+  (if (= (:tile c) fire-tile) (+ 0.55 (* 0.6 (:i c))) (+ 0.8 (* 0.3 (:i c)))))
+
+(defn- stamp-blob
+  "Turn walkable cells within r of the active light into `tile`."
+  [st tile r]
+  (let [{:keys [grid w h lights active]} st
+        {:keys [lx ly]} (nth lights active)
+        ri (int (math/ceil r))]
+    (doseq [dy (range (- ri) (inc ri)) dx (range (- ri) (inc ri))
+            :let [x (+ lx dx) y (+ ly dy)]
+            :when (and (<= (+ (* dx dx) (* dy dy)) (* r r))
+                       (< -1 x w) (< -1 y h)
+                       (terrain/walkable? grid w h x y))]
+      (terrain/tset! grid w x y tile))
+    (let [st' (assoc st :tlights (light/collect-terrain-lights grid w h) :ghosts nil :prev nil)]
+      (assoc st' :fx (scan-fx st')))))
+
 ;; posterize: round a channel to `step` buckets (step 1 = no-op / full 8-bit)
 (def depth->step {8 1  6 4  5 8  4 16})
 (defn- pq [v step] (if (<= step 1) v (min 255 (* step (quot v step)))))
@@ -338,8 +443,9 @@
 (defn- new-seed [st]
   (let [s (inc (:seed st))
         grid (gen-grid (assoc st :seed s))]
-    (assoc st :seed s :grid grid
-           :tlights (light/collect-terrain-lights grid (:w st) (:h st)))))
+    (assoc st :seed s :grid grid :embers []
+           :tlights (light/collect-terrain-lights grid (:w st) (:h st))
+           :fx (scan-fx {:grid grid :w (:w st) :h (:h st) :fx {}}))))
 
 (defn- update-state [st k]
   (cond
@@ -350,6 +456,9 @@
     (= k "i")                 (-> st (update :rise (fn [i] (mod (inc i) (count rise-modes))))
                                   (assoc :ghosts nil))
     (= k "w")                 (update st :trail-walls? not)
+    (= k "v")                 (assoc st :fx? (not (:fx? st)) :embers [])
+    (= k "F")                 (stamp-blob st fire-tile 1.5)
+    (= k "L")                 (stamp-blob st lava-tile 2.6)
     (= k "G")                 (update st :trail-ms (fn [i] (mod (inc i) (count trail-step-ms))))
     (= k "p")                 (let [st (update st :demo-mode demo-next)]
                                 (if (= (:demo-mode st) :mapshift) st (assoc st :shift [0 0])))
@@ -433,9 +542,22 @@
             ;; :mapshift scrolls the terrain under a fixed light — sample the tile
             ;; at the shifted+wrapped coord, but keep lighting/FOV at screen coords.
             [sx sy] (:shift st)
-            tile (terrain/tget grid w (mod (+ x sx) w) (mod (+ y sy) h))
-            ch (get terrain/tile-chars tile " ")
-            style (get terrain/tile-styles tile)
+            tx (mod (+ x sx) w) ty (mod (+ y sy) h)
+            tile (terrain/tget grid w tx ty)
+            fxc (when (:fx? st) (get (:fx st) [tx ty]))
+            ember (get (:ember-at st) [tx ty])
+            ch (cond fxc (:ch fxc)
+                     ;; an ember shows over open ground, never over a wall
+                     (and ember (terrain/walkable? grid w h tx ty)) (if (> ember 2) "'" ".")
+                     :else (get terrain/tile-chars tile " "))
+            style (cond
+                    fxc (if (= (:tile fxc) fire-tile)
+                          {:fg (ramp fire-fg (:i fxc)) :bg (ramp fire-bg (:i fxc))}
+                          {:fg (ramp lava-fg (:i fxc)) :bg (ramp lava-bg (:i fxc))})
+                    (and ember (terrain/walkable? grid w h tx ty))
+                    (assoc (get terrain/tile-styles tile)
+                           :fg (mapv #(int (* % (/ (min ember 4) 4.0))) [255 170 60]))
+                    :else (get terrain/tile-styles tile))
             lit? (or (not (:occlude? st)) (contains? vis [x y]))
             now (if lit? (light/light-at x y lset) [0 0 0])
             _ (swap! lvs conj now)
@@ -470,7 +592,7 @@
                    "@" (lpad (nth trail-step-ms (:trail-ms st)) 3) "ms"
                    (if (:trail-walls? st) "+w" "  ")
                    "  rise:" (let [r (nth rise-modes (:rise st))] (if (zero? r) "off" r))
-                   "  light keys: f g G w i   all: ?")]
+                   "  fx:" (if (:fx? st) "on " "off") "  keys: f g G w i F L v  ?")]
     (term/reset-style)
     (term/move-cursor 1 (+ h 1)) (term/write (pad line1 tw))
     (term/move-cursor 1 (+ h 2)) (term/write (pad line2 tw))
@@ -499,6 +621,8 @@
    "  G                   trail step at rest: 50 -> 80 -> 120 -> 150 -> 200 ms"
    "  w                   trail also behind walls (cells that just left the FOV)"
    "  i                   rise: off -> 1 frame (50%) -> 2 frames (33/67%) for new light"
+   "  F / L               drop a fire patch / lava pool around the active light"
+   "  v                   animate fire & lava (heat, glyphs, pulsing light, embers)"
    ""
    "Rendering & perf probe:"
    "  o                   occlusion: raw radial <-> FOV wall-shadows"
@@ -525,6 +649,7 @@
 
 (defn- render! [st]
   (let [t0 (millis)
+        st (assoc st :ember-at (into {} (map (fn [e] [[(:x e) (:y e)] (:ttl e)]) (:embers st))))
         {:keys [grid w h lights active occlude? cdepth]} st
         mode (:render-mode st)
         full? (= mode :naive)          ; no damage buffer + no cursor/SGR elision
@@ -629,17 +754,19 @@
           :else (let [st1 (if (and (pos? (:flicker st1))
                                    (>= (- (millis) (:flick-at st1)) flicker-ms))
                             (flicker-step st1) st1)
+                      st1 (if (fx-due? st1) (fx-step st1) st1)
                       st2 (render! (after-move st1 (demo-step st1)))]
                   (sleep (:frame-ms st2))
                   (recur st2))))
       ;; flicker on, or a trail still lingering: poll rather than block, so the
       ;; light keeps moving between keys
-      (or (pos? (:flicker st)) (:ghosts st))
+      (or (pos? (:flicker st)) (:ghosts st) (and (:fx? st) (seq (:fx st))))
       (cond
         (term/key-pending?) (recur (render! (update-state st (term/read-key))))
         (and (pos? (:flicker st)) (>= (- (millis) (:flick-at st)) flicker-ms))
         (recur (render! (flicker-step st)))
         (trail-due? st) (recur (render! (trail-step st)))
+        (fx-due? st) (recur (render! (fx-step st)))
         :else (do (sleep 10) (recur st)))
       ;; keyboard-only: block until a key (read-key wakes with a form feed on resize,
       ;; so render! still runs and repaints at the new size), then react
