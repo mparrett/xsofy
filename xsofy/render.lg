@@ -12,6 +12,7 @@
             [xsofy.runes :as runes]
             [xsofy.input :as input]
             [xsofy.screenfx :as sfx]
+            [xsofy.gentick :as gt]
             [xsofy.ui :as ui]))
 
 ;; --- Color Helpers ---
@@ -354,7 +355,10 @@
                   lv (when visible (light/light-at x y lights))
                   stain (when visible (get stains [x y]))
                   gas (when visible (get gases [x y]))]
-              (render-map-tile r x y tile visible remembered lv stain gas))))))))
+              (render-map-tile r x y tile visible remembered lv stain gas))))
+        ;; Hands the thread back when the arrival captures a frame under the
+        ;; descent (capture-frame); a no-op otherwise.
+        (gt/tick! :render-row)))))
 
 (defn entity-z-priority
   "Z-order weight for entities sharing a cell — higher wins.
@@ -1537,22 +1541,41 @@
    visible cells as [{:x :y :s :fg :bg :part}]. A write that is blank on the
    background is left out: the screen is already that. :part is the panel the
    cell falls in (:map, :log, :side for the sidebar, top bar and status line),
-   or :quest for a log line that starts one of `quest-lines`."
+   or :quest for a log line that starts one of `quest-lines`.
+
+   A bound xsofy.gentick/*tick* (the descent's) is called per map row, and
+   what it draws goes to the screen, not into the capture: the render takes
+   ~150 ms, longer than the audio queue lasts without the thread."
   [world quest-lines]
   (let [[tw th] (term-dims)
         panels (ui/layout tw th)
         ops (atom [])
-        cur (atom {:x 1 :y 1 :fg ui/bg :bg ui/bg})]
-    (with-redefs [term/move-cursor (fn [x y] (swap! cur assoc :x x :y y) nil)
-                  term/set-fg (fn [r g b] (swap! cur assoc :fg [r g b]) nil)
-                  term/set-bg (fn [r g b] (swap! cur assoc :bg [r g b]) nil)
+        cur (atom {:x 1 :y 1 :fg ui/bg :bg ui/bg})
+        real {:move term/move-cursor :fg term/set-fg :bg term/set-bg :write term/write}
+        live? (atom false)
+        outer gt/*tick*]
+    (with-redefs [term/move-cursor (fn [x y]
+                                     (if @live? ((:move real) x y) (swap! cur assoc :x x :y y))
+                                     nil)
+                  term/set-fg (fn [r g b]
+                                (if @live? ((:fg real) r g b) (swap! cur assoc :fg [r g b]))
+                                nil)
+                  term/set-bg (fn [r g b]
+                                (if @live? ((:bg real) r g b) (swap! cur assoc :bg [r g b]))
+                                nil)
                   term/write (fn [s]
-                               (let [{:keys [x y fg bg]} @cur]
-                                 (when-not (and (= bg ui/bg) (str/blank? s))
-                                   (swap! ops conj {:x x :y y :s s :fg fg :bg bg}))
-                                 (swap! cur update :x + (count s)))
+                               (if @live?
+                                 ((:write real) s)
+                                 (let [{:keys [x y fg bg]} @cur]
+                                   (when-not (and (= bg ui/bg) (str/blank? s))
+                                     (swap! ops conj {:x x :y y :s s :fg fg :bg bg}))
+                                   (swap! cur update :x + (count s))))
                                nil)]
-      (render-full world))
+      (binding [gt/*tick* (when outer
+                            (fn [done]
+                              (reset! live? true)
+                              (try (outer done) (finally (reset! live? false)))))]
+        (render-full world)))
     ;; the pen recorded colors that were never sent
     (pen-reset!)
     (let [quest? (fn [s] (let [t (str/trim s)]

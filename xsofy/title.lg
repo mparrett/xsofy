@@ -374,7 +374,7 @@
 ;; Hooks every descent calls, installed once by the game (main.lg) so this ns
 ;; stays free of an audio dependency, and so floor changes deep in xsofy.world
 ;; get them without threading opts through. All optional:
-;;   :min-ms     (fn []) -> a floor on the screen's length, in ms
+;;   :min-ms     (fn [{:keys [first?]}]) -> a floor on the screen's length, ms
 ;;   :on-start   (fn [{:keys [depth ms]}]) on the first frame; ms is the
 ;;               planned length, before any wait for the floor
 ;;   :on-arrive  (fn [{:keys [depth first?]}]) when the floor starts to fade
@@ -575,7 +575,10 @@
                :depth-str (str "Depth " depth)
                :msg (nth descending-messages (rand-int (count descending-messages)))}
           min-frames (max (if first? descent-frames (steps->frames descent-later-steps))
-                          (if min-ms (quot (+ (long (min-ms)) descent-frame-ms -1) descent-frame-ms) 0))
+                          (if min-ms
+                            (quot (+ (long (min-ms {:first? (boolean first?)})) descent-frame-ms -1)
+                                  descent-frame-ms)
+                            0))
           frame (atom 0)
           last-frame (atom (now))
           last-yield (atom (now))
@@ -600,7 +603,10 @@
           (sfx/pause! (long (max 1 (- descent-frame-ms (elapsed-ms @last-frame)))))
           (draw!))
         (let [arrive! #(when on-arrive (on-arrive {:depth depth :first? (boolean first?)}))
-              cells (when capture (seq (capture result (boolean first?))))]
+              ;; The capture renders the floor once (~150 ms); the tick keeps
+              ;; the descent drawing and the audio fed while it does.
+              cells (when capture
+                      (seq (binding [gt/*tick* tick] (capture result (boolean first?)))))]
           (if cells
             (run-arrival! ctx @frame cells first? arrive!)
             (arrive!)))
