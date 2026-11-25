@@ -324,7 +324,7 @@
      (tr 90 :cry-sli-bubble 0.35 (+ 72 (long (* 6 (unit seed :b1)))))
      (tr 150 :cry-sli-bubble 0.28 (+ 68 (long (* 6 (unit seed :b2)))))]))
 
-(defn- footstep-shots [ev seed]
+(defn- surface-step-shots [ev seed]
   (case (:surface ev)
     nil    (stone-step-shots ev seed)
     :grass (stone-step-shots ev seed grass-step)
@@ -338,6 +338,31 @@
     :gain (* (case (:surface ev) (:water :grass) 0.285 0.36) (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
     :seed seed}]))
+
+
+(defn- emerge-shots
+  "Climbing out of deep water (Matt, 2026-11-25: \"we probably need coming
+   out of deep water sound\"): a slosh, then water running off in drips
+   that fall in pitch and level. Provisional until a pick from round 48."
+  [ev seed]
+  (let [g   (* 0.299 (+ 0.7 (* 0.6 (unit seed :emerge))))
+        pan (if-let [f (:foot ev)] (if (zero? f) 0.45 0.55) 0.5)
+        tr  (fn [ms shot lv note]
+              {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note 300) :delay-ms ms})]
+    [(tr 0 :swim-slosh 0.5 62)
+     (tr 140 :step-drip 0.35 61)
+     (tr 290 :step-drip 0.26 59)
+     (tr 470 :step-drip 0.18 56)]))
+
+;; A monster's step under the player's: Matt, 2026-11-25, "enemy footstep
+;; sounds (subtle, offset on turn like we did before with hits)".
+(def monster-step-level 0.5)
+
+(defn- footstep-shots [ev seed]
+  (cond-> (surface-step-shots ev seed)
+    (:emerged ev) (into (emerge-shots ev seed))
+    (:monster ev) (->> (mapv #(update % :gain * monster-step-level)))))
+
 
 (defn- combat-hit-shots
   "Fighting you can hear but are not part of — creature versus creature.
@@ -934,7 +959,7 @@
 (defn- after-you
   "An event's triggers moved later when it is the monsters' part of the turn."
   [ev seed trs]
-  (if (= :hit-taken (:kind ev))
+  (if (or (= :hit-taken (:kind ev)) (:monster ev))
     (let [ms (nth response-ms (mod (bit-and (det/combine seed [:response]) 0xffffff)
                                    (count response-ms)))]
       (mapv #(update % :delay-ms (fnil + 0) ms) trs))
@@ -977,13 +1002,36 @@
         ;; Guarded: a world without terrain (a test fixture) has no surface.
         ;; Grass is read as either state: trample! mutates the shared terrain
         ;; array, so the previous world already shows the trampled tile.
-        surface    (when (and stepped (:terrain new-world))
-                     (let [t (terrain/tget (:terrain new-world) (:width new-world)
-                                           (first pos) (second pos))]
+        tile-at    (fn [[x y]] (terrain/tget (:terrain new-world) (:width new-world) x y))
+        surface-at (fn [p]
+                     (let [t (tile-at p)]
                        ;; deep water (4) swims; shallow (3) wades
                        (cond (= 3 t)     :water
                              (= 4 t)     :deep
                              (#{2 18} t) :grass)))
+        surface    (when (and stepped (:terrain new-world)) (surface-at pos))
+        ;; out of deep water this move: the terrain array is shared, but
+        ;; water does not change under a step
+        emerged    (and stepped (:terrain new-world)
+                        (= 4 (tile-at prev-pos)) (not= 4 (tile-at pos)))
+        ;; Creatures that moved this turn, within earshot: the nearest three,
+        ;; so a crowd is a patter and not a flood of triggers.
+        monster-steps
+        (when (and pos (:terrain new-world))
+          (let [[px py] pos]
+            (->> (:entities new-world)
+                 (keep (fn [[id e]]
+                         (let [was (get-in prev-world [:entities id :pos])
+                               now (:pos e)]
+                           (when (and (:ai e) (not= :player id) was now (not= was now))
+                             (let [dx (- (first now) px)
+                                   d  (max (Math/abs dx) (Math/abs (- (second now) py)))]
+                               (when (<= d 8)
+                                 {:kind :footstep :monster true :dist d
+                                  :dir (/ (double dx) (max 1.0 (double d)))
+                                  :surface (surface-at now)}))))))
+                 (sort-by :dist)
+                 (take 3))))
         ;; Statuses that arrived or left this turn. :webbed and :swimming have
         ;; their own sounds (the web, the water step).
         statuses   (fn [w] (set (remove #{:webbed :swimming}
@@ -1020,10 +1068,12 @@
                                     (terrain/tget (:terrain new-world) (:width new-world) hx hy))))
         evs        (let [base (vec (or (:sfx new-world) []))
                          base (if stepped
-                                (conj base {:kind :footstep :surface surface
-                                            ;; left or right foot, by turn
-                                            :foot (mod (or (:turn new-world) 0) 2)})
+                                (conj base (cond-> {:kind :footstep :surface surface
+                                                    ;; left or right foot, by turn
+                                                    :foot (mod (or (:turn new-world) 0) 2)}
+                                             emerged (assoc :emerged true)))
                                 base)
+                         base (into base monster-steps)
                          base (if ignite (conj base ignite) base)
                          base (if moved-floor
                                 (conj base {:kind :floor
