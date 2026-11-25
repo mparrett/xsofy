@@ -302,8 +302,10 @@
 
 (def fire-fg [[0.0 [130 25 0]] [0.5 [255 110 10]] [1.0 [255 225 110]]])
 (def fire-bg [[0.0 [35 8 0]] [1.0 [140 45 8]]])
-(def lava-fg [[0.0 [100 18 4]] [0.5 [225 70 10]] [1.0 [255 175 55]]])
-(def lava-bg [[0.0 [45 8 2]] [1.0 [150 38 6]]])
+;; lava's glyph stays well above its background (yellow on red when hot) so the
+;; pool keeps the two-tone look of the static tile instead of a flat red block
+(def lava-fg [[0.0 [190 60 10]] [0.5 [255 150 30]] [1.0 [255 235 100]]])
+(def lava-bg [[0.0 [50 9 2]] [0.6 [130 35 6]] [1.0 [175 60 10]]])
 
 (defn- fire-glyph [i]
   (rand-nth (cond (> i 0.75) ["^" "^" "*"]
@@ -332,8 +334,11 @@
                              (assoc c :i i
                                     :ch (if (< (rand) 0.3) (fire-glyph i) (:ch c))))
                            ;; lava: slow; a wave rolling across the pool plus a little noise
+                           ;; each cell also has a fixed offset, so a pool keeps hot
+                           ;; patches and darker crust instead of moving in lockstep
                            (let [wave (math/sin (+ (* 0.7 x) (* 0.4 y) (/ ms 700.0)))
-                                 target (+ 0.5 (* 0.3 wave) (* 0.15 (- (rand) 0.5)))]
+                                 spot (- (/ (mod (+ (* x 7919) (* y 104729)) 100) 100.0) 0.5)
+                                 target (+ 0.5 (* 0.3 wave) (* 0.4 spot) (* 0.15 (- (rand) 0.5)))]
                              (assoc c :i (+ (:i c) (* 0.2 (- target (:i c)))))))])
                       (:fx st)))
         ;; embers: rise one row a step, wander a little, die after a few steps
@@ -566,7 +571,7 @@
             [br bg bb] (light/apply-light (:bg style) lv)]
         [ch (pq fr step) (pq fg step) (pq fb step) (pq br step) (pq bg step) (pq bb step)]))))
 
-(defn- render-hud! [st tw]
+(defn- render-hud! [st tw top]
   ;; three short lines (each <= map width, 79) so the HUD never spills right
   (let [{:keys [w h active lights occlude? terrain-lights? markers? seed cdepth
                 render-mode sync? demo-mode frame-ms stats]} st
@@ -594,9 +599,9 @@
                    "  rise:" (let [r (nth rise-modes (:rise st))] (if (zero? r) "off" r))
                    "  fx:" (if (:fx? st) "on " "off") "  keys: f g G w i F L v  ?")]
     (term/reset-style)
-    (term/move-cursor 1 (+ h 1)) (term/write (pad line1 tw))
-    (term/move-cursor 1 (+ h 2)) (term/write (pad line2 tw))
-    (term/move-cursor 1 (+ h 3)) (term/write (pad line3 tw))))
+    (term/move-cursor 1 (+ top 1)) (term/write (pad line1 tw))
+    (term/move-cursor 1 (+ top 2)) (term/write (pad line2 tw))
+    (term/move-cursor 1 (+ top 3)) (term/write (pad line3 tw))))
 
 (def help-lines
   ["lighttest — lighting testbed — key reference" ""
@@ -643,7 +648,7 @@
   (loop [i 0 ls help-lines]
     (when (seq ls)
       (term/move-cursor 3 (+ 2 i))
-      (term/write (first ls))
+      (term/write (pad (first ls) (max 1 (- (or (first (term/size)) 80) 3))))
       (recur (inc i) (rest ls))))
   (term/flush))
 
@@ -660,6 +665,11 @@
         ;; buffer and repaint everything against a fresh clear.
         prev (if resized? nil (:prev st))
         _ (when resized? (term/clear))
+        ;; a terminal smaller than the map: draw only what fits. A cell past the
+        ;; right edge would land on the last column (the cursor clamps there) and
+        ;; overwrite it, and rows past the bottom would trample the HUD.
+        tw (or (first tsize) w)
+        map-rows (min h (- (or (second tsize) (+ h 3)) 3))
         lset (lit-lights st)
         old (:ghosts st)
         rects (when old (motion-rects st old))
@@ -681,7 +691,7 @@
                   app (cell-app st x y lset old rects vis lidx step lvs)
                   ;; naive: pretend nothing was drawn before -> repaint all
                   old (when (and prev (not full?)) (nth prev idx))]
-              (when (not= app old)
+              (when (and (not= app old) (< x tw) (< y map-rows))
                 (let [[ch fr fg fb br bg bb] app
                       col (inc x) row (inc y)]
                   ;; move only if the cursor isn't already here (naive: always)
@@ -700,7 +710,7 @@
               (conj acc app)))
           [] (range n))
         st' (assoc st :prev newfb :tsize tsize :stats {:drawn @drawn :sgr @sgr :ms (- (millis) t0)} :lv @lvs)]
-    (render-hud! st' (or (first tsize) w))
+    (render-hud! st' tw map-rows)
     (when (:sync? st) (term/write end-sync))   ; ESU — present the whole frame atomically
     (term/flush)
     st'))
