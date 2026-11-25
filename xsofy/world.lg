@@ -1820,13 +1820,22 @@
                 ;; chance to drop an item while swimming
                 w (swim-drop-item w)]
             w)
+          ;; already in this hazard (chasm to chasm, lava to lava): the
+          ;; prompt asked on the way in, so each further step only hurts
+          (if (= tile (terrain/tget terrain width px py))
+            (-> world
+                (assoc-in [:entities :player :pos] [nx ny])
+                (add-ticks :player move-cost)
+                (update :turn inc)
+                update-fov
+                (apply-hazard-effects :player nx ny))
           ;; not flying, not swimming: prompt for confirmation
           (let [info (get terrain/hazard-info tile)]
             (-> world
                 (assoc :screen :confirm-hazard
                        :hazard-prompt (:prompt info)
                        :hazard-pos [nx ny]
-                       :hazard-dx dx :hazard-dy dy)))))
+                       :hazard-dx dx :hazard-dy dy))))))
 
       ;; wall
       :else
