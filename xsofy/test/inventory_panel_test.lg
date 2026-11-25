@@ -1,0 +1,21 @@
+(ns xsofy.test.inventory-panel-test
+  "The inventory panel's size, shared with the inscribe screen."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.render :as render]))
+
+(defn- with-items [n]
+  {:entities {:player {:inventory (vec (map #(keyword (str "item" %)) (range n)))}}})
+
+(deftest the-inventory-panel-is-fixed-width-and-grows-with-the-backpack
+  (testing "a short backpack still leaves room for an item's details"
+    (is (= 18 (:h (render/inventory-panel-rect (with-items 3) 153 47)))))
+  (testing "a full one adds a row per item"
+    (is (= 32 (:h (render/inventory-panel-rect (with-items 20) 153 47)))))
+  (testing "the width doesn't change with the contents"
+    (is (= (:w (render/inventory-panel-rect (with-items 3) 153 47))
+           (:w (render/inventory-panel-rect (with-items 20) 153 47)))))
+  (testing "and it never outgrows the terminal"
+    (is (= 22 (:h (render/inventory-panel-rect (with-items 26) 153 24)))))
+  (testing "the inscribe screen opens in the same box"
+    (is (= (render/inventory-panel-rect (with-items 3) 120 40)
+           (render/inventory-panel-rect (assoc (with-items 3) :screen :inscribe) 120 40)))))
