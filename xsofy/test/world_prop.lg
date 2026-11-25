@@ -108,6 +108,31 @@
       (is (< (:turn world) (:turn w')))
       (is (= [2 2] (get-in w' [:entities :player :pos]))))))
 
+(defn- player-in [tile-at-2-2 tile-at-3-2]
+  (let [base (g/minimal-stone-room)]
+    (terrain/tset! (:terrain base) (:width base) 2 2 tile-at-2-2)
+    (terrain/tset! (:terrain base) (:width base) 3 2 tile-at-3-2)
+    (assoc-in base [:entities :player]
+      {:id :player :template :player :pos [2 2]
+       :ticks 0 :status {} :statuses {} :inventory []
+       :body {:hp 30 :max-hp 30 :strength 5 :armor 0}})))
+
+(deftest a-step-within-a-hazard-does-not-ask-again
+  (testing "chasm to chasm: no prompt, the step happens and hurts"
+    (let [w' (w/update-world (player-in 6 6) :right)]
+      (is (nil? (:screen w')))
+      (is (= [3 2] (get-in w' [:entities :player :pos])))
+      (is (= 20 (get-in w' [:entities :player :body :hp])))))
+  (testing "lava to lava likewise"
+    (let [w' (w/update-world (player-in 7 7) :right)]
+      (is (nil? (:screen w')))
+      (is (= [3 2] (get-in w' [:entities :player :pos])))
+      (is (< (get-in w' [:entities :player :body :hp]) 30))))
+  (testing "stepping in from solid ground still asks"
+    (is (= :confirm-hazard (:screen (w/update-world (player-in 1 6) :right)))))
+  (testing "a different hazard still asks: chasm to lava"
+    (is (= :confirm-hazard (:screen (w/update-world (player-in 6 7) :right))))))
+
 (deftest player-bumping-friendly-swaps-positions
   (testing "Player walking into a :friendly creature swaps positions
             (Brogue-style ally swap) instead of attacking, ally HP is
