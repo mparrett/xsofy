@@ -175,3 +175,9 @@
   (is (= [] (ui/wrap-text "" 20)))
   (testing "a word wider than the line gets a line of its own"
     (is (= ["supercalifragilistic" "word"] (ui/wrap-text "supercalifragilistic word" 5)))))
+
+(deftest wrap-chips-keeps-each-hint-whole
+  (is (= ["[e] equip  [s] inscribe" "[d] drop"]
+         (ui/wrap-chips ["[e] equip" "[s] inscribe" "[d] drop"] 24)))
+  (is (= ["[e] equip" "[s] inscribe" "[d] drop"]
+         (ui/wrap-chips ["[e] equip" "[s] inscribe" "[d] drop"] 14))))

@@ -110,19 +110,30 @@
         h (max 1 (min h (- th 2)))]
     (rect (inc (quot (- tw w) 2)) (inc (quot (- th h) 2)) w h)))
 
+(defn- pack
+  "Lay pieces left to right joined by sep, starting a new line when the next
+   piece would pass width. A piece wider than width gets a line of its own."
+  [pieces sep width]
+  (loop [ps pieces line "" out []]
+    (if (empty? ps)
+      (if (empty? line) out (conj out line))
+      (let [p (first ps)
+            cand (if (empty? line) p (str line sep p))]
+        (if (or (<= (count cand) width) (empty? line))
+          (recur (rest ps) cand out)
+          (recur ps "" (conj out line)))))))
+
 (defn wrap-text
   "Break s into lines of at most width characters at spaces. A word longer
    than width gets a line of its own and is cut by whoever draws it."
   [s width]
-  (let [words (remove empty? (str/split (or s "") #" "))]
-    (loop [ws words line "" out []]
-      (if (empty? ws)
-        (if (empty? line) out (conj out line))
-        (let [w (first ws)
-              cand (if (empty? line) w (str line " " w))]
-          (if (or (<= (count cand) width) (empty? line))
-            (recur (rest ws) cand out)
-            (recur ws "" (conj out line))))))))
+  (pack (remove empty? (str/split (or s "") #" ")) " " width))
+
+(defn wrap-chips
+  "Lines of key hints like \"[e] equip\", two spaces apart, never splitting
+   a hint from its key."
+  [chips width]
+  (pack chips "  " width))
 
 ;; A blank row inside the frame above and below the contents, so a panel
 ;; doesn't read as cramped. Panels ask ui/box for 2 more rows and pad

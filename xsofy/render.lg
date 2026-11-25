@@ -1063,11 +1063,14 @@
       (let [slot (get-in item [:item :slot])
             equipped (is-equipped? world item-id)
             row (atom y)
+            ;; every line wraps rather than running off the panel's edge,
+            ;; which on a narrow (phone) terminal cut off the key hints
+            put! (fn [text fg]
+                   (ui/write-line r @row (str " " text) fg panel-bg)
+                   (swap! row inc))
             line! (fn [text fg]
-                    (ui/write-line r @row text fg panel-bg)
-                    (swap! row inc))]
-        (doseq [l (ui/wrap-text (or (:item-desc item) "No description.") (- (:w r) 2))]
-          (line! (str " " l) [160 150 130]))
+                    (doseq [l (ui/wrap-text text (- (:w r) 1))] (put! l fg)))]
+        (line! (or (:item-desc item) "No description.") [160 150 130])
         (swap! row inc)
         (when-let [stats (item-stat-str world item-id)]
           (line! (str " Stats: " stats) [140 130 110]))
@@ -1094,12 +1097,14 @@
             (line! (str " Spell:  " (runes/format-sexp rune-table item-runes)) [160 140 200])))
         ;; available commands
         (swap! row inc)
-        (line! (cond
-                 (= slot :consumable) " [a] use  [d] drop"
-                 equipped             " [U] unequip  [s] inscribe  [d] drop"
-                 (and slot (not= slot :consumable)) " [e] equip  [s] inscribe  [d] drop"
-                 :else                " [d] drop")
-               [120 120 100])))))
+        (doseq [l (ui/wrap-chips
+                    (cond
+                      (= slot :consumable) ["[a] use" "[d] drop"]
+                      equipped             ["[U] unequip" "[s] inscribe" "[d] drop"]
+                      (and slot (not= slot :consumable)) ["[e] equip" "[s] inscribe" "[d] drop"]
+                      :else                ["[d] drop"])
+                    (- (:w r) 1))]
+          (put! l [120 120 100]))))))
 
 (defn render-inventory-screen [world]
   (sfx/with-frame
@@ -1111,9 +1116,11 @@
         equipment (or (get-in world [:entities :player :equipment]) {})
         sel (or (:inv-sel world) -1)
         letters "abcdefghijklmnopqrstuvwxyz"
+        ;; the key hint wraps on a narrow panel, so it can take more than one row
+        foot (ui/wrap-chips ["[a-z/jk] select" "[esc/i] close"] (- (:w inner) 1))
         ;; list on the left, details on the right, a gutter between
         [list-r rest-r] (ui/rect-split-h inner (min inventory-list-w (quot (:w inner) 2)))
-        detail-r (ui/rect (+ (:x rest-r) 2) (:y rest-r) (max 1 (- (:w rest-r) 2)) (:h rest-r))]
+        detail-r (ui/rect (+ (:x rest-r) 2) (:y rest-r) (max 1 (- (:w rest-r) 2)) (max 1 (- (:h rest-r) (count foot))))]
     ;; equipment header
     (ui/write-line list-r 0 " Equipment:" [220 200 160] panel-bg)
     (doseq [[row label id] [[1 "W" (:weapon equipment)]
@@ -1128,7 +1135,7 @@
     (ui/write-line list-r 6 " Backpack:" [220 200 160] panel-bg)
     (if (empty? inv)
       (ui/write-line list-r 7 "  (empty)" [60 60 60] panel-bg)
-      (dotimes [i (min (count inv) (- (:h list-r) 9))]
+      (dotimes [i (min (count inv) (- (:h list-r) 8 (count foot)))]
         (let [item-id (nth inv i nil)]
           (when item-id
             (let [item (get-in world [:entities item-id])
@@ -1153,9 +1160,9 @@
           (render-item-detail detail-r 2 world (nth inv sel)))
       (ui/write-line detail-r 0 "Select an item (a-z)" [80 80 80] panel-bg))
     ;; controls at bottom
-    (ui/write-line inner (- (:h inner) 1)
-                   " [a-z/jk] select  [esc/i] close"
-                   [80 80 80] panel-bg))))
+    (doseq [[i l] (map-indexed vector foot)]
+      (ui/write-line inner (+ (- (:h inner) (count foot)) i) (str " " l)
+                     [80 80 80] panel-bg)))))
 
 ;; --- Death Screen ---
 
