@@ -21,23 +21,43 @@
 ;; Returns [r g b] intensity to add to tile colors.
 ;; Multiple lights are additive.
 
+(defn- contribution
+  "[r g b] one light adds at squared distance dist-sq, or nil out of reach.
+   Shared by light-at and light-grid so the two can never disagree."
+  [dist-sq radius color]
+  (when (<= dist-sq (* radius radius))
+    (let [dist (math/sqrt (float dist-sq))
+          falloff (- 1.0 (/ dist (float radius)))
+          falloff (* falloff falloff)
+          [cr cg cb] color]
+      [(int (* cr falloff)) (int (* cg falloff)) (int (* cb falloff))])))
+
 (defn light-at [x y sources]
   (reduce
     (fn [[lr lg lb] {:keys [lx ly radius color]}]
-      (let [dx (- x lx) dy (- y ly)
-            dist-sq (+ (* dx dx) (* dy dy))
-            r-sq (* radius radius)]
-        (if (> dist-sq r-sq)
-          [lr lg lb]
-          (let [dist (math/sqrt (float dist-sq))
-                falloff (- 1.0 (/ dist (float radius)))
-                falloff (* falloff falloff)
-                [cr cg cb] color]
-            [(+ lr (int (* cr falloff)))
-             (+ lg (int (* cg falloff)))
-             (+ lb (int (* cb falloff)))]))))
+      (let [dx (- x lx) dy (- y ly)]
+        (if-let [[cr cg cb] (contribution (+ (* dx dx) (* dy dy)) radius color)]
+          [(+ lr cr) (+ lg cg) (+ lb cb)]
+          [lr lg lb])))
     [0 0 0]
     sources))
+
+(defn light-grid
+  "light-at for every cell of a w*h map, as a vector indexed (+ x (* y w)).
+   Walks each light's radius box once, so building costs the lights' areas
+   rather than cells x lights. Contributions are integers, so summing them in
+   this order gives exactly what light-at returns."
+  [sources w h]
+  (let [g (transient (vec (repeat (* w h) [0 0 0])))]
+    (doseq [{:keys [lx ly radius color]} sources
+            dy (range (- radius) (inc radius))
+            dx (range (- radius) (inc radius))
+            :let [x (+ lx dx) y (+ ly dy)]
+            :when (and (< -1 x w) (< -1 y h))]
+      (when-let [[cr cg cb] (contribution (+ (* dx dx) (* dy dy)) radius color)]
+        (let [i (+ x (* y w)) [r gg b] (nth g i)]
+          (assoc! g i [(+ r cr) (+ gg cg) (+ b cb)]))))
+    (persistent! g)))
 
 ;; --- Apply Light to a Color ---
 ;; Multiplicative lighting like Brogue: light acts as a color multiplier.
