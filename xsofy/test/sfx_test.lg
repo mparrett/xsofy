@@ -374,10 +374,10 @@
         moved (assoc-in room [:entities :player :pos] [3 2])]
     (terrain/tset! (:terrain room) (:width room) 3 2 2)
     (testing "a step onto grass rustles"
-      (is (some #{:rustle} (map :shot (:triggers (sfx/audio-frame moved room)))))))
+      (is (some #{:rustle} (map :shot (:triggers (sfx/audio-frame moved room))))))
     (terrain/tset! (:terrain room) (:width room) 3 2 18)
     (testing "trampled grass still rustles"
-      (is (some #{:rustle} (map :shot (:triggers (sfx/audio-frame moved room)))))))))
+      (is (some #{:rustle} (map :shot (:triggers (sfx/audio-frame moved room))))))))
 
 (deftest item-actions-cue-through-the-real-path
   (let [room   (g/minimal-stone-room)
