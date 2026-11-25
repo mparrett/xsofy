@@ -151,8 +151,11 @@
 
 (def flicker-amts [0 0.10 0.25 0.30 0.40])   ; +/- fraction of full brightness
 (def flicker-ms 90)                          ; how often each light picks a new target
-(def trail-modes [[] [0.5] [0.5 0.25] [0.5 0.25 0.10]])  ; strength of frames 1, 2, 3 back
-(def trail-step-ms [50 80 120])              ; at rest, how long each trail frame lasts
+;; strength of each earlier frame, newest first. Halving past 3 frames is invisible
+;; (5% of a torch rounds to nothing), so 4 and 5 fall off linearly instead.
+(def trail-modes [[] [0.5] [0.5 0.25] [0.5 0.25 0.10]
+                  [0.5 0.35 0.20 0.10] [0.5 0.40 0.30 0.20 0.10]])
+(def trail-step-ms [50 80 120 150 200])      ; at rest, how long each trail frame lasts
 
 (defn- lit-lights
   "all-lights with each light's current flicker factor applied to its colour."
@@ -404,7 +407,7 @@
                    "  sgr=" (lpad (:sgr stats) 4)
                    "  seed=" seed)
         line3 (str "flick:" (lpad (int (* 100 (nth flicker-amts (:flicker st)))) 2) "%"
-                   "  trail:" (nth ["off" "1" "2" "3"] (:trail st))
+                   "  trail:" (let [n (count (nth trail-modes (:trail st)))] (if (zero? n) "off" n))
                    "@" (lpad (nth trail-step-ms (:trail-ms st)) 3) "ms"
                    "  hjkl p ,/. +/- c/d/e/o/t/m/s f/g Tab/a/x N q ?")]
     (term/reset-style)
@@ -430,8 +433,9 @@
    "  a / x               add light at cursor / delete active"
    "  m                   hide / show the light markers (@ / o)"
    "  f                   flicker: off -> 10% -> 25% -> 30% -> 40%"
-   "  g                   move trail: off -> 1 (50%) -> 2 (50/25%) -> 3 (50/25/10%)"
-   "  G                   trail step at rest: 50 -> 80 -> 120 ms"
+   "  g                   move trail: off -> 1 (50%) -> 2 (50/25) -> 3 (50/25/10)"
+   "                        -> 4 (50/35/20/10) -> 5 (50/40/30/20/10)"
+   "  G                   trail step at rest: 50 -> 80 -> 120 -> 150 -> 200 ms"
    ""
    "Rendering & perf probe:"
    "  o                   occlusion: raw radial <-> FOV wall-shadows"
