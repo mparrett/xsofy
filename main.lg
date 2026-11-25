@@ -245,8 +245,11 @@
         items (render/menu-filter world action)
         sel (or (:menu-sel world) -1)]
     (cond
-      ;; cancel
-      (= k "\u001b")
+      ;; cancel: esc; any key when there is nothing to choose; enter or
+      ;; space with nothing highlighted
+      (or (= k "\u001b")
+          (and (empty? items) (some? k))
+          (and (< sel 0) (contains? #{" " "\r" "\n"} k)))
       (dissoc world :screen :menu-action :menu-sel)
 
       ;; navigate
