@@ -73,6 +73,19 @@
     ;; generate-level returns [ {:grid :rooms} world' ]; we only need the grid.
     (:grid (first (terrain/generate-level w h depth {:seed seed})))))
 
+;; Each light carries its own flicker amount (+/- fraction of full brightness);
+;; the global `f` setting scales them all, down to 0 for no flicker at all.
+;; Fire and lava use these only while their own animation (`v`) is off.
+(def tile-flicker {9 0.30    ; wall torch
+                   15 0.45   ; fire
+                   7 0.15})  ; lava
+(def default-flicker 0.30)   ; a carried torch
+
+(defn- terrain-lights [grid w h]
+  (mapv (fn [l] (assoc l :flicker (get tile-flicker (terrain/tget grid w (:lx l) (:ly l))
+                                       default-flicker)))
+        (light/collect-terrain-lights grid w h)))
+
 ;; defined in the fire & lava section further down
 (declare scan-fx fx-light-factor)
 
@@ -82,10 +95,11 @@
     {:w w :h h :depth depth :seed seed :grid grid
      ;; terrain torches/lava/fire already emit light — collect once per grid so
      ;; the movable light plays against them, not an empty field.
-     :tlights (light/collect-terrain-lights grid w h)
+     :tlights (terrain-lights grid w h)
      :fx (scan-fx {:grid grid :w w :h h :fx {}})
      :lights [{:lx (quot w 2) :ly (quot h 2)
-               :radius 8 :preset 0 :color (nth color-presets 0)}]
+               :radius 8 :preset 0 :color (nth color-presets 0)
+               :flicker default-flicker}]
      :active 0
      :occlude? false
      :terrain-lights? true
@@ -110,7 +124,7 @@
      :help? false         ; full-screen help overlay (? key)
      :stats {:drawn 0 :sgr 0}
      ;; spike: ambient flicker, move trail and rise (see "--- flicker, trail & rise ---")
-     :flicker 3           ; index into flicker-amts (30%, Matt's pick 2026-11-25) (`f` cycles)
+     :flicker 2           ; index into flicker-scales: x1 (`f` cycles); per-light amounts via `z`
      :flick []            ; per-light brightness factor, parallel to all-lights
      :flick-at 0          ; ms of the last flicker step
      :trail 2             ; index into trail-modes (2 frames) (`g` cycles)
@@ -165,7 +179,8 @@
 (def ^:private clock-epoch (now))
 (defn- millis [] (quot (.Sub (now) clock-epoch) 1000000))
 
-(def flicker-amts [0 0.10 0.25 0.30 0.40])   ; +/- fraction of full brightness
+(def flicker-scales [0 0.5 1.0 1.5 2.0])     ; global multiplier on every light's own amount
+(def light-flicker-amts [0 0.10 0.25 0.30 0.40 0.60])  ; what `z` cycles the active light through
 (def flicker-ms 90)                          ; how often each light picks a new target
 ;; strength of each earlier frame, newest first. Halving past 3 frames is invisible
 ;; (5% of a torch rounds to nothing), so 4 and 5 fall off linearly instead.
@@ -191,12 +206,13 @@
              ls)))))
 
 (defn- flicker-step [st]
-  (let [a (nth flicker-amts (:flicker st))
-        n (count (all-lights st))
+  (let [scale (nth flicker-scales (:flicker st))
+        ls (all-lights st)
         fl (:flick st)]
     (assoc st :flick-at (millis)
-           :flick (vec (for [i (range n)]
+           :flick (vec (for [i (range (count ls))]
                          (let [v (nth fl i 1.0)
+                               a (* scale (or (:flicker (nth ls i)) default-flicker))
                                target (+ 1.0 (* a (- (* 2.0 (rand)) 1.0)))]
                            ;; halfway to a fresh target each step: soft, never jumpy
                            (+ v (* 0.5 (- target v)))))))))
@@ -372,7 +388,7 @@
                        (< -1 x w) (< -1 y h)
                        (terrain/walkable? grid w h x y))]
       (terrain/tset! grid w x y tile))
-    (let [st' (assoc st :tlights (light/collect-terrain-lights grid w h) :ghosts nil :prev nil)]
+    (let [st' (assoc st :tlights (terrain-lights grid w h) :ghosts nil :prev nil)]
       (assoc st' :fx (scan-fx st')))))
 
 ;; posterize: round a channel to `step` buckets (step 1 = no-op / full 8-bit)
@@ -449,13 +465,19 @@
   (let [s (inc (:seed st))
         grid (gen-grid (assoc st :seed s))]
     (assoc st :seed s :grid grid :embers []
-           :tlights (light/collect-terrain-lights grid (:w st) (:h st))
+           :tlights (terrain-lights grid (:w st) (:h st))
            :fx (scan-fx {:grid grid :w (:w st) :h (:h st) :fx {}}))))
 
 (defn- update-state [st k]
   (cond
     (contains? dir-keys k)    (let [[dx dy] (get dir-keys k)] (after-move st (move-active st dx dy)))
-    (= k "f")                 (update st :flicker (fn [i] (mod (inc i) (count flicker-amts))))
+    (= k "f")                 (update st :flicker (fn [i] (mod (inc i) (count flicker-scales))))
+    (= k "z")                 (update-in st [:lights (:active st) :flicker]
+                                         (fn [a] (let [i (or (first (keep-indexed (fn [j v] (when (= v (or a default-flicker)) j))
+                                                                        light-flicker-amts))
+                                                         0)]
+                                                   (nth light-flicker-amts
+                                                        (mod (inc i) (count light-flicker-amts))))))
     (= k "g")                 (-> st (update :trail (fn [i] (mod (inc i) (count trail-modes))))
                                   (assoc :ghosts nil))
     (= k "i")                 (-> st (update :rise (fn [i] (mod (inc i) (count rise-modes))))
@@ -592,12 +614,13 @@
                    "  drawn=" (lpad (:drawn stats) 4) "/" (* w h)
                    "  sgr=" (lpad (:sgr stats) 4)
                    "  t=" (lpad (:ms stats 0) 3) "ms")
-        line3 (str "flick:" (lpad (int (* 100 (nth flicker-amts (:flicker st)))) 2) "%"
+        line3 (str "flick:x" (nth ["0  " "0.5" "1  " "1.5" "2  "] (:flicker st))
+                   " this:" (lpad (int (* 100 (or (:flicker al) default-flicker))) 2) "%"
                    "  trail:" (let [n (count (nth trail-modes (:trail st)))] (if (zero? n) "off" n))
                    "@" (lpad (nth trail-step-ms (:trail-ms st)) 3) "ms"
                    (if (:trail-walls? st) "+w" "  ")
                    "  rise:" (let [r (nth rise-modes (:rise st))] (if (zero? r) "off" r))
-                   "  fx:" (if (:fx? st) "on " "off") "  keys: f g G w i F L v  ?")]
+                   "  fx:" (if (:fx? st) "on " "off") "  ?=keys")]
     (term/reset-style)
     (term/move-cursor 1 (+ top 1)) (term/write (pad line1 tw))
     (term/move-cursor 1 (+ top 2)) (term/write (pad line2 tw))
@@ -620,7 +643,9 @@
    "  Tab / ] / [         select next / prev light"
    "  a / x               add light at cursor / delete active"
    "  m                   hide / show the light markers (@ / o)"
-   "  f                   flicker: off -> 10% -> 25% -> 30% -> 40%"
+   "  f                   flicker, all lights: x0 (off) -> x0.5 -> x1 -> x1.5 -> x2"
+   "  z                   flicker, this light: 0 -> 10 -> 25 -> 30 -> 40 -> 60%"
+   "                        (torches start at 30%, fire 45%, lava 15%)"
    "  g                   move trail: off -> 1 (50%) -> 2 (50/25) -> 3 (50/25/10)"
    "                        -> 4 (50/35/20/10) -> 5 (50/40/30/20/10)"
    "  G                   trail step at rest: 50 -> 80 -> 120 -> 150 -> 200 ms"
