@@ -1,7 +1,8 @@
 (ns xsofy.test.hazard-prompt-test
   "What a key pressed at the hazard prompt (\"Dive into the depths?\") means."
   (:require [test :refer [deftest is testing]]
-            [xsofy.world :as w]))
+            [xsofy.world :as w]
+            [xsofy.render :as render]))
 
 ;; the pending step is upward: the hazard is at dx 0, dy -1
 (def ^:private at-prompt {:screen :confirm-hazard :hazard-dx 0 :hazard-dy -1})
@@ -26,3 +27,26 @@
   (testing "a key that isn't a move cancels without moving"
     (is (= :cancel (w/hazard-answer at-prompt "\u001b" :unknown)))
     (is (= :cancel (w/hazard-answer at-prompt "i" :inventory)))))
+
+;; the map rect: 60 x 20 cells from terminal (21, 2)
+(def ^:private mr {:x 21 :y 2 :w 60 :h 20})
+
+(deftest the-panel-sits-below-the-player-with-a-row-between
+  (testing "centred under the player, the cell below the player uncovered"
+    (is (= {:x 41 :y 12 :w 20 :h 4} (render/hazard-panel-rect mr [51 10] -1 20 4)))
+    (is (= {:x 41 :y 12 :w 20 :h 4} (render/hazard-panel-rect mr [51 10] 0 20 4)))))
+
+(deftest the-panel-goes-above-when-the-hazard-is-below
+  (testing "the step being confirmed stays in view"
+    (is (= {:x 41 :y 5 :w 20 :h 4} (render/hazard-panel-rect mr [51 10] 1 20 4)))))
+
+(deftest the-panel-flips-and-clamps-at-the-map-edges
+  (testing "no room below: above"
+    (is (= 14 (:y (render/hazard-panel-rect mr [51 19] -1 20 4)))))
+  (testing "no room above: below, even with the hazard below"
+    (is (= 6 (:y (render/hazard-panel-rect mr [51 4] 1 20 4)))))
+  (testing "kept inside the map horizontally"
+    (is (= 21 (:x (render/hazard-panel-rect mr [22 10] 0 20 4))))
+    (is (= 61 (:x (render/hazard-panel-rect mr [80 10] 0 20 4)))))
+  (testing "a map too small for it: no panel"
+    (is (nil? (render/hazard-panel-rect {:x 1 :y 1 :w 10 :h 3} [5 2] 0 20 4)))))

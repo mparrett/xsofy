@@ -524,8 +524,11 @@
                  ;; carry straight on in: a toward-press needs to be a fresh one.
                  accept? (fn [k] (or (not (world/toward-hazard? world (input/parse-key k)))
                                      (>= (- (ui/millis) opened) hazard-guard-ms)))
-                 k (ui/prompt-key! (fn [] (render/render-hazard-prompt
-                                          world prompt "walk on to go in, step away to cancel"))
+                 k (ui/prompt-key! (fn []
+                                     (sfx/with-frame
+                                       (render/render-hazard-panel world)
+                                       (render/render-hazard-prompt
+                                        world prompt "walk on to go in, step away to cancel")))
                                    (repaint-after-first world)
                                    {:accept? accept?})
                  answer (world/hazard-answer world k (input/parse-key k))
