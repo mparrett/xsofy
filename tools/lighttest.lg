@@ -106,12 +106,12 @@
      :help? false         ; full-screen help overlay (? key)
      :stats {:drawn 0 :sgr 0}
      ;; spike: ambient flicker + move fade (see "--- flicker & fade ---")
-     :flicker 0           ; index into flicker-amts (`f` cycles)
+     :flicker 3           ; index into flicker-amts (30%, Matt's pick 2026-11-25) (`f` cycles)
      :flick []            ; per-light brightness factor, parallel to all-lights
      :flick-at 0          ; ms of the last flicker step
-     :trail 0             ; index into trail-modes (`g` cycles)
-     :trail-ms 1          ; index into trail-step-ms (`G` cycles)
-     :rise 0              ; index into rise-modes (`i` cycles)
+     :trail 2             ; index into trail-modes (2 frames) (`g` cycles)
+     :trail-ms 0          ; index into trail-step-ms (50 ms) (`G` cycles)
+     :rise 2              ; index into rise-modes (2 frames) (`i` cycles)
      :trail-walls? false  ; trail lingers in cells that just went behind a wall (`w`)
      :ghosts nil          ; earlier frames' light grids, newest first; nil = settled
      :still 0             ; trail steps since the last move
