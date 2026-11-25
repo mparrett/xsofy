@@ -1415,10 +1415,13 @@
 
 ;; --- Public API ---
 
-(defn render-hazard-prompt [world prompt]
-  "Render a hazard confirmation prompt at the bottom of the screen."
+(defn render-hazard-prompt
+  "Render a y/n confirmation prompt on the screen's bottom row, with an
+   optional hint after it."
+  ([world prompt] (render-hazard-prompt world prompt nil))
+  ([world prompt hint]
   (let [[tw th] (term-dims)
-        msg (str " " prompt " (y/n)")
+        msg (str " " prompt " (y/n)" (when hint (str "   " hint)))
         y th]
     (term/move-cursor 1 y)
     (term/set-fg 255 200 60)
@@ -1426,7 +1429,7 @@
     (term/write (apply str (repeat tw " ")))
     (term/move-cursor 1 y)
     (term/write msg)
-    (term/flush)))
+    (term/flush))))
 
 (declare render-full render-dirty)
 
@@ -1441,7 +1444,7 @@
   (let [[tw th] (term-dims)
         m (:map (ui/layout tw th))]
     (if (or (not= (:depth world) (:depth prev-world))
-            (:screen world)
+            (contains? #{:death} (:screen world))
             (and m (<= (:y m) th) (< th (+ (:y m) (:h m)))))
       (render-full world)
       ;; one frame, so the status line is never seen blank

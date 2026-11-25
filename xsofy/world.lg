@@ -1795,6 +1795,30 @@
   (-> world
       (dissoc :screen :hazard-prompt :hazard-pos :hazard-dx :hazard-dy)))
 
+(def ^:private action-dirs
+  {:up [0 -1] :down [0 1] :left [-1 0] :right [1 0]
+   :up-left [-1 -1] :up-right [1 -1] :down-left [-1 1] :down-right [1 1]
+   :run-up [0 -1] :run-down [0 1] :run-left [-1 0] :run-right [1 0]})
+
+(defn toward-hazard?
+  "True if `action` moves toward the pending hazard step."
+  [world action]
+  (= (get action-dirs action) [(:hazard-dx world) (:hazard-dy world)]))
+
+(defn hazard-answer
+  "What a key pressed at the hazard prompt means: :confirm, :cancel, or
+   [:cancel-then action] to back away with that move. `key` is the raw key,
+   `action` its parsed action. y and n answer the prompt even though they are
+   also diagonal moves; otherwise a move toward the hazard walks into it, and
+   any other move cancels and is made."
+  [world key action]
+  (cond
+    (= key "y")                    :confirm
+    (= key "n")                    :cancel
+    (toward-hazard? world action)  :confirm
+    (contains? action-dirs action) [:cancel-then action]
+    :else                          :cancel))
+
 ;; --- Inventory actions (dispatched, replay-safe) ---
 ;; These mutate the world (equip/unequip/drop) and so must flow through dispatch
 ;; like any other turn action, NOT be applied directly by the menu UI — otherwise

@@ -127,11 +127,17 @@
 (defn run-play-loop
   "Drive the play screen on the unified poll-based loop. Returns the world when a
    screen opens (so game-loop dispatches it) or when the game ends. Never blocks
-   while idle (input is polled), so it stays responsive in native + wasm."
+   while idle (input is polled), so it stays responsive in native + wasm.
+
+   A world carrying :pending-action (a move made from a prompt, see
+   world/hazard-answer) has it played first, as if it were the first key."
   [world size]
   (ui/run-loop
-    {:sources  [(ui/input-source) (ui/clock-source 0)]
-     :state    {:world world :size size :ui {:frame 0}}
+    {:sources  (cond-> [(ui/input-source) (ui/clock-source 0)]
+                 (:pending-action world)
+                 (conj (let [once (atom [[:action (:pending-action world)]])]
+                         (fn [] (let [evs @once] (reset! once []) evs)))))
+     :state    {:world (dissoc world :pending-action) :size size :ui {:frame 0}}
      :step     play-step
      :render   (fn [_])          ;; rendering is turn-aware; done in play-advance
      :frame-ms 30}))

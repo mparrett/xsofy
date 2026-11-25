@@ -10,6 +10,7 @@
             [xsofy.ui :as ui]
             [xsofy.runes :as runes]
             [xsofy.play :as play]
+            [xsofy.input :as input]
             [xsofy.title :as title]
             [xsofy.screenfx :as sfx]
             [xsofy.debug :as dbg]
@@ -381,6 +382,8 @@
                 w'))
             w0 actions)))
 
+(def ^:private hazard-guard-ms 250)
+
 (defn- repaint-after-first
   "A prompt-key! background for a prompt over the game screen: the screen is
    already up when the prompt opens, so the first paint draws only the prompt,
@@ -516,11 +519,22 @@
          (do
            ;; render the prompt on the message line
            (let [prompt (or (:hazard-prompt world) "Are you sure?")
-                 k (ui/prompt-key! (fn [] (render/render-hazard-prompt world prompt))
-                                 (repaint-after-first world))
-                 w (if (= k "y")
+                 opened (ui/millis)
+                 ;; A move toward the hazard walks into it, so a held key would
+                 ;; carry straight on in: a toward-press needs to be a fresh one.
+                 accept? (fn [k] (or (not (world/toward-hazard? world (input/parse-key k)))
+                                     (>= (- (ui/millis) opened) hazard-guard-ms)))
+                 k (ui/prompt-key! (fn [] (render/render-hazard-prompt
+                                          world prompt "walk on to go in, step away to cancel"))
+                                   (repaint-after-first world)
+                                   {:accept? accept?})
+                 answer (world/hazard-answer world k (input/parse-key k))
+                 w (if (= answer :confirm)
                      (world/confirm-hazard-step world)
-                     (world/cancel-hazard-step world))]
+                     (world/cancel-hazard-step world))
+                 ;; backing away: the move goes to the play loop as its first
+                 ;; key, so it is dispatched, recorded and drawn like any other
+                 w (if (vector? answer) (assoc w :pending-action (second answer)) w)]
              (render/erase-prompt! w world)
              (recur w w (term/size))))
 

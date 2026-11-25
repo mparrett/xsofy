@@ -1,0 +1,28 @@
+(ns xsofy.test.hazard-prompt-test
+  "What a key pressed at the hazard prompt (\"Dive into the depths?\") means."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.world :as w]))
+
+;; the pending step is upward: the hazard is at dx 0, dy -1
+(def ^:private at-prompt {:screen :confirm-hazard :hazard-dx 0 :hazard-dy -1})
+
+(deftest y-and-n-answer-the-prompt
+  (testing "y confirms and n cancels, though both are also diagonal moves"
+    (is (= :confirm (w/hazard-answer at-prompt "y" :up-left)))
+    (is (= :cancel (w/hazard-answer at-prompt "n" :down-right)))))
+
+(deftest a-move-toward-the-hazard-walks-in
+  (testing "moving or running toward the pending step confirms it"
+    (is (= :confirm (w/hazard-answer at-prompt "k" :up)))
+    (is (= :confirm (w/hazard-answer at-prompt "K" :run-up)))))
+
+(deftest any-other-move-backs-away
+  (testing "a move in another direction cancels and is made"
+    (is (= [:cancel-then :down] (w/hazard-answer at-prompt "j" :down)))
+    (is (= [:cancel-then :left] (w/hazard-answer at-prompt "h" :left)))
+    (is (= [:cancel-then :up-right] (w/hazard-answer at-prompt "u" :up-right)))))
+
+(deftest other-keys-cancel
+  (testing "a key that isn't a move cancels without moving"
+    (is (= :cancel (w/hazard-answer at-prompt "\u001b" :unknown)))
+    (is (= :cancel (w/hazard-answer at-prompt "i" :inventory)))))
