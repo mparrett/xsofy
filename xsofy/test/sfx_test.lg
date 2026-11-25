@@ -598,3 +598,26 @@
     (let [gap (fn [salt] (:delay-ms (last (sfx/for-events base salt [{:kind :hit-dealt :severity 0.3}
                                                                      {:kind :hit-taken :severity 0.3}]))))]
       (is (< 1 (count (set (map gap (range 20)))))))))
+
+(deftest deep-water-swims-and-shallow-water-sloshes-now-and-then
+  (let [shots (fn [surface seed] (set (map :shot (sfx/for-event {:kind :footstep :dist 0 :surface surface :foot 0} seed))))]
+    (testing "a stroke in deep water: a slosh and bubbles, no heel"
+      (let [s (shots :deep 1)]
+        (is (contains? s :swim-slosh))
+        (is (contains? s :cry-sli-bubble))
+        (is (not (contains? s :step-pat-soft)))))
+    (testing "a shallow step sloshes in some steps, not most"
+      (let [n (count (filter #(contains? (shots :water %) :swim-slosh) (range 200)))]
+        (is (< 10 n 60))))))
+
+(deftest deep-water-is-its-own-surface
+  (let [room  (assoc-in (g/minimal-stone-room) [:entities :player]
+                        {:id :player :pos [2 2] :body {:hp 20 :max-hp 20}})
+        moved (assoc-in room [:entities :player :pos] [3 2])
+        heard (fn [] (set (map :shot (:triggers (sfx/audio-frame moved room)))))]
+    (terrain/tset! (:terrain room) (:width room) 3 2 4)
+    (testing "a move into deep water swims"
+      (is (contains? (heard) :swim-slosh)))
+    (terrain/tset! (:terrain room) (:width room) 3 2 3)
+    (testing "a move into shallow water wades"
+      (is (contains? (heard) :step-wade)))))

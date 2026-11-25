@@ -161,6 +161,9 @@
    {:name :web-thread :gate-ms 300
     :patch [[:env 0.002 0.12 0 0.08] [:pluck 0 0.8] [:mul] [:hpf 900] [:out 0.4 0.5]
             [:env 0.01 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:svf 4200 0.5 1 0] [:out 0.25 0.5]]}
+   ;; A swimming stroke's slosh (round 47): round 45's squelch drawn out.
+   {:name :swim-slosh :gate-ms 500
+    :patch [[:env 0.04 0.18 0 0.12] [:osc 0 :noise 0 1] [:mul] [:svf 1000 0.45 1 0] [:lpf 2500] [:out 0.7 0.5]]}
    ;; Fire catching: a bright crackle, then a low whoomph.
    {:name :ignite :gate-ms 400
     :patch [[:env 0.005 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:hpf 1500] [:out 0.5 0.5]
@@ -256,7 +259,12 @@
    W100's (0.562 / 1.189)."
   (assoc stone-step :n 0 :click 0 :pat 0.8 :pat-shot :step-pat-soft :gain 0.299
          :layers [[0 :step-wade 0.6 54] [60 :step-drip 0.25 57]]
-         :sometimes [0.333 [[30 :step-plop 0.5 58]]]))
+         ;; Each [chance layers] drawn on its own. The slosh: S133 (round 47)
+         ;; in 15% of steps, Matt 2026-11-25: "shallow water should be a slosh
+         ;; like S133, but only with occasional slosh, maybe 10-20%". At 0.7 of
+         ;; its board level, since the step plays under it.
+         :sometimes [[0.333 [[30 :step-plop 0.5 58]]]
+                     [0.15 [[0 :swim-slosh 0.4 61] [90 :cry-sli-bubble 0.18 72] [150 :cry-sli-bubble 0.14 68]]]]))
 
 (defn- unit
   "A deterministic draw in [0, 1) off the shot seed."
@@ -294,19 +302,35 @@
                  ;; the floor's own sounds: [ms shot level note]
                  (map (fn [[ms shot lv note]] (tr ms shot lv note)) layers)
                  ;; [chance layers]: now and then, drawn from the seed
-                 (when-let [[chance extra] sometimes]
-                   (when (< (unit seed :sometimes) chance)
-                     (map (fn [[ms shot lv note]] (tr ms shot lv note)) extra))))
+                 (mapcat (fn [i [chance extra]]
+                           (when (< (unit seed [:sometimes i]) chance)
+                             (map (fn [[ms shot lv note]] (tr ms shot lv note)) extra)))
+                         (range) sometimes))
          ;; a preset with no click leaves zero-gain triggers out
          (remove #(zero? (:gain %)))
          vec))))
+
+(defn- swim-shots
+  "A stroke in deep water, S134 (round 47, Matt 2026-11-25): the slime's
+   bubble twice after a slosh at half. Matt hears the slosh as \"a brush or a
+   broom sweeping\", hence half. Swimming is not a step, so no heel. Gain is
+   the board's levelling to the water step (x0.29)."
+  [ev seed]
+  (let [g   (* 0.29 (+ 0.7 (* 0.6 (unit seed :level))))
+        pan (if-let [f (:foot ev)] (if (zero? f) 0.45 0.55) 0.5)
+        tr  (fn [ms shot lv note]
+              {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note) :delay-ms ms})]
+    [(tr 0 :swim-slosh 0.4 60)
+     (tr 90 :cry-sli-bubble 0.35 (+ 72 (long (* 6 (unit seed :b1)))))
+     (tr 150 :cry-sli-bubble 0.28 (+ 68 (long (* 6 (unit seed :b2)))))]))
 
 (defn- footstep-shots [ev seed]
   (case (:surface ev)
     nil    (stone-step-shots ev seed)
     :grass (stone-step-shots ev seed grass-step)
-    ;; deep water too, until it gets its own sound (Matt: swimming is not a step)
     :water (stone-step-shots ev seed water-step)
+    ;; Matt: swimming is not a step
+    :deep  (swim-shots ev seed)
   [{:shot (case (:surface ev) :water :splash :grass :rustle :footstep)
     ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
     ;; step entirely, and the gain is what keeps it subtle, not the register.
@@ -956,7 +980,9 @@
         surface    (when (and stepped (:terrain new-world))
                      (let [t (terrain/tget (:terrain new-world) (:width new-world)
                                            (first pos) (second pos))]
-                       (cond (#{3 4} t)  :water
+                       ;; deep water (4) swims; shallow (3) wades
+                       (cond (= 3 t)     :water
+                             (= 4 t)     :deep
                              (#{2 18} t) :grass)))
         ;; Statuses that arrived or left this turn. :webbed and :swimming have
         ;; their own sounds (the web, the water step).
