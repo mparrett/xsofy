@@ -374,10 +374,10 @@
         moved (assoc-in room [:entities :player :pos] [3 2])]
     (terrain/tset! (:terrain room) (:width room) 3 2 2)
     (testing "a step onto grass rustles"
-      (is (= [:rustle] (mapv :shot (:triggers (sfx/audio-frame moved room))))))
+      (is (some #{:rustle} (map :shot (:triggers (sfx/audio-frame moved room))))))
     (terrain/tset! (:terrain room) (:width room) 3 2 18)
     (testing "trampled grass still rustles"
-      (is (= [:rustle] (mapv :shot (:triggers (sfx/audio-frame moved room))))))))
+      (is (some #{:rustle} (map :shot (:triggers (sfx/audio-frame moved room))))))))
 
 (deftest item-actions-cue-through-the-real-path
   (let [room   (g/minimal-stone-room)
@@ -531,3 +531,11 @@
   (testing "two steps differ"
     (is (not= (map :delay-ms (sfx/for-event {:kind :footstep} 7))
               (map :delay-ms (sfx/for-event {:kind :footstep} 8))))))
+
+(deftest the-grass-step-is-w119
+  (testing "grass is W100's step with a quiet rustle on the heel and the sole"
+    (let [trs (sfx/for-event {:kind :footstep :surface :grass} 7)
+          rustles (filter #(= :rustle (:shot %)) trs)]
+      (is (= [:step-pat :step-click] (mapv :shot (take 2 trs))))
+      (is (= [0 85] (sort (map :delay-ms rustles))))
+      (is (= (count trs) (count (set (map :note trs))))))))

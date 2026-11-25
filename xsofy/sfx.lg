@@ -207,6 +207,13 @@
    ;; the old step's loudness
    :gain 0.633})
 
+(def ^:private grass-step
+  "W119 (round 44, Matt 2026-11-24): W100 with half the click and a quiet
+   rustle on the heel and again on the sole. Its board level against W100's
+   (0.813 / 1.189) sets the gain."
+  (assoc stone-step :click 0.4 :gain 0.433
+         :layers [[0 :rustle 0.22 55] [85 :rustle 0.15 57]]))
+
 (defn- unit
   "A deterministic draw in [0, 1) off the shot seed."
   [seed k]
@@ -218,8 +225,9 @@
    trigger gets its own note: undertone merges identical triggers a few ms
    apart, and the noise ignores pitch. :foot (0 or 1, the player's) swings
    the pan a touch left or right, step by step."
-  [ev seed]
-  (let [{:keys [n span peak spread hi-every pat click roll roll-level gain]} stone-step
+  ([ev seed] (stone-step-shots ev seed stone-step))
+  ([ev seed preset]
+  (let [{:keys [n span peak spread hi-every pat click roll roll-level gain layers]} preset
         g    (* gain (attenuate (:dist ev)) (+ 0.7 (* 0.6 (unit seed :level))))
         pan  (if-let [f (:foot ev)] (if (zero? f) 0.45 0.55) (pan-of (:dir ev)))
         tr   (fn [ms shot lv note]
@@ -237,11 +245,14 @@
            (tr 0 :step-click click 92)
            (tr roll :step-pat (* pat roll-level) 91)
            (tr roll :step-click (* click roll-level) 93)]
-          scuffs)))
+          (concat scuffs
+                  ;; the floor's own sounds: [ms shot level note]
+                  (map (fn [[ms shot lv note]] (tr ms shot lv note)) layers))))))
 
 (defn- footstep-shots [ev seed]
-  (if-not (:surface ev)
-    (stone-step-shots ev seed)
+  (case (:surface ev)
+    nil    (stone-step-shots ev seed)
+    :grass (stone-step-shots ev seed grass-step)
   [{:shot (case (:surface ev) :water :splash :grass :rustle :footstep)
     ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
     ;; step entirely, and the gain is what keeps it subtle, not the register.
