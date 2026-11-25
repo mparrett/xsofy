@@ -385,13 +385,13 @@
 (def ^:private hazard-guard-ms 250)
 
 (defn- repaint-after-first
-  "A prompt-key! background for a prompt over the game screen: the screen is
+  "A background for a prompt or panel over the game screen: the screen is
    already up when the prompt opens, so the first paint draws only the prompt,
    and the game is repainted under it only after a resize."
   [world]
   (let [first? (atom true)]
-    ;; prompt-key! calls it with nothing, modal-loop with the world
-    (fn [& _] (if @first? (reset! first? false) (render/render-full world)))))
+    ;; prompt-key! calls it with nothing, modal-loop with the current world
+    (fn [& [w]] (if @first? (reset! first? false) (render/render-full (or w world))))))
 
 (defn game-loop
   ([world]
@@ -422,10 +422,10 @@
 
          :inventory
          (let [w (ui/modal-loop world render/render-inventory-screen inventory-input
-                                {:background! render/render-full})]
+                                {:background! (repaint-after-first world)})]
            (if (:screen w)
              (recur w w prev-size)
-             (do (render/render-full w)
+             (do (render/close-panel! w world)
                  (recur w w (term/size)))))
 
          :inscribe
@@ -435,15 +435,15 @@
                                 {:background! (repaint-after-first world)})]
            (if (:screen w)
              (recur w w prev-size)
-             (do (render/render-full w)
+             (do (render/close-panel! w world)
                  (recur w w (term/size)))))
 
          :quick-menu
          (let [w (ui/modal-loop world render/render-quick-menu quick-menu-input
-                                {:background! render/render-full})]
+                                {:background! (repaint-after-first world)})]
            (if (:screen w)
              (recur w w prev-size)
-             (do (render/render-full w)
+             (do (render/close-panel! w world)
                  (recur w w (term/size)))))
 
          :death

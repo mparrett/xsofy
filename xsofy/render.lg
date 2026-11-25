@@ -924,6 +924,9 @@
               :else nil)))
         inv)))))
 
+;; Where the open panel was last drawn, so closing it redraws only that.
+(def ^:private open-panel-rect (atom nil))
+
 (defn render-quick-menu [world]
   (sfx/with-frame
   (let [[tw th] (term-dims)
@@ -936,6 +939,7 @@
         mx (- (quot tw 2) (quot menu-w 2))
         my (- (quot th 2) (quot menu-h 2))
         r (ui/rect mx my menu-w menu-h)
+        _ (reset! open-panel-rect r)
         inner (ui/box r (menu-title action) [220 200 160] [20 18 16])]
     (ui/clear-rect inner)
     (if (empty? items)
@@ -1038,6 +1042,7 @@
 ;; The inventory and inscribe screens share one panel, so moving between them
 ;; (s on an item, then esc or enter) doesn't make the box jump.
 (def ^:private panel-bg [20 18 16])
+
 (def ^:private inventory-panel-w 76)
 (def ^:private inventory-list-w 32)
 
@@ -1098,6 +1103,7 @@
   (sfx/with-frame
   (let [[tw th] (term-dims)
         r (inventory-panel-rect world tw th)
+        _ (reset! open-panel-rect r)
         inner (ui/box r "Inventory" [180 170 140] panel-bg)
         inv (or (get-in world [:entities :player :inventory]) [])
         equipment (or (get-in world [:entities :player :equipment]) {})
@@ -1361,6 +1367,7 @@
   (sfx/with-frame
   (let [[tw th] (term-dims)
         r (inventory-panel-rect world tw th)
+        _ (reset! open-panel-rect r)
         inner (ui/box r "Inscribe Runes" [200 160 240] panel-bg)
         rune-table (or (:rune-table world) {})
         item-id (:inscribe-item-id world)
@@ -1433,6 +1440,7 @@
     (term/flush))))
 
 (declare render-full render-dirty)
+
 
 ;; --- Hazard panel ---
 ;; The hazard prompt's warning, drawn in a small box beside the player rather
@@ -1532,6 +1540,37 @@
                              (when visible (get (:stains world) [x y]))
                              (when visible (get (:gases world) [x y])))))))))
 
+
+(defn- overlaps? [a b]
+  (and (< (:x a) (+ (:x b) (:w b))) (< (:x b) (+ (:x a) (:w a)))
+       (< (:y a) (+ (:y b) (:h b))) (< (:y b) (+ (:y a) (:h a)))))
+
+(defn close-panel!
+  "Take down the panel last drawn over the game, redrawing only what it
+   covered: the map cells and what stands on them, and any side region it
+   touched. An action taken from the panel (equip, use) spends a turn, so
+   whatever else changed since `prev-world`, when the panel opened, is drawn
+   as after a move. Falls back to a full repaint if no panel was recorded."
+  [world prev-world]
+  (if-let [rect @open-panel-rect]
+    (let [[tw th] (term-dims)
+          panels (ui/layout tw th)
+          mr (with-camera world (:map panels))]
+      (reset! open-panel-rect nil)
+      (sfx/with-frame
+        (ui/apply-bg ui/bg)
+        (ui/apply-fg ui/bg)
+        (dotimes [i (:h rect)]
+          (term/move-cursor (:x rect) (+ (:y rect) i))
+          (term/write (apply str (repeat (:w rect) " "))))
+        (restore-map-rect! world mr rect)
+        (render-map-entities world mr)
+        (doseq [[k f] [[:topbar render-topbar] [:sidebar render-sidebar]
+                       [:log render-log] [:status render-status]]]
+          (when-let [pr (get panels k)]
+            (when (overlaps? pr rect) (f world pr))))
+        (render-dirty world prev-world)))
+    (render-full world)))
 (defn erase-prompt!
   "Take down a bottom-row prompt (render-hazard-prompt) and bring the screen
    from `prev-world`, which is still on it, up to `world`. The prompt painted
