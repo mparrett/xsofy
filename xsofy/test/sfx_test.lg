@@ -244,7 +244,7 @@
     (is (> (:gain (first (triggers {:kind :ignite :dist 1})))
            (:gain (first (triggers {:kind :ignite :dist 8}))))))
   (testing "a step in water splashes"
-    (is (= :splash (:shot (first (triggers {:kind :footstep :surface :water})))))
+    (is (= :step-pat-soft (:shot (first (triggers {:kind :footstep :surface :water})))))
     ;; a dry floor is W100's stone step, led by the heel's pat
     (is (= :step-pat (:shot (first (triggers {:kind :footstep})))))))
 
@@ -539,3 +539,12 @@
       (is (= [:step-pat :step-click] (mapv :shot (take 2 trs))))
       (is (= [0 85] (sort (map :delay-ms rustles))))
       (is (= (count trs) (count (set (map :note trs))))))))
+
+(deftest the-water-step-is-w123-with-a-plop-now-and-then
+  (let [shots (fn [seed] (set (map :shot (sfx/for-event {:kind :footstep :surface :water} seed))))
+        plops (count (filter #(contains? (shots %) :step-plop) (range 60)))]
+    (testing "a soft heel, the wade and a drip, no click"
+      (is (every? (shots 1) [:step-pat-soft :step-wade :step-drip]))
+      (is (not (contains? (shots 1) :step-click))))
+    (testing "the plop comes now and then: about one step in three"
+      (is (< 10 plops 30)))))

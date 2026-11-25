@@ -52,6 +52,20 @@
     :patch [[:env 0.0015 0.006 0 0.005] [:osc 0 :noise 0 1] [:mul] [:lpf 700] [:lpf 700] [:lpf 900] [:lpf 900] [:out 0.6 0.5]]}
    {:name :step-grit :gate-ms 400
     :patch [[:env 0.0008 0.003 0 0.003] [:osc 0 :noise 0 1] [:mul] [:lpf 1700] [:lpf 1700] [:out 0.4 0.5]]}
+   ;; The water step (W123, and W121's plop now and then; round 44): a
+   ;; softer heel, then round 29's wade and drip, which were never wired.
+   {:name :step-pat-soft :gate-ms 400
+    :patch [[:env 0.004 0.025 0 0.02] [:osc 0 :noise 0 1] [:mul] [:lpf 600] [:lpf 600] [:hpf 150] [:out 0.8 0.5]]}
+   {:name :step-wade :gate-ms 700
+    :patch [[:env 0.02 0.16 0 0.12] [:osc 0 :noise 0 1] [:mul] [:env 0.03 0.12 0 0.1] [:svf 500 0.5 1 2] [:out 0.7 0.5]
+            [:env 0.004 0.08 0 0.05] [:dust 300 1 0] [:svf 3000 0.4 1 0] [:mul] [:out 0.35 0.5]]}
+   {:name :step-drip :gate-ms 700
+    :patch [[:env 0.002 0.12 0 0.08] [:osc 0 :noise 0 1] [:mul] [:svf 1400 0.4 1 0] [:out 0.5 0.5]
+            [:env 0.01 0.3 0 0.2] [:dust 25 0 0] [:comb 12 0.96 0.4] [:mul] [:out 0.35 0.5]]}
+   {:name :step-plop :gate-ms 700
+    :patch [[:env 0.001 0.06 0 0.04] [:pitch -9]
+            [:env 0.001 0.07 0 0.05] [:osc 0 :sine 0 1] [:mul] [:out 0.35 0.5]
+            [:env 0.002 0.1 0 0.06] [:dust 500 1 0] [:svf 2200 0.5 1 0] [:mul] [:out 0.6 0.5]]}
 ;; Changing floor: a chirp, each note scooping up 3 semitones into place,
    ;; run as a Shepard scale (going-shots), then held once as the arrival
    ;; (arrival-shots). Matt's picks from the 2026-11 rounds of the sfx board:
@@ -214,6 +228,15 @@
   (assoc stone-step :click 0.4 :gain 0.433
          :layers [[0 :rustle 0.22 55] [85 :rustle 0.15 57]]))
 
+(def ^:private water-step
+  "W123 (round 44, Matt 2026-11-24): a soft heel, no click and no scuffs,
+   the wade and a faint drip; and, one step in three, W121's plop, \"you
+   know how we like to vary steps\". Gain from the board's level against
+   W100's (0.562 / 1.189)."
+  (assoc stone-step :n 0 :click 0 :pat 0.8 :pat-shot :step-pat-soft :gain 0.299
+         :layers [[0 :step-wade 0.6 54] [60 :step-drip 0.25 57]]
+         :sometimes [1/3 [[30 :step-plop 0.5 58]]]))
+
 (defn- unit
   "A deterministic draw in [0, 1) off the shot seed."
   [seed k]
@@ -227,7 +250,8 @@
    the pan a touch left or right, step by step."
   ([ev seed] (stone-step-shots ev seed stone-step))
   ([ev seed preset]
-  (let [{:keys [n span peak spread hi-every pat click roll roll-level gain layers]} preset
+  (let [{:keys [n span peak spread hi-every pat click roll roll-level gain layers sometimes pat-shot]
+         :or {pat-shot :step-pat}} preset
         g    (* gain (attenuate (:dist ev)) (+ 0.7 (* 0.6 (unit seed :level))))
         pan  (if-let [f (:foot ev)] (if (zero? f) 0.45 0.55) (pan-of (:dir ev)))
         tr   (fn [ms shot lv note]
@@ -241,18 +265,27 @@
                      (tr ms (if (zero? (mod i hi-every)) :step-grit :step-scuff) lv (+ 30 i))))
                  ts)]
     ;; the heel's pat and click lead, so the first trigger is the step's onset
-    (into [(tr 0 :step-pat pat 90)
-           (tr 0 :step-click click 92)
-           (tr roll :step-pat (* pat roll-level) 91)
-           (tr roll :step-click (* click roll-level) 93)]
-          (concat scuffs
-                  ;; the floor's own sounds: [ms shot level note]
-                  (map (fn [[ms shot lv note]] (tr ms shot lv note)) layers))))))
+    (->> (concat [(tr 0 pat-shot pat 90)
+                  (tr 0 :step-click click 92)
+                  (tr roll pat-shot (* pat roll-level) 91)
+                  (tr roll :step-click (* click roll-level) 93)]
+                 scuffs
+                 ;; the floor's own sounds: [ms shot level note]
+                 (map (fn [[ms shot lv note]] (tr ms shot lv note)) layers)
+                 ;; [chance layers]: now and then, drawn from the seed
+                 (when-let [[chance extra] sometimes]
+                   (when (< (unit seed :sometimes) chance)
+                     (map (fn [[ms shot lv note]] (tr ms shot lv note)) extra))))
+         ;; a preset with no click leaves zero-gain triggers out
+         (remove #(zero? (:gain %)))
+         vec))))
 
 (defn- footstep-shots [ev seed]
   (case (:surface ev)
     nil    (stone-step-shots ev seed)
     :grass (stone-step-shots ev seed grass-step)
+    ;; deep water too, until it gets its own sound (Matt: swimming is not a step)
+    :water (stone-step-shots ev seed water-step)
   [{:shot (case (:surface ev) :water :splash :grass :rustle :footstep)
     ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
     ;; step entirely, and the gain is what keeps it subtle, not the register.
