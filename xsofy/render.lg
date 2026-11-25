@@ -312,17 +312,21 @@
       (let [[br bgg bb] ui/bg]
         [" " br bgg bb br bgg bb])))
 
-(defn render-map-tile [r x y tile visible remembered light-val stain gas]
+(defn- draw-cell!
+  "Draw appearance `app` at world cell [x y], unless the screen already shows
+   exactly that (see cell-appearance)."
+  [r x y app]
   (when-let [[col row] (map-cell r x y)]
-    (let [app (tile-appearance x y tile visible remembered light-val stain gas)]
-      ;; skip cells byte-identical to last frame (see cell-appearance)
-      (when (not= app (get @cell-appearance [x y]))
-        (let [[ch fr fg fb br bgg bb] app]
-          (term/move-cursor col row)
-          (pen-fg! fr fg fb)
-          (pen-bg! br bgg bb)
-          (term/write ch))
-        (swap! cell-appearance assoc [x y] app)))))
+    (when (not= app (get @cell-appearance [x y]))
+      (let [[ch fr fg fb br bgg bb] app]
+        (term/move-cursor col row)
+        (pen-fg! fr fg fb)
+        (pen-bg! br bgg bb)
+        (term/write ch))
+      (swap! cell-appearance assoc [x y] app))))
+
+(defn render-map-tile [r x y tile visible remembered light-val stain gas]
+  (draw-cell! r x y (tile-appearance x y tile visible remembered light-val stain gas)))
 
 (defn render-map [world r]
   (let [{:keys [terrain width height fov memory]} world
@@ -368,7 +372,10 @@
 ;; fire-orange.
 (def friendly-tint [120 200 255])
 
-(defn render-entity [world r entity]
+(defn- entity-appearance
+  "[glyph fr fg fb br bg bb] for `entity` on its tile, or nil when it isn't
+   in view."
+  [world r entity]
   (when-let [pos (:pos entity)]
     (let [{:keys [fov]} world
           lights (or (:lights world) [])
@@ -410,22 +417,52 @@
                     bg-lit)
               fg-lit (if lv (light/apply-light fg0 lv) fg0)
               glyph (get-in entity [:visual :glyph] "?")
-              [col row] (map-cell r x y)]
-          (term/move-cursor col row)
-          (let [[fr fg fb] fg-lit] (pen-fg! fr fg fb))
-          (let [[br bgg bb] bg1] (pen-bg! br bgg bb))
-          (term/write glyph))))))
+              [fr fg fb] fg-lit
+              [br bgg bb] bg1]
+          [glyph fr fg fb br bgg bb])))))
+
+;; Entities go through the appearance buffer like tiles do, and each cell is
+;; drawn once with what ends up on top. Painting the tile and then the entity
+;; over it every turn rewrote every visible creature and item, and a frame shown
+;; between the two writes blanked them to bare floor.
+(defn render-entity [world r entity]
+  (when-let [app (entity-appearance world r entity)]
+    (let [[x y] (:pos entity)]
+      (draw-cell! r x y app))))
+
+(defn top-entities
+  "{pos -> entity} for every entity in view, keeping the one drawn on top
+   where several share a cell (player > creature > item)."
+  [world]
+  (let [fov (or (:fov world) #{})]
+    (core/reduce (fn [m e]
+                   (let [pos (:pos e)]
+                     (if (and pos (contains? fov pos)
+                              (let [prev (get m pos)]
+                                (or (nil? prev) (< (entity-z-priority prev) (entity-z-priority e)))))
+                       (assoc m pos e)
+                       m)))
+                 {} (vals (:entities world)))))
+
+(defn- render-cell!
+  "Draw world cell [x y] as it should finally look: the top entity in `top`
+   if one stands there, else the tile (lit if in view, remembered if not)."
+  [world r top x y]
+  (if-let [app (when-let [e (get top [x y])] (entity-appearance world r e))]
+    (draw-cell! r x y app)
+    (let [visible (contains? (:fov world) [x y])]
+      (render-map-tile r x y
+                       (when visible (terrain/tget (:terrain world) (:width world) x y))
+                       visible
+                       (get (:memory world) [x y])
+                       (when visible (light/light-at x y (or (:lights world) [])))
+                       (when visible (get (:stains world) [x y]))
+                       (when visible (get (:gases world) [x y]))))))
 
 (defn render-map-entities [world r]
-  ;; render order: items first, then creatures, then player on top
-  (let [ents (vals (:entities world))
-        items (filter #(= :item (:entity-type %)) ents)
-        creatures (filter #(and (not= :item (:entity-type %))
-                                (not= :player (:id %))) ents)
-        player (get-in world [:entities :player])]
-    (doseq [e items] (render-entity world r e))
-    (doseq [e creatures] (render-entity world r e))
-    (when player (render-entity world r player))))
+  ;; only the top entity of each cell (player > creature > item), so an item
+  ;; under a monster isn't drawn and then drawn over
+  (doseq [[_ e] (top-entities world)] (render-entity world r e)))
 
 ;; --- Sidebar Panel ---
 
@@ -704,31 +741,17 @@
 (defn restore-dirty-cells!
   "Redraw only the given cells (map tile + any entity on them)."
   [world r dirty]
-  (let [{:keys [terrain width height fov memory]} world
-        lights (or (:lights world) [])
-        stains (or (:stains world) {})
-        gases (or (:gases world) {})
-        pos-ent (dirty-cell-entities (:entities world) dirty)]
+  (let [pos-ent (dirty-cell-entities (:entities world) dirty)]
     (pen-reset!)   ; vfx overlays emit raw between restores; start clean (see sgr-pen)
     ;; render-vfx-frame painted these cells raw without touching the appearance
     ;; buffer, so the buffer still holds their base appearance. Invalidate them
     ;; or the diff would skip the restore and leave the overlay tint stuck.
     (swap! cell-appearance (fn [m] (reduce dissoc m dirty)))
     (doseq [[x y] dirty]
-      ;; render-map-tile + render-entity both use map-cell internally,
-      ;; which clips correctly in camera coords. Don't add an outer
-      ;; (< x (:w r)) guard — that'd skip cells outside [0,rw) but
+      ;; render-cell! clips through map-cell in camera coords. Don't add an
+      ;; outer (< x (:w r)) guard — that'd skip cells outside [0,rw) but
       ;; inside [cx, cx+rw), which on a scrolled map is most of them.
-      (let [visible (contains? fov [x y])
-            remembered (get memory [x y])
-            tile (when visible (terrain/tget terrain width x y))
-            lv (when visible (light/light-at x y lights))
-            stain (when visible (get stains [x y]))
-            gas (when visible (get gases [x y]))]
-        (render-map-tile r x y tile visible remembered lv stain gas)
-        ;; re-render entity on this cell if any
-        (when-let [e (get pos-ent [x y])]
-          (render-entity world r e))))))
+      (render-cell! world r pos-ent x y))))
 
 (defn render-vfx-frame [world r]
   "Render vfx as color overlays on existing tiles. Does not overwrite glyphs."
@@ -1670,19 +1693,11 @@
           (render-status world (:status panels)))
       ;; Camera held — FOV-delta path. map-cell handles visibility check;
       ;; no outer bounds guard needed because x,y are world coords.
-      (let [lights (or (:lights world) [])
-            stains (or (:stains world) {})
-            gases (or (:gases world) {})]
-        ;; Entities are drawn over their tile by render-map-entities, not through
-        ;; the appearance buffer. So a monster that moved leaves its glyph in the
-        ;; buffer's *tile* slot unchanged — the diff would skip repainting the
-        ;; vacated cell and strand a ghost (base render-dirty avoids this by
-        ;; repainting all of new-fov). Invalidate every cell an entity occupies
-        ;; this frame or last, forcing those tiles to redraw beneath the entities.
-        (let [ent-cells (into #{}
-                              (concat (keep :pos (vals (:entities world)))
-                                      (keep :pos (vals (:entities prev-world)))))]
-          (swap! cell-appearance (fn [m] (reduce dissoc m ent-cells))))
+      ;; Each cell is drawn once as it finally looks, its top entity or its tile,
+      ;; through the appearance buffer (see render-entity). A monster that moved
+      ;; changes both its old cell (now the tile) and its new one, so the diff
+      ;; repaints exactly those; one that stood still costs nothing.
+      (let [top (top-entities world)]
         ;; Iterate in the original FOV-set order (not sorted): fire/water/lava
         ;; draw their color from the global rand stream in tile-appearance, so
         ;; reordering would reshuffle which cell consumes which draw. Harmless
@@ -1691,24 +1706,12 @@
         (pen-reset!)   ; start of the FOV-delta penned batch (see sgr-pen)
         (doseq [[x y] old-fov]
           (when-not (contains? new-fov [x y])
-            (render-map-tile mr x y nil false (get (:memory world) [x y]) nil nil nil)))
+            (render-cell! world mr top x y)))
         (doseq [[x y] new-fov]
-          (render-map-tile mr x y
-                           (terrain/tget (:terrain world) (:width world) x y)
-                           true nil
-                           (light/light-at x y lights)
-                           (get stains [x y])
-                           (get gases [x y])))
+          (render-cell! world mr top x y))
         (let [[opx opy] (get-in prev-world [:entities :player :pos])]
           (when (and opx opy)
-            (let [tile (terrain/tget (:terrain world) (:width world) opx opy)
-                  vis (contains? new-fov [opx opy])]
-              (render-map-tile mr opx opy tile vis
-                               (get (:memory world) [opx opy])
-                               (when vis (light/light-at opx opy lights))
-                               (when vis (get stains [opx opy]))
-                               (when vis (get gases [opx opy]))))))
-        (render-map-entities world mr)
+            (render-cell! world mr top opx opy)))
         (render-topbar world (:topbar panels))
         (render-sidebar world (:sidebar panels))
         (render-log world (:log panels))
