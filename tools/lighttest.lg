@@ -113,9 +113,9 @@
      :trail-ms 1          ; index into trail-step-ms (`G` cycles)
      :rise 0              ; index into rise-modes (`i` cycles)
      :trail-walls? false  ; trail lingers in cells that just went behind a wall (`w`)
-     :ghosts nil          ; earlier frames {:l lights :v fov}, newest first; nil = settled
+     :ghosts nil          ; earlier frames' light grids, newest first; nil = settled
      :still 0             ; trail steps since the last move
-     :vis nil             ; last frame's FOV, so a move can remember it
+     :lv nil              ; last frame's live light per cell, so a move can remember it
      :ghost-at 0          ; ms of the last move or trail step
      :running true}))
 
@@ -188,6 +188,11 @@
                            ;; halfway to a fresh target each step: soft, never jumpy
                            (+ v (* 0.5 (- target v)))))))))
 
+(defn- light-spots
+  "Where each movable light is: [lx ly radius], parallel to (:lights st)."
+  [st]
+  (mapv (fn [l] [(:lx l) (:ly l) (:radius l)]) (:lights st)))
+
 (defn- history-len [st]
   (max (count (nth trail-modes (:trail st))) (nth rise-modes (:rise st))))
 
@@ -196,7 +201,7 @@
   [st st']
   (let [n (history-len st)]
     (if (pos? n)
-      (assoc st' :ghosts (vec (take n (cons {:l (lit-lights st) :v (:vis st)} (:ghosts st))))
+      (assoc st' :ghosts (vec (take n (cons {:g (:lv st) :p (light-spots st)} (:ghosts st))))
                  :ghost-at (millis))
       st')))
 
@@ -217,33 +222,48 @@
   (let [st' (update (push-frame st st) :still inc)]
     (if (>= (:still st') (history-len st)) (assoc st' :ghosts nil) st')))
 
-(defn- frame-light
-  "A remembered frame's light at x,y, dark where that frame's FOV didn't reach."
-  [x y {:keys [l v]} occlude?]
-  (if (or (not occlude?) (nil? v) (contains? v [x y]))
-    (light/light-at x y l)
-    [0 0 0]))
+(defn- motion-rects
+  "Rects [x0 y0 x1 y1] covering every movable light that sits somewhere else in a
+   remembered frame, at both its old and its current spot. Static lights look the
+   same in every frame, so the trail and rise only change cells inside these."
+  [st ghosts]
+  (let [cur (light-spots st)
+        rect (fn [[lx ly r]] [(- lx r) (- ly r) (+ lx r) (+ ly r)])]
+    (vec (distinct
+           (mapcat (fn [{:keys [p]}]
+                     (if (not= (count p) (count cur))
+                       [[0 0 (:w st) (:h st)]]
+                       (mapcat (fn [a b] (when (not= a b) [(rect a) (rect b)])) p cur)))
+                   ghosts)))))
+
+(defn- in-rects? [rects x y]
+  (some (fn [[x0 y0 x1 y1]] (and (<= x0 x x1) (<= y0 y y1))) rects))
 
 (defn- ghost-light
   "Light at x,y with the trail and rise applied. `now` is the live light (already
-   dark if the cell is out of view); `lit?` says whether it is in view."
+   dark if the cell is out of view); `lit?` says whether it is in view. Earlier
+   frames are looked up in their stored grids, never recomputed."
   [st x y now lit? ghosts]
-  (let [occ? (:occlude? st)
+  (let [idx (+ x (* y (:w st)))
+        [r g b] now
         rn (nth rise-modes (:rise st))
         ;; rise: a cell gaining light shows the mean of this frame and the last rn
-        up (if (and (pos? rn) (seq ghosts))
-             (let [fs (cons now (map #(frame-light x y % occ?) (take rn ghosts)))
-                   k (count fs)]
-               (mapv (fn [c] (min (nth now c) (quot (reduce + (map #(nth % c) fs)) k)))
-                     [0 1 2]))
-             now)
-        weights (nth trail-modes (:trail st))]
+        [r g b] (if (pos? rn)
+                  (loop [fs ghosts k 0 sr r sg g sb b]
+                    (if (and (< k rn) (seq fs))
+                      (let [[or og ob] (nth (:g (first fs)) idx)]
+                        (recur (rest fs) (inc k) (+ sr or) (+ sg og) (+ sb ob)))
+                      (let [n (inc k)]
+                        [(min r (quot sr n)) (min g (quot sg n)) (min b (quot sb n))])))
+                  [r g b])]
     (if (or lit? (:trail-walls? st))
-      (reduce (fn [lv [g w]]
-                (mapv (fn [n o] (max n (int (* w o)))) lv (frame-light x y g occ?)))
-              up
-              (map vector ghosts weights))
-      up)))
+      (loop [fs ghosts ws (nth trail-modes (:trail st)) r r g g b b]
+        (if (and (seq fs) (seq ws))
+          (let [[or og ob] (nth (:g (first fs)) idx) wt (first ws)]
+            (recur (rest fs) (rest ws)
+                   (max r (int (* wt or))) (max g (int (* wt og))) (max b (int (* wt ob)))))
+          [r g b]))
+      [r g b])))
 
 ;; posterize: round a channel to `step` buckets (step 1 = no-op / full 8-bit)
 (def depth->step {8 1  6 4  5 8  4 16})
@@ -401,11 +421,12 @@
       (recur (inc i) (assoc m [(:lx (nth lights i)) (:ly (nth lights i))] i))
       m)))
 
-(defn- cell-app [st x y lset old vis lidx step]
+(defn- cell-app [st x y lset old rects vis lidx step lvs]
   (let [li (get lidx [x y])]
     (if li
       (let [l (nth (:lights st) li)
             [cr cg cb] (:color l)]
+        (swap! lvs conj (light/light-at x y lset))
         [(if (= li (:active st)) "@" "o") (pq cr step) (pq cg step) (pq cb step) 0 0 0])
       (let [grid (:grid st) w (:w st) h (:h st)
             ;; :mapshift scrolls the terrain under a fixed light — sample the tile
@@ -416,7 +437,8 @@
             style (get terrain/tile-styles tile)
             lit? (or (not (:occlude? st)) (contains? vis [x y]))
             now (if lit? (light/light-at x y lset) [0 0 0])
-            lv (if old (ghost-light st x y now lit? old) now)
+            _ (swap! lvs conj now)
+            lv (if (and old (in-rects? rects x y)) (ghost-light st x y now lit? old) now)
             [fr fg fb] (light/apply-light (:fg style) lv)
             [br bg bb] (light/apply-light (:bg style) lv)]
         [ch (pq fr step) (pq fg step) (pq fb step) (pq br step) (pq bg step) (pq bb step)]))))
@@ -441,7 +463,7 @@
                                      (str (name demo-mode) "@" (lpad frame-ms 3) "ms")) 12)
                    "  drawn=" (lpad (:drawn stats) 4) "/" (* w h)
                    "  sgr=" (lpad (:sgr stats) 4)
-                   "  seed=" seed)
+                   "  t=" (lpad (:ms stats 0) 3) "ms")
         line3 (str "flick:" (lpad (int (* 100 (nth flicker-amts (:flicker st)))) 2) "%"
                    "  trail:" (let [n (count (nth trail-modes (:trail st)))] (if (zero? n) "off" n))
                    "@" (lpad (nth trail-step-ms (:trail-ms st)) 3) "ms"
@@ -501,7 +523,8 @@
   (term/flush))
 
 (defn- render! [st]
-  (let [{:keys [grid w h lights active occlude? cdepth]} st
+  (let [t0 (millis)
+        {:keys [grid w h lights active occlude? cdepth]} st
         mode (:render-mode st)
         full? (= mode :naive)          ; no damage buffer + no cursor/SGR elision
         sgr-cap? (or full? (= mode :sgr-off))  ; re-emit SGR per drawn cell (isolates #145)
@@ -513,11 +536,13 @@
         _ (when resized? (term/clear))
         lset (lit-lights st)
         old (:ghosts st)
+        rects (when old (motion-rects st old))
         al (nth lights active)
         vis (when occlude? (fov/compute-fov grid w h (:lx al) (:ly al) (:radius al)))
         lidx (if (:markers? st) (light-index-at lights) {})
         step (get depth->step cdepth 1)
         n (* w h)
+        lvs (atom [])   ; each cell's live light this frame, kept for the trail/rise
         ;; per-frame emit context (elision + counters)
         last-fg (atom nil) last-bg (atom nil)
         cur-col (atom 0)   cur-row (atom 0)
@@ -527,7 +552,7 @@
         (reduce
           (fn [acc idx]
             (let [x (mod idx w) y (quot idx w)
-                  app (cell-app st x y lset old vis lidx step)
+                  app (cell-app st x y lset old rects vis lidx step lvs)
                   ;; naive: pretend nothing was drawn before -> repaint all
                   old (when (and prev (not full?)) (nth prev idx))]
               (when (not= app old)
@@ -548,7 +573,7 @@
                   (swap! drawn inc)))
               (conj acc app)))
           [] (range n))
-        st' (assoc st :prev newfb :tsize tsize :stats {:drawn @drawn :sgr @sgr} :vis vis)]
+        st' (assoc st :prev newfb :tsize tsize :stats {:drawn @drawn :sgr @sgr :ms (- (millis) t0)} :lv @lvs)]
     (render-hud! st' (or (first tsize) w))
     (when (:sync? st) (term/write end-sync))   ; ESU — present the whole frame atomically
     (term/flush)
