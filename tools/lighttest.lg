@@ -109,9 +109,10 @@
      :flicker 0           ; index into flicker-amts (`f` cycles)
      :flick []            ; per-light brightness factor, parallel to all-lights
      :flick-at 0          ; ms of the last flicker step
-     :fade 0              ; index into fade-lens (`g` cycles)
-     :fade-from nil       ; the lights as they were before the last move
-     :fade-until 0        ; ms after which the half-strength old light drops
+     :trail 0             ; index into trail-modes (`g` cycles)
+     :trail-ms 1          ; index into trail-step-ms (`G` cycles)
+     :ghosts nil          ; earlier light sets, newest first; nil = nothing lingering
+     :ghost-at 0          ; ms of the last move or trail step
      :running true}))
 
 ;; --- helpers ---
@@ -139,17 +140,19 @@
 
 ;; --- flicker & fade (spike) ---
 ;; Flicker: each light's brightness wanders a little around full strength, each
-;; on its own, eased so it breathes rather than strobes. Fade: for a moment after
-;; a light moves, a cell keeps half of the light it just lost, so the edge of the
-;; pool softens instead of snapping. Both are cosmetic and use `rand`, never a
+;; on its own, eased so it breathes rather than strobes. Trail: the light sets of
+;; the last few frames linger at falling strength (50%, 25%, 10%), so the edge of
+;; the pool softens instead of snapping. A "frame" is a move or, at rest, one
+;; trail step of time, so a light that stops sheds its trail within a few steps. Both are cosmetic and use `rand`, never a
 ;; seeded stream; in the game they must stay off the dispatch path.
 
 (def ^:private clock-epoch (now))
 (defn- millis [] (quot (.Sub (now) clock-epoch) 1000000))
 
-(def flicker-amts [0 0.10 0.25 0.40])   ; +/- fraction of full brightness
-(def flicker-ms 90)                     ; how often each light picks a new target
-(def fade-lens [0 60 90 140])           ; ms the half-strength old light lingers
+(def flicker-amts [0 0.10 0.25 0.30 0.40])   ; +/- fraction of full brightness
+(def flicker-ms 90)                          ; how often each light picks a new target
+(def trail-modes [[] [0.5] [0.5 0.25] [0.5 0.25 0.10]])  ; strength of frames 1, 2, 3 back
+(def trail-step-ms [50 80 120])              ; at rest, how long each trail frame lasts
 
 (defn- lit-lights
   "all-lights with each light's current flicker factor applied to its colour."
@@ -175,16 +178,34 @@
                            (+ v (* 0.5 (- target v)))))))))
 
 (defn- with-fade
-  "st' is st after a light moved: remember st's light so the next frames can
-   let it go gradually."
+  "st' is st after a light moved: push st's light onto the trail."
   [st st']
-  (let [ms (nth fade-lens (:fade st))]
-    (if (pos? ms)
-      (assoc st' :fade-from (lit-lights st) :fade-until (+ (millis) ms))
+  (let [n (count (nth trail-modes (:trail st)))]
+    (if (pos? n)
+      (assoc st' :ghosts (vec (take n (cons (lit-lights st) (:ghosts st))))
+                 :ghost-at (millis))
       st')))
 
-(defn- fading? [st]
-  (and (:fade-from st) (< (millis) (:fade-until st))))
+(defn- trail-due? [st]
+  (and (:ghosts st)
+       (>= (- (millis) (:ghost-at st)) (nth trail-step-ms (:trail-ms st)))))
+
+(defn- trail-step
+  "A frame passes with nothing moving: every ghost drops one strength level."
+  [st]
+  (let [n (count (nth trail-modes (:trail st)))
+        g (vec (take n (cons nil (:ghosts st))))]
+    (assoc st :ghosts (when (some some? g) g) :ghost-at (millis))))
+
+(defn- ghost-light
+  "Light at x,y: the live light, or a weaker copy of an earlier frame's if brighter."
+  [x y lset ghosts weights]
+  (reduce (fn [lv [g w]]
+            (if g
+              (mapv (fn [n o] (max n (int (* w o)))) lv (light/light-at x y g))
+              lv))
+          (light/light-at x y lset)
+          (map vector ghosts weights)))
 
 ;; posterize: round a channel to `step` buckets (step 1 = no-op / full 8-bit)
 (def depth->step {8 1  6 4  5 8  4 16})
@@ -266,7 +287,9 @@
   (cond
     (contains? dir-keys k)    (let [[dx dy] (get dir-keys k)] (with-fade st (move-active st dx dy)))
     (= k "f")                 (update st :flicker (fn [i] (mod (inc i) (count flicker-amts))))
-    (= k "g")                 (update st :fade (fn [i] (mod (inc i) (count fade-lens))))
+    (= k "g")                 (-> st (update :trail (fn [i] (mod (inc i) (count trail-modes))))
+                                  (assoc :ghosts nil))
+    (= k "G")                 (update st :trail-ms (fn [i] (mod (inc i) (count trail-step-ms))))
     (= k "p")                 (let [st (update st :demo-mode demo-next)]
                                 (if (= (:demo-mode st) :mapshift) st (assoc st :shift [0 0])))
     (= k ",")                 (update st :frame-ms (fn [m] (min 200 (+ m 10))))
@@ -353,9 +376,7 @@
             lit? (or (not (:occlude? st)) (contains? vis [x y]))
             lv (cond
                  (not lit?) [0 0 0]
-                 ;; mid-fade: keep half of the light this cell had before the move
-                 old (mapv (fn [n o] (max n (quot o 2)))
-                           (light/light-at x y lset) (light/light-at x y old))
+                 old (ghost-light x y lset old (nth trail-modes (:trail st)))
                  :else (light/light-at x y lset))
             [fr fg fb] (light/apply-light (:fg style) lv)
             [br bg bb] (light/apply-light (:bg style) lv)]
@@ -383,7 +404,8 @@
                    "  sgr=" (lpad (:sgr stats) 4)
                    "  seed=" seed)
         line3 (str "flick:" (lpad (int (* 100 (nth flicker-amts (:flicker st)))) 2) "%"
-                   "  fade:" (lpad (nth fade-lens (:fade st)) 3) "ms"
+                   "  trail:" (nth ["off" "1" "2" "3"] (:trail st))
+                   "@" (lpad (nth trail-step-ms (:trail-ms st)) 3) "ms"
                    "  hjkl p ,/. +/- c/d/e/o/t/m/s f/g Tab/a/x N q ?")]
     (term/reset-style)
     (term/move-cursor 1 (+ h 1)) (term/write (pad line1 tw))
@@ -407,8 +429,9 @@
    "  Tab / ] / [         select next / prev light"
    "  a / x               add light at cursor / delete active"
    "  m                   hide / show the light markers (@ / o)"
-   "  f                   flicker: off -> 10% -> 25% -> 40%"
-   "  g                   move fade: off -> 60 -> 90 -> 140 ms (half of the old light)"
+   "  f                   flicker: off -> 10% -> 25% -> 30% -> 40%"
+   "  g                   move trail: off -> 1 (50%) -> 2 (50/25%) -> 3 (50/25/10%)"
+   "  G                   trail step at rest: 50 -> 80 -> 120 ms"
    ""
    "Rendering & perf probe:"
    "  o                   occlusion: raw radial <-> FOV wall-shadows"
@@ -445,7 +468,7 @@
         prev (if resized? nil (:prev st))
         _ (when resized? (term/clear))
         lset (lit-lights st)
-        old (when (fading? st) (:fade-from st))
+        old (:ghosts st)
         al (nth lights active)
         vis (when occlude? (fov/compute-fov grid w h (:lx al) (:ly al) (:radius al)))
         lidx (if (:markers? st) (light-index-at lights) {})
@@ -481,8 +504,7 @@
                   (swap! drawn inc)))
               (conj acc app)))
           [] (range n))
-        st' (assoc st :prev newfb :tsize tsize :stats {:drawn @drawn :sgr @sgr}
-                   :fade-from old)]
+        st' (assoc st :prev newfb :tsize tsize :stats {:drawn @drawn :sgr @sgr})]
     (render-hud! st' (or (first tsize) w))
     (when (:sync? st) (term/write end-sync))   ; ESU — present the whole frame atomically
     (term/flush)
@@ -540,15 +562,14 @@
                       st2 (render! (with-fade st1 (demo-step st1)))]
                   (sleep (:frame-ms st2))
                   (recur st2))))
-      ;; flicker on, or a fade still lingering: poll rather than block, so the
+      ;; flicker on, or a trail still lingering: poll rather than block, so the
       ;; light keeps moving between keys
-      (or (pos? (:flicker st)) (:fade-from st))
+      (or (pos? (:flicker st)) (:ghosts st))
       (cond
         (term/key-pending?) (recur (render! (update-state st (term/read-key))))
         (and (pos? (:flicker st)) (>= (- (millis) (:flick-at st)) flicker-ms))
         (recur (render! (flicker-step st)))
-        ;; the fade ran out: one more frame drops the old light
-        (and (:fade-from st) (not (fading? st))) (recur (render! st))
+        (trail-due? st) (recur (render! (trail-step st)))
         :else (do (sleep 10) (recur st)))
       ;; keyboard-only: block until a key (read-key wakes with a form feed on resize,
       ;; so render! still runs and repaints at the new size), then react
