@@ -80,6 +80,7 @@
    ends so the outer game-loop can take over."
   [state world key]
   (let [prev (:world state)
+        _ (when (= :toggle-sound (dispatch/action-type key)) (audio/toggle-mute!))
         new-world (apply-auto-stops (dispatch/dispatch world key) world)
         _ (bridge/emit-stats new-world)
         _ (bridge/emit-replay-code new-world)

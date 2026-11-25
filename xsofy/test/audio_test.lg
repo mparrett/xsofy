@@ -3,7 +3,8 @@
    the sink entry points are tested only for what holds on every lg — on a
    stock lg (no undertone binding) they are no-ops that return nil."
   (:require [test :refer [deftest is testing]]
-            [xsofy.audio :as audio]))
+            [xsofy.audio :as audio]
+            [xsofy.dispatch :as dispatch]))
 
 (deftest envelope-attacks-instantly-and-releases-slowly
   (testing "a higher target lands at once"
@@ -43,3 +44,13 @@
   (testing "a world with nothing cued is returned as is"
     (let [w {:turn 3}]
       (is (identical? w (audio/cues! w))))))
+
+(deftest muting-never-reaches-the-world
+  (testing "M is not a turn: dispatch leaves the world, the seed and the
+            action log as they were"
+    (let [w {:turn 3 :seed 42 :action-log [] :entities {}}]
+      (is (= w (dispatch/dispatch w :toggle-sound))))))
+
+(deftest sound-mode-defaults-to-on
+  (testing "with no ?sound= and no XSOFY_SOUND, the game plays"
+    (is (= :on audio/sound-mode))))
