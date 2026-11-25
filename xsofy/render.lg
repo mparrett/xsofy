@@ -1134,7 +1134,8 @@
                   fg (if selected [255 255 220] color)
                   bg (if selected [48 44 34] panel-bg)]
               (ui/write-line list-r (+ 7 i)
-                             (str mark letter ") " glyph " " iname)
+                             ;; the equipped mark sits a column in from the border
+                             (str " " mark letter ") " glyph " " iname)
                              fg bg))))))
     ;; detail panel
     (if (and (>= sel 0) (< sel (count inv)))
