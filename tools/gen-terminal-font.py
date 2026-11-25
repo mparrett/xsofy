@@ -59,6 +59,10 @@ def fetch_ttf() -> pathlib.Path:
 def scan_codepoints() -> set[int]:
     cps: set[int] = set()
     for p in ROOT.glob(GAME_GLOB):
+        # Tests never draw to the terminal, and their string fixtures (the
+        # hash tests' CJK salt) have glyphs the font doesn't carry.
+        if "test" in p.relative_to(ROOT).parts:
+            continue
         for ch in p.read_text(errors="replace"):
             if ord(ch) > 0x7E and ord(ch) not in (0x09, 0x0A, 0x0D):
                 cps.add(ord(ch))

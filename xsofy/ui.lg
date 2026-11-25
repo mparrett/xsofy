@@ -405,17 +405,20 @@
    returns nil off a TTY, where `(not= nil nil)` would gate the first paint
    away for the prompt's whole lifetime."
   ([prompt! background!] (prompt-key! prompt! background! {}))
-  ([prompt! background! {:keys [source size-fn frame-ms]
+  ;; `accept?`, given the key, may refuse it; the prompt then waits on.
+  ([prompt! background! {:keys [source size-fn frame-ms accept?]
                          :or   {source   (single-key-source)
                                 size-fn  term/size
-                                frame-ms 30}}]
+                                frame-ms 30
+                                accept?  (constantly true)}}]
    (let [painted (atom :unpainted)]
      (run-loop
        {:sources  [source (clock-source 0)]
         :state    nil
         :step     (fn [st ev]
                     (let [[kind payload] ev]
-                      (if (and (= kind :action) (not= payload resize-nudge))
+                      (if (and (= kind :action) (not= payload resize-nudge)
+                               (accept? payload))
                         (reduced (if (= payload :eof) nil payload))
                         st)))
         :render   (fn [_]

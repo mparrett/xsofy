@@ -1420,18 +1420,148 @@
 
 ;; --- Public API ---
 
-(defn render-hazard-prompt [world prompt]
-  "Render a hazard confirmation prompt at the bottom of the screen."
+(defn render-hazard-prompt
+  "Render a y/n confirmation prompt centred on the screen's bottom row. A
+   `hint` takes the place of the plain \"(y/n)\" and names the keys itself."
+  ([world prompt] (render-hazard-prompt world prompt nil))
+  ([world prompt hint]
   (let [[tw th] (term-dims)
-        msg (str " " prompt " (y/n)")
+        msg (if hint (str prompt " " hint) (str prompt " (y/n)"))
+        msg (if (> (count msg) tw) (subs msg 0 tw) msg)
         y th]
     (term/move-cursor 1 y)
     (term/set-fg 255 200 60)
     (term/set-bg 40 20 10)
     (term/write (apply str (repeat tw " ")))
-    (term/move-cursor 1 y)
+    (term/move-cursor (inc (quot (- tw (count msg)) 2)) y)
     (term/write msg)
-    (term/flush)))
+    (term/flush))))
+
+(declare render-full render-dirty)
+
+;; --- Hazard panel ---
+;; The hazard prompt's warning, drawn in a small box beside the player rather
+;; than only on the bottom row, which is out of the eye's way. The bottom row
+;; keeps the alert and carries the hint (render-hazard-prompt).
+
+(def ^:private hazard-panel-colors
+  {:water {:fg [130 190 245] :bg [12 22 38]}
+   :fall  {:fg [185 170 215] :bg [22 18 30]}
+   :fire  {:fg [250 150 80]  :bg [38 16 8]}})
+(def ^:private hazard-warn-color [255 205 70])
+
+(defn- hazard-panel-lines [world]
+  [(str "⚠ " (or (:hazard-prompt world) "Are you sure?"))
+   "y / n"])
+
+(defn hazard-panel-rect
+  "Where the hazard panel goes, in terminal cells: {:x :y :w :h}, or nil if
+   it doesn't fit. Below the player with a row between, so the cell under the
+   player stays in view, or above when the hazard is below the player (the
+   step being confirmed stays uncovered) or there is no room below. Centred
+   on the player, kept inside the map rect `mr`. `at` is the player's
+   terminal cell; `dy` the pending step's vertical direction."
+  [mr [px py] dy w h]
+  (let [below (+ py 2)
+        above (- py 1 h)
+        fits? (fn [y] (and (>= y (:y mr)) (<= (+ y h) (+ (:y mr) (:h mr)))))
+        y (cond
+            (and (<= dy 0) (fits? below)) below
+            (fits? above) above
+            (fits? below) below)
+        x (-> (- px (quot w 2))
+              (min (- (+ (:x mr) (:w mr)) w))
+              (max (:x mr)))]
+    (when (and y (<= w (:w mr)))
+      {:x x :y y :w w :h h})))
+
+(defn- hazard-panel-placement
+  "[rect lines map-rect] for the hazard panel of `world`, or nil."
+  [world]
+  (when-let [[px py] (get-in world [:entities :player :pos])]
+    (let [[tw th] (term-dims)
+          mr (with-camera world (:map (ui/layout tw th)))
+          at (map-cell mr px py)
+          lines (hazard-panel-lines world)
+          w (+ 4 (reduce max (map count lines)))]
+      (when at
+        (when-let [rect (hazard-panel-rect mr at (or (:hazard-dy world) 0) w (+ 2 (count lines)))]
+          [rect lines mr])))))
+
+(defn render-hazard-panel
+  "Draw the hazard panel beside the player, tinted by the hazard's element."
+  [world]
+  (when-let [[rect lines _] (hazard-panel-placement world)]
+    (let [tile (when-let [[x y] (:hazard-pos world)]
+                 (terrain/tget (:terrain world) (:width world) x y))
+          {:keys [fg bg]} (get hazard-panel-colors
+                               (:element (get terrain/hazard-info tile))
+                               (:water hazard-panel-colors))
+          inner (ui/box rect nil fg bg)]
+      (ui/write-at inner 1 0 (first lines) fg bg)
+      ;; the warning sign in amber, over the tinted first line
+      (ui/write-at inner 1 0 "⚠" hazard-warn-color bg)
+      ;; the answer keys in a whiter tint of the panel's colour, "/" in its own
+      (let [x0 (- (:w inner) 1 (count (second lines)))
+            keys-fg (mapv #(int (+ % (* 0.6 (- 255 %)))) fg)]
+        (ui/write-at inner x0 1 (second lines) fg bg)
+        (ui/write-at inner x0 1 "y" keys-fg bg)
+        (ui/write-at inner (+ x0 4) 1 "n" keys-fg bg))
+      (pen-reset!))))
+
+(defn- restore-map-rect!
+  "Redraw the map cells under terminal rect `rect` from `world`, as render-map
+   would, so whatever was drawn over them is gone."
+  [world mr rect]
+  (let [{:keys [terrain width height fov memory]} world
+        lights (or (:lights world) [])
+        cx (or (:cx mr) 0)
+        cy (or (:cy mr) 0)]
+    (pen-reset!)
+    (doseq [row (range (:y rect) (+ (:y rect) (:h rect)))
+            col (range (:x rect) (+ (:x rect) (:w rect)))]
+      (let [x (+ cx (- col (:x mr)))
+            y (+ cy (- row (:y mr)))]
+        (if-not (and (>= x 0) (< x width) (>= y 0) (< y height))
+          ;; past the world's edge: render-map leaves these to the full clear
+          (do (term/move-cursor col row)
+              (let [[br bgg bb] ui/bg] (pen-bg! br bgg bb))
+              (term/write " "))
+          (let [visible (contains? fov [x y])]
+            ;; the buffer still holds what was there before the panel
+            (swap! cell-appearance dissoc [x y])
+            (render-map-tile mr x y
+                             (when visible (terrain/tget terrain width x y))
+                             visible (get memory [x y])
+                             (when visible (light/light-at x y lights))
+                             (when visible (get (:stains world) [x y]))
+                             (when visible (get (:gases world) [x y])))))))))
+
+(defn erase-prompt!
+  "Take down a bottom-row prompt (render-hazard-prompt) and bring the screen
+   from `prev-world`, which is still on it, up to `world`. The prompt painted
+   over the screen rather than repainting it, so only its row and what the
+   answer changed need drawing. A full repaint only where the map itself
+   reaches that row, or when the answer left the game screen (a floor change,
+   death)."
+  [world prev-world]
+  (let [[tw th] (term-dims)
+        m (:map (ui/layout tw th))]
+    (if (or (not= (:depth world) (:depth prev-world))
+            (contains? #{:death} (:screen world))
+            (and m (<= (:y m) th) (< th (+ (:y m) (:h m)))))
+      (render-full world)
+      ;; one frame, so the status line is never seen blank
+      (sfx/with-frame
+        (ui/apply-bg ui/bg)
+        (ui/apply-fg ui/bg)
+        (term/move-cursor 1 th)
+        (term/write (apply str (repeat tw " ")))
+        ;; the panel beside the player, if the prompt had one
+        (when (:hazard-pos prev-world)
+          (when-let [[rect _ mr] (hazard-panel-placement prev-world)]
+            (restore-map-rect! world mr rect)))
+        (render-dirty world prev-world)))))
 
 (defn render-full [world]
   (let [[tw th] (term-dims)
