@@ -942,7 +942,7 @@
         menu-h (+ (max 1 (count items)) 4)
         hint (if (empty? items)
                " [any key] close"
-               " [a-z] select  [enter] confirm  [esc] cancel")
+               " [letter] choose  [any other key] cancel")
         ;; wide enough for the hint, so it isn't cut off
         menu-w (max 36 (+ 3 (count hint)))
         mx (- (quot tw 2) (quot menu-w 2))
