@@ -235,7 +235,7 @@
    W100's (0.562 / 1.189)."
   (assoc stone-step :n 0 :click 0 :pat 0.8 :pat-shot :step-pat-soft :gain 0.299
          :layers [[0 :step-wade 0.6 54] [60 :step-drip 0.25 57]]
-         :sometimes [1/3 [[30 :step-plop 0.5 58]]]))
+         :sometimes [0.333 [[30 :step-plop 0.5 58]]]))
 
 (defn- unit
   "A deterministic draw in [0, 1) off the shot seed."
