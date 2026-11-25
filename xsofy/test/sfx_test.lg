@@ -548,3 +548,25 @@
       (is (not (contains? (shots 1) :step-click))))
     (testing "the plop comes now and then: about one step in three"
       (is (< 10 plops 30)))))
+
+(deftest a-slime-squelches-when-you-hit-it-and-dies-two-ways
+  (let [hit  (fn [seed] (map :shot (sfx/for-event {:kind :hit-dealt :creature "slime" :severity 0.3} seed)))
+        dies (fn [seed] (set (map :shot (sfx/for-event {:kind :death :creature "slime" :dist 2 :dir 0} seed))))]
+    (testing "your blow on a slime squelches, on top of the blow"
+      (is (= :hit (first (hit 1))))
+      (is (some #{:sli-squelch} (hit 1))))
+    (testing "a blow on anything else does not"
+      (is (not-any? #{:sli-squelch} (map :shot (sfx/for-event {:kind :hit-dealt :creature "goblin" :severity 0.3} 1)))))
+    (testing "the slime's death alternates V104 (bubbles and hiss) and S098 (a slap)"
+      (let [takes (map dies (range 20))]
+        (is (some #(contains? % :cry-sli-hiss) takes))
+        (is (some #(contains? % :sli-slap) takes))))))
+
+(deftest a-slime-hitting-you-bubbles
+  (let [shots (fn [seed] (set (map :shot (sfx/for-event {:kind :hit-taken :creature "slime" :severity 0.1} seed))))
+        takes (map shots (range 20))]
+    (testing "its cry in place of the thud, alternating a dark and a bright hiss"
+      (is (every? #(contains? % :cry-sli-bubble) takes))
+      (is (not-any? #(contains? % :hit) takes))
+      (is (some #(contains? % :sli-hiss-dark) takes))
+      (is (some #(contains? % :cry-sli-hiss) takes)))))

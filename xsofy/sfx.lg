@@ -108,6 +108,15 @@
    ;; the hiss's band moved up (900 -> 2000 Hz).
    {:name :cry-sli-bubble :gate-ms 400
     :patch [[:env 0.002 0.05 0 0.03] [:osc 0 :sine -7 0.03] [:mul] [:lpf 3500] [:verb 0.15] [:out 0.5 0.5]]}
+   ;; Round 45's slime sounds (Matt, 2026-11-24): a wet slap (S098, now a
+   ;; death take) and a squelch (S097, S099: your blow landing on a slime).
+   {:name :sli-slap :gate-ms 400
+    :patch [[:env 0.001 0.03 0 0.02] [:osc 0 :noise 0 1] [:mul] [:svf 2200 0.4 1 0] [:out 0.7 0.5]]}
+   {:name :sli-squelch :gate-ms 400
+    :patch [[:env 0.003 0.07 0 0.05] [:osc 0 :noise 0 1] [:mul] [:svf 1200 0.5 1 0] [:out 0.7 0.5]]}
+   ;; V060's darker hiss (band at 900 Hz), kept for V103, a slime's hit
+   {:name :sli-hiss-dark :gate-ms 700
+    :patch [[:env 0.12 0.45 0 0.3] [:osc 0 :noise 0 1] [:mul] [:lfo 30 2] [:scale 0.3 0.7] [:mul] [:env 0.12 0.45 0 0.3] [:svf 900 0.3 0 1] [:verb 0.08] [:out 0.4 0.5]]}
    {:name :cry-sli-hiss :gate-ms 700
     :patch [[:env 0.12 0.45 0 0.3] [:osc 0 :noise 0 1] [:mul] [:lfo 30 2] [:scale 0.3 0.7] [:mul] [:env 0.12 0.45 0 0.3] [:svf 2000 0.3 0 1] [:verb 0.08] [:out 0.4 0.5]]}
    {:name :cry-arch-uh-swirl :gate-ms 400
@@ -338,7 +347,26 @@
    hit is always light, so the thud's severity pitch is not missed. Gains
    are round 34's levelling, to the light hit taken."
   {"rat" [[[0 :bite-scrape 62 1.834] [50 :bite-scrape 58 1.376]]    ; J008
-          [[0 :bite-scrape 60 1.451] [42 :bite-scrape 64 1.813]]]}) ; J009
+          [[0 :bite-scrape 60 1.451] [42 :bite-scrape 64 1.813]]]  ; J009
+   ;; Slime: V103 and V104 (round 45), its bubbling cry an octave up with a
+   ;; dark or a bright hiss (Matt, 2026-11-24). V104 is also one of its death
+   ;; takes. Levelled to the light hit taken, as the rat's: the board's
+   ;; level for each, times 2.43 (the light hit sits 7.7 dB over the
+   ;; goblin's cry, which the death rows were levelled to).
+   "slime" [[[0 :cry-sli-bubble 74 0.723] [45 :cry-sli-bubble 79 0.578]   ; V103
+             [95 :cry-sli-bubble 72 0.651] [135 :cry-sli-bubble 77 0.434]
+             [200 :cry-sli-bubble 70 0.362] [60 :sli-hiss-dark 62 0.434]]
+            [[0 :cry-sli-bubble 74 0.707] [45 :cry-sli-bubble 79 0.565]   ; V104
+             [95 :cry-sli-bubble 72 0.636] [135 :cry-sli-bubble 77 0.424]
+             [200 :cry-sli-bubble 70 0.353] [60 :cry-sli-hiss 62 0.424]]]}) ; J009
+
+(def ^:private struck
+  "What your blow sounds like landing on a creature, on top of the blow,
+   keyed by template name (the hit-dealt event's :creature). Takes
+   alternate. Slime: S097 and S099, a squelch with bubbles (Matt,
+   2026-11-24: \"better as you hitting slime\"); round 45's levelling."
+  {"slime" [[[0 :sli-squelch 60 1.542] [20 :cry-sli-bubble 74 1.028]]                              ; S097
+            [[0 :sli-squelch 60 1.045] [0 :cry-sli-bubble 70 0.940] [50 :cry-sli-bubble 65 0.627]]]}) ; S099
 
 (def ^:private pains
   "A creature's cry of pain when your blow takes at least :min of its health
@@ -373,11 +401,13 @@
       [(update base :gain * 0.836)
        {:shot :tink :note (+ note 24) :gain 0.236 :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
-      (let [pain (get pains (:creature ev))]
+      (let [pain (get pains (:creature ev))
+            base (into [base] (when-let [takes (get struck (:creature ev))]
+                                (voice-take (pick-take takes seed) seed :struck 0.5 flight)))]
         (if (and pain (>= s (:min pain)))
           ;; Just behind the blow, so the blow is heard first.
-          (into [base] (voice-take (:take pain) seed :pain 0.5 (+ flight 30)))
-          [base])))))
+          (into base (voice-take (:take pain) seed :pain 0.5 (+ flight 30)))
+          base)))))
 
 (defn- hit-taken-shots
   "Damage you TAKE — its own patch (dull and low, no bright crack) rather than
@@ -431,7 +461,10 @@
    ;; V104: V060 an octave up at the board's level for it (x0.596)
    "slime"    [[[0 :cry-sli-bubble 74 0.291] [45 :cry-sli-bubble 79 0.232]
                 [95 :cry-sli-bubble 72 0.262] [135 :cry-sli-bubble 77 0.175]
-                [200 :cry-sli-bubble 70 0.145] [60 :cry-sli-hiss 62 0.175]]]
+                [200 :cry-sli-bubble 70 0.145] [60 :cry-sli-hiss 62 0.175]]
+               ;; S098, a wet slap and two bubbles (Matt: "a good slime death
+               ;; cry"), at the goblin's cry level like V104
+               [[0 :sli-slap 60 0.547] [30 :cry-sli-bubble 76 0.319] [70 :cry-sli-bubble 71 0.274]]]
    "archer"   [[[0 :cry-arch-uh-swirl 55 0.566] [210 :cry-body-thud 45 0.453]]] ; V068
    "goblin-shaman" [[[0 :cry-fizzle 74 0.4] [60 :cry-sham-groan 55 0.445]]] ; V071
    ;; V086: a soft creak, then the legs curling, ticks slowing and sinking.
