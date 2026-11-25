@@ -130,6 +130,13 @@
       (is (< (get-in w' [:entities :player :body :hp]) 30))))
   (testing "stepping in from solid ground still asks"
     (is (= :confirm-hazard (:screen (w/update-world (player-in 1 6) :right)))))
+  (testing "dying of burns on the step leaves nothing for the fall to hurt"
+    (let [world (-> (player-in 6 6)
+                    (assoc-in [:entities :player :body :hp] 1)
+                    (assoc-in [:entities :player :statuses]
+                              {:burning {:ttl 2 :max-ttl 2}}))
+          w' (w/update-world world :right)]
+      (is (nil? (get-in w' [:entities :player])))))
   (testing "a different hazard still asks: chasm to lava"
     (is (= :confirm-hazard (:screen (w/update-world (player-in 6 7) :right))))))
 
