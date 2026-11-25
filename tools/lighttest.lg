@@ -105,6 +105,13 @@
      :tsize nil           ; last-seen terminal size, to detect resize
      :help? false         ; full-screen help overlay (? key)
      :stats {:drawn 0 :sgr 0}
+     ;; spike: ambient flicker + move fade (see "--- flicker & fade ---")
+     :flicker 0           ; index into flicker-amts (`f` cycles)
+     :flick []            ; per-light brightness factor, parallel to all-lights
+     :flick-at 0          ; ms of the last flicker step
+     :fade 0              ; index into fade-lens (`g` cycles)
+     :fade-from nil       ; the lights as they were before the last move
+     :fade-until 0        ; ms after which the half-strength old light drops
      :running true}))
 
 ;; --- helpers ---
@@ -129,6 +136,55 @@
   (if (:terrain-lights? st)
     (into (vec (:tlights st)) (:lights st))
     (vec (:lights st))))
+
+;; --- flicker & fade (spike) ---
+;; Flicker: each light's brightness wanders a little around full strength, each
+;; on its own, eased so it breathes rather than strobes. Fade: for a moment after
+;; a light moves, a cell keeps half of the light it just lost, so the edge of the
+;; pool softens instead of snapping. Both are cosmetic and use `rand`, never a
+;; seeded stream; in the game they must stay off the dispatch path.
+
+(def ^:private clock-epoch (now))
+(defn- millis [] (quot (.Sub (now) clock-epoch) 1000000))
+
+(def flicker-amts [0 0.04 0.08 0.15])   ; +/- fraction of full brightness
+(def flicker-ms 90)                     ; how often each light picks a new target
+(def fade-lens [0 60 90 140])           ; ms the half-strength old light lingers
+
+(defn- lit-lights
+  "all-lights with each light's current flicker factor applied to its colour."
+  [st]
+  (let [ls (all-lights st) fl (:flick st)]
+    (if (zero? (:flicker st))
+      ls
+      (vec (map-indexed
+             (fn [i l]
+               (let [f (nth fl i 1.0)]
+                 (assoc l :color (mapv (fn [c] (min 255 (int (* c f)))) (:color l)))))
+             ls)))))
+
+(defn- flicker-step [st]
+  (let [a (nth flicker-amts (:flicker st))
+        n (count (all-lights st))
+        fl (:flick st)]
+    (assoc st :flick-at (millis)
+           :flick (vec (for [i (range n)]
+                         (let [v (nth fl i 1.0)
+                               target (+ 1.0 (* a (- (* 2.0 (rand)) 1.0)))]
+                           ;; halfway to a fresh target each step: soft, never jumpy
+                           (+ v (* 0.5 (- target v)))))))))
+
+(defn- with-fade
+  "st' is st after a light moved: remember st's light so the next frames can
+   let it go gradually."
+  [st st']
+  (let [ms (nth fade-lens (:fade st))]
+    (if (pos? ms)
+      (assoc st' :fade-from (lit-lights st) :fade-until (+ (millis) ms))
+      st')))
+
+(defn- fading? [st]
+  (and (:fade-from st) (< (millis) (:fade-until st))))
 
 ;; posterize: round a channel to `step` buckets (step 1 = no-op / full 8-bit)
 (def depth->step {8 1  6 4  5 8  4 16})
@@ -208,7 +264,9 @@
 
 (defn- update-state [st k]
   (cond
-    (contains? dir-keys k)    (let [[dx dy] (get dir-keys k)] (move-active st dx dy))
+    (contains? dir-keys k)    (let [[dx dy] (get dir-keys k)] (with-fade st (move-active st dx dy)))
+    (= k "f")                 (update st :flicker (fn [i] (mod (inc i) (count flicker-amts))))
+    (= k "g")                 (update st :fade (fn [i] (mod (inc i) (count fade-lens))))
     (= k "p")                 (let [st (update st :demo-mode demo-next)]
                                 (if (= (:demo-mode st) :mapshift) st (assoc st :shift [0 0])))
     (= k ",")                 (update st :frame-ms (fn [m] (min 200 (+ m 10))))
@@ -279,7 +337,7 @@
       (recur (inc i) (assoc m [(:lx (nth lights i)) (:ly (nth lights i))] i))
       m)))
 
-(defn- cell-app [st x y lset vis lidx step]
+(defn- cell-app [st x y lset old vis lidx step]
   (let [li (get lidx [x y])]
     (if li
       (let [l (nth (:lights st) li)
@@ -293,7 +351,12 @@
             ch (get terrain/tile-chars tile " ")
             style (get terrain/tile-styles tile)
             lit? (or (not (:occlude? st)) (contains? vis [x y]))
-            lv (if lit? (light/light-at x y lset) [0 0 0])
+            lv (cond
+                 (not lit?) [0 0 0]
+                 ;; mid-fade: keep half of the light this cell had before the move
+                 old (mapv (fn [n o] (max n (quot o 2)))
+                           (light/light-at x y lset) (light/light-at x y old))
+                 :else (light/light-at x y lset))
             [fr fg fb] (light/apply-light (:fg style) lv)
             [br bg bb] (light/apply-light (:bg style) lv)]
         [ch (pq fr step) (pq fg step) (pq fb step) (pq br step) (pq bg step) (pq bb step)]))))
@@ -319,7 +382,9 @@
                    "  drawn=" (lpad (:drawn stats) 4) "/" (* w h)
                    "  sgr=" (lpad (:sgr stats) 4)
                    "  seed=" seed)
-        line3 "hjkl move  p demo  ,/. spd  +/- rad  c/d/e/o/t/m/s  Tab/a/x  N q  ?=help"]
+        line3 (str "flick:" (lpad (int (* 100 (nth flicker-amts (:flicker st)))) 2) "%"
+                   "  fade:" (lpad (nth fade-lens (:fade st)) 3) "ms"
+                   "  hjkl p ,/. +/- c/d/e/o/t/m/s f/g Tab/a/x N q ?")]
     (term/reset-style)
     (term/move-cursor 1 (+ h 1)) (term/write (pad line1 tw))
     (term/move-cursor 1 (+ h 2)) (term/write (pad line2 tw))
@@ -342,6 +407,8 @@
    "  Tab / ] / [         select next / prev light"
    "  a / x               add light at cursor / delete active"
    "  m                   hide / show the light markers (@ / o)"
+   "  f                   flicker: off -> 4% -> 8% -> 15%"
+   "  g                   move fade: off -> 60 -> 90 -> 140 ms (half of the old light)"
    ""
    "Rendering & perf probe:"
    "  o                   occlusion: raw radial <-> FOV wall-shadows"
@@ -377,7 +444,8 @@
         ;; buffer and repaint everything against a fresh clear.
         prev (if resized? nil (:prev st))
         _ (when resized? (term/clear))
-        lset (all-lights st)
+        lset (lit-lights st)
+        old (when (fading? st) (:fade-from st))
         al (nth lights active)
         vis (when occlude? (fov/compute-fov grid w h (:lx al) (:ly al) (:radius al)))
         lidx (if (:markers? st) (light-index-at lights) {})
@@ -392,7 +460,7 @@
         (reduce
           (fn [acc idx]
             (let [x (mod idx w) y (quot idx w)
-                  app (cell-app st x y lset vis lidx step)
+                  app (cell-app st x y lset old vis lidx step)
                   ;; naive: pretend nothing was drawn before -> repaint all
                   old (when (and prev (not full?)) (nth prev idx))]
               (when (not= app old)
@@ -413,7 +481,8 @@
                   (swap! drawn inc)))
               (conj acc app)))
           [] (range n))
-        st' (assoc st :prev newfb :tsize tsize :stats {:drawn @drawn :sgr @sgr})]
+        st' (assoc st :prev newfb :tsize tsize :stats {:drawn @drawn :sgr @sgr}
+                   :fade-from old)]
     (render-hud! st' (or (first tsize) w))
     (when (:sync? st) (term/write end-sync))   ; ESU — present the whole frame atomically
     (term/flush)
@@ -465,9 +534,22 @@
           ;; rather than leaving the last animated frame up until the next keypress
           ;; (the idle :else branch blocks on read-key before it would repaint).
           (= (:demo-mode st1) :none) (recur (render! st1))
-          :else (let [st2 (render! (demo-step st1))]
+          :else (let [st1 (if (and (pos? (:flicker st1))
+                                   (>= (- (millis) (:flick-at st1)) flicker-ms))
+                            (flicker-step st1) st1)
+                      st2 (render! (with-fade st1 (demo-step st1)))]
                   (sleep (:frame-ms st2))
                   (recur st2))))
+      ;; flicker on, or a fade still lingering: poll rather than block, so the
+      ;; light keeps moving between keys
+      (or (pos? (:flicker st)) (:fade-from st))
+      (cond
+        (term/key-pending?) (recur (render! (update-state st (term/read-key))))
+        (and (pos? (:flicker st)) (>= (- (millis) (:flick-at st)) flicker-ms))
+        (recur (render! (flicker-step st)))
+        ;; the fade ran out: one more frame drops the old light
+        (and (:fade-from st) (not (fading? st))) (recur (render! st))
+        :else (do (sleep 10) (recur st)))
       ;; keyboard-only: block until a key (read-key wakes with a form feed on resize,
       ;; so render! still runs and repaints at the new size), then react
       :else
