@@ -1416,18 +1416,19 @@
 ;; --- Public API ---
 
 (defn render-hazard-prompt
-  "Render a y/n confirmation prompt on the screen's bottom row, with an
-   optional hint after it."
+  "Render a y/n confirmation prompt centred on the screen's bottom row. A
+   `hint` takes the place of the plain \"(y/n)\" and names the keys itself."
   ([world prompt] (render-hazard-prompt world prompt nil))
   ([world prompt hint]
   (let [[tw th] (term-dims)
-        msg (str " " prompt " (y/n)" (when hint (str "   " hint)))
+        msg (if hint (str prompt " " hint) (str prompt " (y/n)"))
+        msg (if (> (count msg) tw) (subs msg 0 tw) msg)
         y th]
     (term/move-cursor 1 y)
     (term/set-fg 255 200 60)
     (term/set-bg 40 20 10)
     (term/write (apply str (repeat tw " ")))
-    (term/move-cursor 1 y)
+    (term/move-cursor (inc (quot (- tw (count msg)) 2)) y)
     (term/write msg)
     (term/flush))))
 
@@ -1495,7 +1496,12 @@
       (ui/write-at inner 1 0 (first lines) fg bg)
       ;; the warning sign in amber, over the tinted first line
       (ui/write-at inner 1 0 "⚠" hazard-warn-color bg)
-      (ui/write-at inner (- (:w inner) 1 (count (second lines))) 1 (second lines) fg bg)
+      ;; the answer keys in a whiter tint of the panel's colour, "/" in its own
+      (let [x0 (- (:w inner) 1 (count (second lines)))
+            keys-fg (mapv #(int (+ % (* 0.6 (- 255 %)))) fg)]
+        (ui/write-at inner x0 1 (second lines) fg bg)
+        (ui/write-at inner x0 1 "y" keys-fg bg)
+        (ui/write-at inner (+ x0 4) 1 "n" keys-fg bg))
       (pen-reset!))))
 
 (defn- restore-map-rect!

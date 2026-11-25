@@ -528,7 +528,7 @@
                                      (sfx/with-frame
                                        (render/render-hazard-panel world)
                                        (render/render-hazard-prompt
-                                        world prompt "walk on to go in, step away to cancel")))
+                                        world prompt "Walk on to go in, step away to cancel, or y/n.")))
                                    (repaint-after-first world)
                                    {:accept? accept?})
                  answer (world/hazard-answer world k (input/parse-key k))
