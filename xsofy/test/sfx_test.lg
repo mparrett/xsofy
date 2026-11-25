@@ -235,7 +235,20 @@
   (testing "being held and tearing free are different sounds: a rasp while
             stuck, a stretched thread (N003) when you get out"
     (is (= :web-thread (:shot (first (triggers {:kind :web :broke true})))))
-    (is (= :rasp (:shot (first (triggers {:kind :web :broke false})))))))
+    (is (= :step-pat (:shot (first (triggers {:kind :web :broke false})))))))
+
+(deftest stuck-in-a-web-is-a-foot-that-catches-then-a-tug
+  (let [turn (fn [seed] (sfx/for-event {:kind :web :broke false} seed))
+        last-ms (fn [trs] (apply max (map :delay-ms trs)))]
+    (testing "a heel, then the grains and scuffs of the catch"
+      (let [shots (set (map :shot (turn 1)))]
+        (is (contains? shots :step-pat))
+        (is (contains? shots :web-grain))
+        (is (contains? shots :web-scuff))))
+    (testing "one tug or two, drawn per turn"
+      (is (< 1 (count (set (map #(count (turn %)) (range 20)))))))
+    (testing "the tug comes after the catch"
+      (is (every? #(>= (last-ms (turn %)) 270) (range 10))))))
 
 (deftest new-sources-are-voiced
   (testing "a spell-caster's bolt is a zap, not the bow's twang"
