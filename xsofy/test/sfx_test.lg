@@ -621,3 +621,36 @@
     (terrain/tset! (:terrain room) (:width room) 3 2 3)
     (testing "a move into shallow water wades"
       (is (contains? (heard) :step-wade)))))
+
+(deftest monsters-step-quietly-after-you
+  (let [room  (assoc-in (g/minimal-stone-room) [:entities :player]
+                        {:id :player :pos [2 2] :body {:hp 20 :max-hp 20}})
+        room  (assoc-in room [:entities :rat] {:id :rat :template :rat :ai {:state :hunt} :pos [5 2]})
+        moved (assoc-in room [:entities :rat :pos] [4 2])
+        trs   (:triggers (sfx/audio-frame moved room))]
+    (testing "a creature that moved within earshot steps"
+      (is (seq trs)))
+    (testing "after your part of the turn"
+      (is (every? #(some #{(:delay-ms %)} (map (fn [r] (+ r 0)) sfx/response-ms))
+                  (take 1 (sort-by :delay-ms trs)))))
+    (testing "quieter than your own step at the same distance"
+      (let [mine (sfx/for-event {:kind :footstep :dist 2 :dir 1.0} 5)
+            its  (sfx/for-event {:kind :footstep :dist 2 :dir 1.0 :monster true} 5)]
+        (is (< (apply max (map :gain its)) (apply max (map :gain mine))))))
+    (testing "one too far away is not heard"
+      (let [far (assoc-in room [:entities :rat :pos] [2 2])
+            far (-> room (assoc-in [:entities :rat :pos] [30 2]))
+            far2 (assoc-in far [:entities :rat :pos] [29 2])]
+        (is (empty? (:triggers (sfx/audio-frame far2 far))))))))
+
+(deftest climbing-out-of-deep-water-drips
+  (let [room  (assoc-in (g/minimal-stone-room) [:entities :player]
+                        {:id :player :pos [2 2] :body {:hp 20 :max-hp 20}})
+        moved (assoc-in room [:entities :player :pos] [3 2])
+        heard (fn [] (set (map :shot (:triggers (sfx/audio-frame moved room)))))]
+    (terrain/tset! (:terrain room) (:width room) 2 2 4)
+    (testing "a step out of deep water adds the drips"
+      (is (contains? (heard) :step-drip)))
+    (terrain/tset! (:terrain room) (:width room) 2 2 1)
+    (testing "an ordinary step does not"
+      (is (not (contains? (heard) :step-drip))))))
