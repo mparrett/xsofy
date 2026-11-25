@@ -147,7 +147,7 @@
 (def ^:private clock-epoch (now))
 (defn- millis [] (quot (.Sub (now) clock-epoch) 1000000))
 
-(def flicker-amts [0 0.04 0.08 0.15])   ; +/- fraction of full brightness
+(def flicker-amts [0 0.10 0.25 0.40])   ; +/- fraction of full brightness
 (def flicker-ms 90)                     ; how often each light picks a new target
 (def fade-lens [0 60 90 140])           ; ms the half-strength old light lingers
 
@@ -407,7 +407,7 @@
    "  Tab / ] / [         select next / prev light"
    "  a / x               add light at cursor / delete active"
    "  m                   hide / show the light markers (@ / o)"
-   "  f                   flicker: off -> 4% -> 8% -> 15%"
+   "  f                   flicker: off -> 10% -> 25% -> 40%"
    "  g                   move fade: off -> 60 -> 90 -> 140 ms (half of the old light)"
    ""
    "Rendering & perf probe:"
