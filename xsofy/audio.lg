@@ -187,6 +187,10 @@
   ;; and shallower (0.3 from 0.2).
   {:level 0.3 :delay-ms 150 :down 0.23 :hold-ms 4200 :release 0.8
    :arrival-hold-ms 200 :arrival-release 1.8
+   ;; Matt, 2026-11-24, on later floors: the run's stop should be a rapid
+   ;; fade, not a cut; the bed starts back almost at once and is full by
+   ;; about 1.5 s. The first entry keeps the values above.
+   :later-hold-ms 50 :later-release 1.45 :later-cut-fade-ms 300
    ;; Matt, 2026-11-24: the bed comes back as the floor's music, never as the
    ;; title theme rising before it hands over, so the arrival's release waits
    ;; for the theme to end (title-hand-over), at most this long.
@@ -268,13 +272,16 @@
 (defn- duck-arrival!
   "Duck again as the arrival lands, `delay-ms` from now, so it is not heard
    over the bed coming back; its release brings the floor's music in."
-  [delay-ms]
-  (when (:glide-music-gain natives)
-    (go (<!! (timeout delay-ms))
-        ;; No delay: the bed is usually down already, and when a slow load
-        ;; let it come back, the arrival should not land over it.
-        (duck! (:arrival-hold-ms duck) (:arrival-release duck) 0 (:theme-wait-ms duck)))
-    nil))
+  ([delay-ms] (duck-arrival! delay-ms true))
+  ([delay-ms first?]
+   (when (:glide-music-gain natives)
+     (go (<!! (timeout delay-ms))
+         ;; No delay: the bed is usually down already, and when a slow load
+         ;; let it come back, the arrival should not land over it.
+         (if first?
+           (duck! (:arrival-hold-ms duck) (:arrival-release duck) 0 (:theme-wait-ms duck))
+           (duck! (:later-hold-ms duck) (:later-release duck) 0 (:theme-wait-ms duck))))
+     nil)))
 
 (defn arrive!
   "The arrival after descent!'s run: called when the new floor appears (the
@@ -291,14 +298,16 @@
           ;; A later floor's arrival lands as its floor fades in: the
           ;; animation owns that moment, and holding the arrival to the
           ;; first descent's minimum would land it after the floor showed.
-          cut-ms (if (false? (:first? opts)) 0 sfx/run-cut-ms)
+          later? (false? (:first? opts))
+          cut-ms (if later? 0 sfx/run-cut-ms)
           {:keys [delay-ms cut?]} (sfx/arrival-plan elapsed cut-ms (some? (:cut natives)))]
       (when cut?
         ;; The arrival's own triggers are timed by the synth; the cut by the
         ;; host, a few ms off at worst, which the fade covers.
         (go (<!! (timeout delay-ms))
-            (call :cut {:group :descent :fade-ms sfx/run-cut-fade-ms})))
-      (duck-arrival! delay-ms)
+            (call :cut {:group :descent
+                        :fade-ms (if later? (:later-cut-fade-ms duck) sfx/run-cut-fade-ms)})))
+      (duck-arrival! delay-ms (not later?))
       (call :trigger (sfx/arrival-shots :down seed delay-ms)))))
 
 (defn turn!
