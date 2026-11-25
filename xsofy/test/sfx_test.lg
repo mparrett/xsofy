@@ -158,9 +158,11 @@
 
 (deftest audio-frame-infers-the-players-footstep
   (let [moved (assoc-in base [:entities :player :pos] [6 5])]
-    (testing "position changed across the turn -> one footstep trigger, with
-              no world change anywhere"
-      (is (= 1 (count (:triggers (sfx/audio-frame moved base))))))
+    (testing "position changed across the turn -> one footstep (a step is
+              several triggers: heel, sole, scuffs), with no world change
+              anywhere"
+      (is (= (count (triggers {:kind :footstep}))
+             (count (:triggers (sfx/audio-frame moved base))))))
     (testing "stationary turn -> none"
       (is (= 0 (count (:triggers (sfx/audio-frame base base))))))))
 
@@ -168,8 +170,8 @@
   (let [w (snd/cue (assoc-in base [:entities :player :pos] [6 5]) :pickup)
         frame (sfx/audio-frame w base)]
     (testing "outbox events plus the inferred step, flattened to triggers
-              (pickup is a dyad, so 2 + 1)"
-      (is (= 3 (count (:triggers frame)))))
+              (pickup is a dyad, so 2 plus the step's)"
+      (is (= (+ 2 (count (triggers {:kind :footstep}))) (count (:triggers frame)))))
     (testing "the frame carries the derivation inputs and the pure target"
       (is (= :dungeon (:mood frame)))
       (is (= 3 (:depth frame)))
@@ -243,7 +245,8 @@
            (:gain (first (triggers {:kind :ignite :dist 8}))))))
   (testing "a step in water splashes"
     (is (= :splash (:shot (first (triggers {:kind :footstep :surface :water})))))
-    (is (= :footstep (:shot (first (triggers {:kind :footstep})))))))
+    ;; a dry floor is W100's stone step, led by the heel's pat
+    (is (= :step-pat (:shot (first (triggers {:kind :footstep})))))))
 
 (deftest audio-frame-infers-new-fire
   (let [lit (assoc base :fire-ttl {[7 5] 3})]
@@ -514,3 +517,17 @@
   (testing "with no minimum (a later floor), the run is cut and the arrival
             lands at once, however early the floor shows"
     (is (= {:delay-ms 0 :cut? true} (sfx/arrival-plan 900 0 true)))))
+
+(deftest the-everyday-step-is-w100
+  (testing "a stone step is a heel then the sole 85 ms later, with scuffs,
+            each trigger its own note so undertone does not merge them"
+    (let [trs (sfx/for-event {:kind :footstep :dist 0 :foot 0} 7)]
+      (is (= [:step-pat :step-click] (mapv :shot (take 2 trs))))
+      (is (some #(= 85 (:delay-ms %)) trs))
+      (is (= (count trs) (count (set (map :note trs)))))))
+  (testing "the feet alternate left and right"
+    (is (< (:pan (first (sfx/for-event {:kind :footstep :foot 0} 7)))
+           (:pan (first (sfx/for-event {:kind :footstep :foot 1} 7))))))
+  (testing "two steps differ"
+    (is (not= (map :delay-ms (sfx/for-event {:kind :footstep} 7))
+              (map :delay-ms (sfx/for-event {:kind :footstep} 8))))))

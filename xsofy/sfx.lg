@@ -40,7 +40,19 @@
 ;; renders and the game register the same patches.
 
 (def custom-shots
-  [;; Changing floor: a chirp, each note scooping up 3 semitones into place,
+  [;; The everyday step (Matt's pick W100, round 42 of the sfx board,
+   ;; 2026-11-24): a leather heel on stone. No tone and no reverb: a pitched
+   ;; ring and a hard rubber thump read as "combat boots on a hardwood
+   ;; floor". Built per step by stone-step-shots from these four.
+   {:name :step-click :gate-ms 400
+    :patch [[:env 0.0003 0.0025 0 0.002] [:osc 0 :noise 0 1] [:mul] [:lpf 3000] [:hpf 300] [:out 0.7 0.5]]}
+   {:name :step-pat :gate-ms 400
+    :patch [[:env 0.002 0.016 0 0.012] [:osc 0 :noise 0 1] [:mul] [:lpf 900] [:lpf 900] [:hpf 200] [:out 0.8 0.5]]}
+   {:name :step-scuff :gate-ms 400
+    :patch [[:env 0.0015 0.006 0 0.005] [:osc 0 :noise 0 1] [:mul] [:lpf 700] [:lpf 700] [:lpf 900] [:lpf 900] [:out 0.6 0.5]]}
+   {:name :step-grit :gate-ms 400
+    :patch [[:env 0.0008 0.003 0 0.003] [:osc 0 :noise 0 1] [:mul] [:lpf 1700] [:lpf 1700] [:out 0.4 0.5]]}
+;; Changing floor: a chirp, each note scooping up 3 semitones into place,
    ;; run as a Shepard scale (going-shots), then held once as the arrival
    ;; (arrival-shots). Matt's picks from the 2026-11 rounds of the sfx board:
    ;; C007/C008 going (round 19) and C038/C039 arriving (round 26); renders
@@ -185,14 +197,58 @@
 ;; in earshot emits it every turn, so voicing it is a decision about the noise
 ;; floor, not about coverage.
 
+(def ^:private stone-step
+  "W100's settings: 5 dark scuffs over 180 ms rising to a peak at 0.4, every
+   third one grit; a leather pat and a click on the heel, then again at 55%
+   as the sole lands 85 ms later. On the board, as candidates-42's w96."
+  {:n 5 :span 180 :peak 0.4 :spread 0.35 :hi-every 3 :pat 1.1 :click 0.8
+   :roll 85 :roll-level 0.55
+   ;; 0.36 (the old step's gain) x 1.758, the board's leveling of W100 to
+   ;; the old step's loudness
+   :gain 0.633})
+
+(defn- unit
+  "A deterministic draw in [0, 1) off the shot seed."
+  [seed k]
+  (/ (double (bit-and (det/combine seed [k]) 0xffffff)) 16777216.0))
+
+(defn- stone-step-shots
+  "One step on a hard floor: a heel then the sole, with a few scuffs between,
+   timing and levels drawn from the seed so no two steps are the same. Each
+   trigger gets its own note: undertone merges identical triggers a few ms
+   apart, and the noise ignores pitch. :foot (0 or 1, the player's) swings
+   the pan a touch left or right, step by step."
+  [ev seed]
+  (let [{:keys [n span peak spread hi-every pat click roll roll-level gain]} stone-step
+        g    (* gain (attenuate (:dist ev)) (+ 0.7 (* 0.6 (unit seed :level))))
+        pan  (if-let [f (:foot ev)] (if (zero? f) 0.45 0.55) (pan-of (:dir ev)))
+        tr   (fn [ms shot lv note]
+               {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note) :delay-ms (long ms)})
+        ts   (sort (map #(* span (Math/pow (unit seed [:t %]) 1.3)) (range n)))
+        scuffs (map-indexed
+                 (fn [i ms]
+                   (let [x (/ ms span)
+                         shape (if (< x peak) (/ x peak) (- 1 (/ (- x peak) (- 1 peak))))
+                         lv (* (+ 0.25 (* 0.75 shape)) (+ (- 1 spread) (* spread (unit seed [:lv i]))))]
+                     (tr ms (if (zero? (mod i hi-every)) :step-grit :step-scuff) lv (+ 30 i))))
+                 ts)]
+    ;; the heel's pat and click lead, so the first trigger is the step's onset
+    (into [(tr 0 :step-pat pat 90)
+           (tr 0 :step-click click 92)
+           (tr roll :step-pat (* pat roll-level) 91)
+           (tr roll :step-click (* click roll-level) 93)]
+          scuffs)))
+
 (defn- footstep-shots [ev seed]
+  (if-not (:surface ev)
+    (stone-step-shots ev seed)
   [{:shot (case (:surface ev) :water :splash :grass :rustle :footstep)
     ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
     ;; step entirely, and the gain is what keeps it subtle, not the register.
     :note (+ 55 (jit seed :note 2))
     :gain (* (case (:surface ev) (:water :grass) 0.285 0.36) (attenuate (:dist ev)))
     :pan  (pan-of (:dir ev))
-    :seed seed}])
+    :seed seed}]))
 
 (defn- combat-hit-shots
   "Fighting you can hear but are not part of — creature versus creature.
@@ -790,7 +846,11 @@
                      (:element (get terrain/hazard-info
                                     (terrain/tget (:terrain new-world) (:width new-world) hx hy))))
         evs        (let [base (vec (or (:sfx new-world) []))
-                         base (if stepped (conj base {:kind :footstep :surface surface}) base)
+                         base (if stepped
+                                (conj base {:kind :footstep :surface surface
+                                            ;; left or right foot, by turn
+                                            :foot (mod (or (:turn new-world) 0) 2)})
+                                base)
                          base (if ignite (conj base ignite) base)
                          base (if moved-floor
                                 (conj base {:kind :floor
