@@ -856,21 +856,25 @@
   "How long after the turn's start a monster's hit on you lands. A turn's
    sounds otherwise all start together, so your blow and its answer landed
    on top of each other; the player acts first in a turn, so the answer
-   comes after (Matt, 2026-11-24). If monsters can ever strike first, this
-   becomes per event."
-  150)
+   comes after (Matt, 2026-11-24). One of these, drawn per hit, so a run of
+   exchanges does not fall into a fixed rhythm (Matt, 2026-11-25). If
+   monsters can ever strike first, this becomes per event."
+  [110 125 140])
 
 (defn- after-you
   "An event's triggers moved later when it is the monsters' part of the turn."
-  [ev trs]
+  [ev seed trs]
   (if (= :hit-taken (:kind ev))
-    (mapv #(update % :delay-ms (fnil + 0) response-ms) trs)
+    (let [ms (nth response-ms (mod (bit-and (det/combine seed [:response]) 0xffffff)
+                                   (count response-ms)))]
+      (mapv #(update % :delay-ms (fnil + 0) ms) trs))
     trs))
 
 (defn for-events
   "The turn's event list -> one flat trigger vector. `salt` names the turn."
   [world salt evs]
-  (vec (mapcat (fn [i ev] (after-you ev (for-event ev (shot-seed world salt i))))
+  (vec (mapcat (fn [i ev] (let [seed (shot-seed world salt i)]
+                            (after-you ev seed (for-event ev seed))))
                (range (count evs)) evs)))
 
 ;; ---- the per-turn frame ----
