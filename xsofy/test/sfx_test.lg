@@ -570,3 +570,12 @@
       (is (not-any? #(contains? % :hit) takes))
       (is (some #(contains? % :sli-hiss-dark) takes))
       (is (some #(contains? % :cry-sli-hiss) takes)))))
+
+(deftest a-monsters-hit-lands-after-your-blow
+  (testing "in one turn, your blow starts it and the monster's hit answers"
+    (let [trs (sfx/for-events base 3 [{:kind :hit-dealt :severity 0.3}
+                                      {:kind :hit-taken :severity 0.3}])
+          blow (first trs)
+          answer (last trs)]
+      (is (= 0 (or (:delay-ms blow) 0)))
+      (is (= sfx/response-ms (:delay-ms answer))))))
