@@ -163,3 +163,15 @@
   (testing "documented reference sizes render a 10-row map"
     (is (= 10 (:h (:map (ui/layout 66 14)))) "66x14")
     (is (= 10 (:h (:map (ui/layout 80 14)))) "80x14")))
+
+(deftest centered-rect-centres-and-keeps-a-margin
+  (is (= {:x 39 :y 14 :w 76 :h 20} (ui/centered-rect 153 47 76 20)))
+  (testing "a terminal smaller than the panel shrinks it to fit"
+    (is (= {:x 2 :y 2 :w 38 :h 8} (ui/centered-rect 40 10 76 20)))))
+
+(deftest wrap-text-breaks-at-spaces
+  (is (= ["Quick and light." "Devastating from the" "shadows."]
+         (ui/wrap-text "Quick and light. Devastating from the shadows." 20)))
+  (is (= [] (ui/wrap-text "" 20)))
+  (testing "a word wider than the line gets a line of its own"
+    (is (= ["supercalifragilistic" "word"] (ui/wrap-text "supercalifragilistic word" 5)))))

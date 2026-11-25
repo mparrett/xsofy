@@ -2,6 +2,7 @@
   (:require [term]
             [async :refer [timeout <!!]]
             [xsofy.input :as input]
+            [clojure.string :as str]
             [xsofy.util :as u]))
 
 ;; --- Timing ---
@@ -96,6 +97,32 @@
           (apply-fg text-color)
           (apply-bg cell-bg)
           (term/write ch))))))
+
+;; --- Panels ---
+;; A panel is a box drawn over the game rather than in place of it, sized to
+;; its contents: screens give a fixed width and the rows they need.
+
+(defn centered-rect
+  "A w x h rect centred in a tw x th terminal, shrunk to leave a cell of
+   margin when the terminal is smaller."
+  [tw th w h]
+  (let [w (max 1 (min w (- tw 2)))
+        h (max 1 (min h (- th 2)))]
+    (rect (inc (quot (- tw w) 2)) (inc (quot (- th h) 2)) w h)))
+
+(defn wrap-text
+  "Break s into lines of at most width characters at spaces. A word longer
+   than width gets a line of its own and is cut by whoever draws it."
+  [s width]
+  (let [words (remove empty? (str/split (or s "") #" "))]
+    (loop [ws words line "" out []]
+      (if (empty? ws)
+        (if (empty? line) out (conj out line))
+        (let [w (first ws)
+              cand (if (empty? line) w (str line " " w))]
+          (if (or (<= (count cand) width) (empty? line))
+            (recur (rest ws) cand out)
+            (recur ws "" (conj out line))))))))
 
 ;; --- Box ---
 
