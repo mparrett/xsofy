@@ -327,12 +327,34 @@
         (term/write ch))
       (swap! cell-appearance assoc [x y] app))))
 
+;; --- Light lookup ---
+;; :lights holds terrain lights only (torches, lava, fire), cached on the world;
+;; fire.lg drops it whenever terrain changes and update-fov rebuilds it. So the
+;; light at a cell is fixed until :lights is replaced, and summing every source
+;; per drawn cell (light-at) redid the same work on every draw: cells x lights,
+;; slow on floors with many torches. The grid is built once per :lights value.
+(def ^:private light-cache (atom nil))
+
+(defn- light-of
+  "light/light-at x y over the world's lights, read from the per-floor grid."
+  [world x y]
+  (let [lights (:lights world)
+        w (:width world)]
+    (if (empty? lights)
+      [0 0 0]
+      (let [c @light-cache
+            grid (if (and c (identical? (:src c) lights) (= (:w c) w))
+                   (:grid c)
+                   (let [g (light/light-grid lights w (:height world))]
+                     (reset! light-cache {:src lights :w w :grid g})
+                     g))]
+        (nth grid (+ x (* y w)))))))
+
 (defn render-map-tile [r x y tile visible remembered light-val stain gas]
   (draw-cell! r x y (tile-appearance x y tile visible remembered light-val stain gas)))
 
 (defn render-map [world r]
   (let [{:keys [terrain width height fov memory]} world
-        lights (or (:lights world) [])
         stains (or (:stains world) {})
         gases (or (:gases world) {})
         cx (or (:cx r) 0)
@@ -356,7 +378,7 @@
             (let [visible (contains? fov [x y])
                   remembered (get memory [x y])
                   tile (when visible (terrain/tget terrain width x y))
-                  lv (when visible (light/light-at x y lights))
+                  lv (when visible (light-of world x y))
                   stain (when visible (get stains [x y]))
                   gas (when visible (get gases [x y]))]
               (render-map-tile r x y tile visible remembered lv stain gas))))
@@ -383,7 +405,6 @@
   [world r entity]
   (when-let [pos (:pos entity)]
     (let [{:keys [fov]} world
-          lights (or (:lights world) [])
           [x y] pos]
       (when (and (contains? fov [x y])
                  (map-cell r x y))
@@ -391,7 +412,7 @@
               tile-bg (:bg (style-tile tile))
               stains (or (:stains world) {})
               stain (get stains [x y])
-              lv (light/light-at x y lights)
+              lv (light-of world x y)
               ;; stain tints the bg only (entity sits on top)
               bg0 (if (and stain (map? stain))
                     (fx/stain-tint-bg tile-bg (:type stain) (or (:intensity stain) 1) x y)
@@ -460,7 +481,7 @@
                        (when visible (terrain/tget (:terrain world) (:width world) x y))
                        visible
                        (get (:memory world) [x y])
-                       (when visible (light/light-at x y (or (:lights world) [])))
+                       (when visible (light-of world x y))
                        (when visible (get (:stains world) [x y]))
                        (when visible (get (:gases world) [x y]))))))
 
@@ -761,7 +782,6 @@
 (defn render-vfx-frame [world r]
   "Render vfx as color overlays on existing tiles. Does not overwrite glyphs."
   (let [vfx (or (:vfx world) [])
-        lights (or (:lights world) [])
         stains (or (:stains world) {})]
     (when (seq vfx)
       (doseq [event vfx]
@@ -800,7 +820,7 @@
                   (when-let [[col row] (map-cell r x y)]
                     (let [tile (terrain/tget (:terrain world) (:width world) x y)
                           style (style-tile tile)
-                          bg-lit (let [lv (light/light-at x y (or (:lights world) []))]
+                          bg-lit (let [lv (light-of world x y)]
                                    (if lv (light/apply-light (:bg style) lv) (:bg style)))]
                       (term/move-cursor col row)
                       (let [[fr fg_ fb] color] (term/set-fg fr fg_ fb))
@@ -816,7 +836,7 @@
               (when-let [[col row] (map-cell r x y)]
                 (let [tile (terrain/tget (:terrain world) (:width world) x y)
                       style (style-tile tile)
-                      bg-lit (let [lv (light/light-at x y lights)]
+                      bg-lit (let [lv (light-of world x y)]
                                (if lv (light/apply-light (:bg style) lv) (:bg style)))
                       base-fg (if ent-at-pos
                                 (get-in ent-at-pos [:visual :color] [200 60 60])
@@ -1571,7 +1591,6 @@
    would, so whatever was drawn over them is gone."
   [world mr rect]
   (let [{:keys [terrain width height fov memory]} world
-        lights (or (:lights world) [])
         cx (or (:cx mr) 0)
         cy (or (:cy mr) 0)]
     (pen-reset!)
@@ -1590,7 +1609,7 @@
             (render-map-tile mr x y
                              (when visible (terrain/tget terrain width x y))
                              visible (get memory [x y])
-                             (when visible (light/light-at x y lights))
+                             (when visible (light-of world x y))
                              (when visible (get (:stains world) [x y]))
                              (when visible (get (:gases world) [x y])))))))))
 

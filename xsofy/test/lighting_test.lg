@@ -1,0 +1,32 @@
+(ns xsofy.test.lighting-test
+  "light-grid is the per-floor cache render.lg reads instead of calling
+   light-at per drawn cell. It must return light-at's exact value at every
+   cell, or the picture (and anything compared against it) changes."
+  (:require [test :refer [deftest is testing]]
+            [xsofy.lighting :as light]))
+
+(defn- random-lights [n w h]
+  (vec (for [_ (range n)]
+         {:lx (rand-int w) :ly (rand-int h)
+          :radius (inc (rand-int 7))
+          :color [(rand-int 256) (rand-int 256) (rand-int 256)]})))
+
+(defn- mismatches [lights w h]
+  (let [g (light/light-grid lights w h)]
+    (for [y (range h) x (range w)
+          :let [want (light/light-at x y lights) got (nth g (+ x (* y w)))]
+          :when (not= want got)]
+      [x y want got])))
+
+(deftest light-grid-matches-light-at-everywhere
+  (testing "random lights, many overlapping"
+    (dotimes [_ 5]
+      (is (empty? (mismatches (random-lights 40 30 20) 30 20)))))
+  (testing "lights on the edges and corners, radius reaching off the map"
+    (is (empty? (mismatches [{:lx 0 :ly 0 :radius 6 :color [200 150 60]}
+                             {:lx 29 :ly 19 :radius 6 :color [200 80 20]}
+                             {:lx 0 :ly 19 :radius 3 :color [220 120 30]}
+                             {:lx 15 :ly 0 :radius 1 :color [10 20 30]}]
+                            30 20))))
+  (testing "no lights is all dark"
+    (is (= (vec (repeat 6 [0 0 0])) (light/light-grid [] 3 2)))))
