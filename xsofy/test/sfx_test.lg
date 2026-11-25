@@ -233,8 +233,8 @@
     (is (> (:gain (first (triggers {:kind :death :dist 1})))
            (:gain (first (triggers {:kind :death :dist 9}))))))
   (testing "being held and tearing free are different sounds: a rasp while
-            stuck, the snap when you get out"
-    (is (= :snap (:shot (first (triggers {:kind :web :broke true})))))
+            stuck, a stretched thread (N003) when you get out"
+    (is (= :web-thread (:shot (first (triggers {:kind :web :broke true})))))
     (is (= :rasp (:shot (first (triggers {:kind :web :broke false})))))))
 
 (deftest new-sources-are-voiced
