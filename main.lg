@@ -381,6 +381,14 @@
                 w'))
             w0 actions)))
 
+(defn- repaint-after-first
+  "A prompt-key! background for a prompt over the game screen: the screen is
+   already up when the prompt opens, so the first paint draws only the prompt,
+   and the game is repainted under it only after a resize."
+  [world]
+  (let [first? (atom true)]
+    (fn [] (if @first? (reset! first? false) (render/render-full world)))))
+
 (defn game-loop
   ([world]
    (render/render-full world)
@@ -509,11 +517,11 @@
            ;; render the prompt on the message line
            (let [prompt (or (:hazard-prompt world) "Are you sure?")
                  k (ui/prompt-key! (fn [] (render/render-hazard-prompt world prompt))
-                                 (fn [] (render/render-full world)))
+                                 (repaint-after-first world))
                  w (if (= k "y")
                      (world/confirm-hazard-step world)
                      (world/cancel-hazard-step world))]
-             (render/render-full w)
+             (render/erase-prompt! w world)
              (recur w w (term/size))))
 
          :confirm-quit
@@ -522,7 +530,8 @@
                           "Are you sure you want to restart?"
                           "Are you sure you want to quit?")
                  k (ui/prompt-key! (fn [] (render/render-hazard-prompt world prompt))
-                                 (fn [] (render/render-full world)))
+                                 (repaint-after-first world))
+                 restart? (and (= k "y") *in-wasm*)
                  w (if (= k "y")
                      (if *in-wasm*
                        (new-game)
@@ -530,7 +539,9 @@
                      (dissoc world :screen))]
              (if (:running w)
                (do
-                 (render/render-full w)
+                 (if restart?
+                   (render/render-full w)
+                   (render/erase-prompt! w world))
                  (recur w w (term/size)))
                w)))
 

@@ -1428,6 +1428,30 @@
     (term/write msg)
     (term/flush)))
 
+(declare render-full render-dirty)
+
+(defn erase-prompt!
+  "Take down a bottom-row prompt (render-hazard-prompt) and bring the screen
+   from `prev-world`, which is still on it, up to `world`. The prompt painted
+   over the screen rather than repainting it, so only its row and what the
+   answer changed need drawing. A full repaint only where the map itself
+   reaches that row, or when the answer left the game screen (a floor change,
+   death)."
+  [world prev-world]
+  (let [[tw th] (term-dims)
+        m (:map (ui/layout tw th))]
+    (if (or (not= (:depth world) (:depth prev-world))
+            (:screen world)
+            (and m (<= (:y m) th) (< th (+ (:y m) (:h m)))))
+      (render-full world)
+      ;; one frame, so the status line is never seen blank
+      (sfx/with-frame
+        (ui/apply-bg ui/bg)
+        (ui/apply-fg ui/bg)
+        (term/move-cursor 1 th)
+        (term/write (apply str (repeat tw " ")))
+        (render-dirty world prev-world)))))
+
 (defn render-full [world]
   (let [[tw th] (term-dims)
         panels (ui/layout tw th)
