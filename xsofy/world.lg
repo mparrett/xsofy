@@ -767,7 +767,10 @@
 
 (defn apply-hazard-effects [world entity-id x y]
   "Apply effects of standing on a hazard tile. Flying creatures are immune."
-  (if (ent/flying? world entity-id)
+  ;; The step's own turn can kill first (burning or poison ticking down),
+  ;; and the hazard then has no one left to hurt.
+  (if (or (nil? (get-in world [:entities entity-id :body]))
+          (ent/flying? world entity-id))
     world
     (let [{:keys [terrain width]} world
           tile (terrain/tget terrain width x y)]
