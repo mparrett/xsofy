@@ -153,6 +153,11 @@
    {:name :rasp :gate-ms 220
     :patch [[:env 0.01 0.22 0 0.1] [:osc 0 :noise 0 1] [:mul] [:crush 900 6]
             [:svf 2200 0.6 1 0] [:out 0.5 0.5]]}
+   ;; Tearing free of a web: a stretched thread, a high damped string with a
+   ;; soft scratch. N003 (round 27), Matt's pick for breaking free, 2026-11-25.
+   {:name :web-thread :gate-ms 300
+    :patch [[:env 0.002 0.12 0 0.08] [:pluck 0 0.8] [:mul] [:hpf 900] [:out 0.4 0.5]
+            [:env 0.01 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:svf 4200 0.5 1 0] [:out 0.25 0.5]]}
    ;; Fire catching: a bright crackle, then a low whoomph.
    {:name :ignite :gate-ms 400
     :patch [[:env 0.005 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:hpf 1500] [:out 0.5 0.5]
@@ -674,11 +679,10 @@
    held back. One patch, two gains — the difference the player needs to hear
    is whether they got out, and level says that without a second sound."
   [ev seed]
-  [{:shot (if (:broke ev) :snap :rasp)
-    :note (+ 55 (jit seed :note 4))
-    :gain (if (:broke ev) 0.6 1.0)
-    :pan  0.5
-    :seed seed}])
+  (if (:broke ev)
+    ;; N003 at the level Matt heard it on the board (round 27's levelling).
+    [{:shot :web-thread :note (+ 67 (jit seed :note 2)) :gain 1.096 :pan 0.5 :seed seed}]
+    [{:shot :rasp :note (+ 55 (jit seed :note 4)) :gain 1.0 :pan 0.5 :seed seed}]))
 
 (defn- shoot-shots
   "A bow releasing. Spatial, because being shot AT from somewhere is the
