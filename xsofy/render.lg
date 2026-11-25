@@ -1035,19 +1035,35 @@
   (let [equip (or (get-in world [:entities :player :equipment]) {})]
     (some (fn [[s id]] (= id item-id)) equip)))
 
-(defn render-item-detail [r y world item-id]
+;; The inventory and inscribe screens share one panel, so moving between them
+;; (s on an item, then esc or enter) doesn't make the box jump.
+(def ^:private panel-bg [20 18 16])
+(def ^:private inventory-panel-w 76)
+(def ^:private inventory-list-w 32)
+
+(defn inventory-panel-rect
+  "The inventory panel, centred: a fixed width, and rows for the equipment
+   header, the backpack and the hint, with room for an item's details."
+  [world tw th]
+  (let [n (count (or (get-in world [:entities :player :inventory]) []))]
+    (ui/centered-rect tw th inventory-panel-w (+ 2 (max 16 (+ 10 n))))))
+
+(defn render-item-detail
   "Render item description and available commands starting at row y."
+  [r y world item-id]
   (let [item (get-in world [:entities item-id])]
     (when item
       (let [slot (get-in item [:item :slot])
-            desc (or (:item-desc item) "No description.")
-            equipped (is-equipped? world item-id)]
-        ;; description
-        (ui/write-line r y (str " " desc) [160 150 130] ui/bg)
-        ;; stats detail
-        (let [stats (item-stat-str world item-id)]
-          (when stats
-            (ui/write-line r (+ y 1) (str " Stats: " stats) [140 130 110] ui/bg)))
+            equipped (is-equipped? world item-id)
+            row (atom y)
+            line! (fn [text fg]
+                    (ui/write-line r @row text fg panel-bg)
+                    (swap! row inc))]
+        (doseq [l (ui/wrap-text (or (:item-desc item) "No description.") (- (:w r) 2))]
+          (line! (str " " l) [160 150 130]))
+        (swap! row inc)
+        (when-let [stats (item-stat-str world item-id)]
+          (line! (str " Stats: " stats) [140 130 110]))
         ;; comparison with equipped
         (when (and (= slot :weapon) (not equipped))
           (let [cur-wep (ent/get-weapon world :player)
@@ -1057,71 +1073,53 @@
                           "1-2")
                 new-dmg (str (get-in item [:item :min-dmg] 0) "-"
                              (get-in item [:item :max-dmg] 0))]
-            (ui/write-line r (+ y 2) (str " Current: " cur-dmg " -> " new-dmg)
-                           [100 100 120] ui/bg)))
+            (line! (str " Current: " cur-dmg " -> " new-dmg) [100 100 120])))
         (when (and (= slot :armor) (not equipped))
           (let [cur-arm (ent/get-armor world :player)
                 cur-def (if cur-arm (or (get-in cur-arm [:item :defense]) 0) 0)
                 new-def (or (get-in item [:item :defense]) 0)]
-            (ui/write-line r (+ y 2) (str " Current: " cur-def " -> " new-def " def")
-                           [100 100 120] ui/bg)))
+            (line! (str " Current: " cur-def " -> " new-def " def") [100 100 120])))
         ;; rune inscriptions
         (let [item-runes (:runes item)
-              rune-table (or (:rune-table world) {})
-              rune-row (atom (+ y 3))]
-          (when (and item-runes (seq item-runes))
-            ;; glyph representation
-            (ui/write-line r @rune-row
-                           (str " Glyphs: " (runes/format-glyphs rune-table item-runes))
-                           [120 100 200] ui/bg)
-            (swap! rune-row inc)
-            ;; s-expression with identified names
-            (ui/write-line r @rune-row
-                           (str " Spell:  " (runes/format-sexp rune-table item-runes))
-                           [160 140 200] ui/bg)
-            (swap! rune-row inc))
-          ;; available commands
-          (let [cmds (cond
-                       (= slot :consumable) " [a] use  [d] drop"
-                       equipped             " [U] unequip  [s] inscribe  [d] drop"
-                       (and slot (not= slot :consumable)) " [e] equip  [s] inscribe  [d] drop"
-                       :else                " [d] drop")]
-            (ui/write-line r (inc @rune-row) cmds [120 120 100] ui/bg)))))))
+              rune-table (or (:rune-table world) {})]
+          (when (seq item-runes)
+            (line! (str " Glyphs: " (runes/format-glyphs rune-table item-runes)) [120 100 200])
+            (line! (str " Spell:  " (runes/format-sexp rune-table item-runes)) [160 140 200])))
+        ;; available commands
+        (swap! row inc)
+        (line! (cond
+                 (= slot :consumable) " [a] use  [d] drop"
+                 equipped             " [U] unequip  [s] inscribe  [d] drop"
+                 (and slot (not= slot :consumable)) " [e] equip  [s] inscribe  [d] drop"
+                 :else                " [d] drop")
+               [120 120 100])))))
 
 (defn render-inventory-screen [world]
   (sfx/with-frame
   (let [[tw th] (term-dims)
-        r (ui/rect 1 1 tw th)
-        inner (ui/box r "Inventory" [180 170 140] ui/bg)
+        r (inventory-panel-rect world tw th)
+        inner (ui/box r "Inventory" [180 170 140] panel-bg)
         inv (or (get-in world [:entities :player :inventory]) [])
         equipment (or (get-in world [:entities :player :equipment]) {})
         sel (or (:inv-sel world) -1)
         letters "abcdefghijklmnopqrstuvwxyz"
-        ;; split: left for list, right for detail
-        list-w (min 35 (quot (:w inner) 2))
-        [list-r detail-r] (ui/rect-split-h inner list-w)]
-    (ui/clear-rect inner)
+        ;; list on the left, details on the right, a gutter between
+        [list-r rest-r] (ui/rect-split-h inner (min inventory-list-w (quot (:w inner) 2)))
+        detail-r (ui/rect (+ (:x rest-r) 2) (:y rest-r) (max 1 (- (:w rest-r) 2)) (:h rest-r))]
     ;; equipment header
-    (ui/write-line list-r 0 " Equipment:" [220 200 160] ui/bg)
-    (let [wep-id (:weapon equipment)
-          arm-id (:armor equipment)
-          ring-id (:ring equipment)]
-      (ui/write-line list-r 1
-                     (str "  W: " (if wep-id (item-display-name world wep-id) "-"))
-                     (if wep-id [180 180 210] [60 60 60]) ui/bg)
-      (ui/write-line list-r 2
-                     (str "  A: " (if arm-id (item-display-name world arm-id) "-"))
-                     (if arm-id [180 180 210] [60 60 60]) ui/bg)
-      (ui/write-line list-r 3
-                     (str "  R: " (if ring-id (item-display-name world ring-id) "-"))
-                     (if ring-id [180 180 210] [60 60 60]) ui/bg))
+    (ui/write-line list-r 0 " Equipment:" [220 200 160] panel-bg)
+    (doseq [[row label id] [[1 "W" (:weapon equipment)]
+                            [2 "A" (:armor equipment)]
+                            [3 "R" (:ring equipment)]]]
+      (ui/write-line list-r row
+                     (str "  " label ": " (if id (item-display-name world id) "-"))
+                     (if id [180 180 210] [60 60 60]) panel-bg))
     ;; gold
-    (let [gold (or (:gold world) 0)]
-      (ui/write-line list-r 4 (str "  $ " gold) [255 220 50] ui/bg))
+    (ui/write-line list-r 4 (str "  $ " (or (:gold world) 0)) [255 220 50] panel-bg)
     ;; backpack
-    (ui/write-line list-r 6 " Backpack:" [220 200 160] ui/bg)
+    (ui/write-line list-r 6 " Backpack:" [220 200 160] panel-bg)
     (if (empty? inv)
-      (ui/write-line list-r 7 "  (empty)" [60 60 60] ui/bg)
+      (ui/write-line list-r 7 "  (empty)" [60 60 60] panel-bg)
       (dotimes [i (min (count inv) (- (:h list-r) 9))]
         (let [item-id (nth inv i nil)]
           (when item-id
@@ -1134,19 +1132,21 @@
                   mark (if equipped "*" " ")
                   selected (= i sel)
                   fg (if selected [255 255 220] color)
-                  bg (if selected [40 38 30] ui/bg)]
+                  bg (if selected [48 44 34] panel-bg)]
               (ui/write-line list-r (+ 7 i)
                              (str mark letter ") " glyph " " iname)
                              fg bg))))))
     ;; detail panel
-    (ui/write-line detail-r 0 " Details:" [220 200 160] ui/bg)
     (if (and (>= sel 0) (< sel (count inv)))
-      (render-item-detail detail-r 2 world (nth inv sel))
-      (ui/write-line detail-r 2 " Select an item (a-z)" [60 60 60] ui/bg))
+      (do (ui/write-line detail-r 0 (item-display-name world (nth inv sel))
+                         (or (get-in world [:entities (nth inv sel) :visual :color]) [220 200 160])
+                         panel-bg)
+          (render-item-detail detail-r 2 world (nth inv sel)))
+      (ui/write-line detail-r 0 "Select an item (a-z)" [80 80 80] panel-bg))
     ;; controls at bottom
     (ui/write-line inner (- (:h inner) 1)
                    " [a-z/jk] select  [esc/i] close"
-                   [60 60 60] ui/bg))))
+                   [80 80 80] panel-bg))))
 
 ;; --- Death Screen ---
 
@@ -1359,8 +1359,8 @@
 (defn render-inscribe-screen [world]
   (sfx/with-frame
   (let [[tw th] (term-dims)
-        r (ui/rect 1 1 tw th)
-        inner (ui/box r "Inscribe Runes" [200 160 240] ui/bg)
+        r (inventory-panel-rect world tw th)
+        inner (ui/box r "Inscribe Runes" [200 160 240] panel-bg)
         rune-table (or (:rune-table world) {})
         item-id (:inscribe-item-id world)
         item (get-in world [:entities item-id])
@@ -1370,30 +1370,29 @@
         sel (or (:inscribe-sel world) 0)
         ;; layout: top = item info + current runes, bottom = rune picker
         [top-r bottom-r] (ui/rect-split-v inner (min 8 (quot (:h inner) 3)))]
-    (ui/clear-rect inner)
     ;; item info
-    (ui/write-line top-r 0 (str " Item: " iname) [220 200 160] ui/bg)
+    (ui/write-line top-r 0 (str " Item: " iname) [220 200 160] panel-bg)
     ;; current inscription
     (if (seq current-runes)
       (do
         (ui/write-line top-r 2
                        (str " Glyphs: " (runes/format-glyphs rune-table current-runes))
-                       [160 140 220] ui/bg)
+                       [160 140 220] panel-bg)
         (ui/write-line top-r 3
                        (str " Spell:  " (runes/format-sexp rune-table current-runes))
-                       [180 160 240] ui/bg))
-      (ui/write-line top-r 2 " (no runes inscribed yet)" [80 80 80] ui/bg))
+                       [180 160 240] panel-bg))
+      (ui/write-line top-r 2 " (no runes inscribed yet)" [80 80 80] panel-bg))
     ;; existing runes on item
     (when-let [old-runes (:runes item)]
       (when (seq old-runes)
         (ui/write-line top-r 5
                        (str " Current: " (runes/format-glyphs rune-table old-runes)
                             " " (runes/format-sexp rune-table old-runes))
-                       [100 90 140] ui/bg)))
+                       [100 90 140] panel-bg)))
     ;; rune picker
-    (ui/write-line bottom-r 0 " Available runes:" [200 180 240] ui/bg)
+    (ui/write-line bottom-r 0 " Available runes:" [200 180 240] panel-bg)
     (if (empty? available)
-      (ui/write-line bottom-r 1 "  (no runes discovered yet)" [80 80 80] ui/bg)
+      (ui/write-line bottom-r 1 "  (no runes discovered yet)" [80 80 80] panel-bg)
       (let [cols 4
             col-w (quot (:w bottom-r) cols)
             max-rows (- (:h bottom-r) 3)]
@@ -1404,14 +1403,14 @@
                 x (* col col-w)
                 selected (= i sel)
                 fg (if selected [255 255 220] [160 140 220])
-                bg-c (if selected [40 30 60] ui/bg)]
+                bg-c (if selected [40 30 60] panel-bg)]
             (ui/write-at bottom-r (+ x 1) (+ row 1)
                          (str (:glyph rn) " " (:name rn))
                          fg bg-c)))))
     ;; controls
     (ui/write-line inner (- (:h inner) 1)
                    " [jk] select  [space] add  [x] remove last  [enter] confirm  [esc] cancel"
-                   [80 80 80] ui/bg))))
+                   [80 80 80] panel-bg))))
 
 ;; --- Public API ---
 

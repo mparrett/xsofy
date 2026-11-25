@@ -390,7 +390,8 @@
    and the game is repainted under it only after a resize."
   [world]
   (let [first? (atom true)]
-    (fn [] (if @first? (reset! first? false) (render/render-full world)))))
+    ;; prompt-key! calls it with nothing, modal-loop with the world
+    (fn [& _] (if @first? (reset! first? false) (render/render-full world)))))
 
 (defn game-loop
   ([world]
@@ -420,14 +421,18 @@
            (recur w w (term/size)))
 
          :inventory
-         (let [w (ui/modal-loop world render/render-inventory-screen inventory-input)]
+         (let [w (ui/modal-loop world render/render-inventory-screen inventory-input
+                                {:background! render/render-full})]
            (if (:screen w)
              (recur w w prev-size)
              (do (render/render-full w)
                  (recur w w (term/size)))))
 
          :inscribe
-         (let [w (ui/modal-loop world render/render-inscribe-screen inscribe-input)]
+         (let [w (ui/modal-loop world render/render-inscribe-screen inscribe-input
+                                ;; entered from the inventory, whose panel it
+                                ;; covers exactly: the game behind is already up
+                                {:background! (repaint-after-first world)})]
            (if (:screen w)
              (recur w w prev-size)
              (do (render/render-full w)
