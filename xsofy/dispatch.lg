@@ -26,7 +26,9 @@
   ;; :console-taint is the dev-console sentinel — it never reaches live dispatch
   ;; (the console appends it to :action-log directly, not as a keypress), so this
   ;; is just a safety no-op; `replay` below truncates the run at it.
-  #{:unknown :resize :eof :console-taint})
+  ;; :toggle-sound mutes the audio sink (play-advance acts on it); the world
+  ;; never sees it, or muting would grow the log.
+  #{:unknown :resize :eof :console-taint :toggle-sound})
 
 (defn action-type
   "The dispatch key for an action: a bare keyword as-is, or the :type of a

@@ -17,12 +17,25 @@
    taking turns does."
   (:require [xsofy.music :as music]
             [xsofy.sfx :as sfx]
-            [async :refer [timeout <!!]]))
+            [async :refer [timeout <!!]]
+            [js]
+            [os]))
 
 ;; ---- the natives ----
 
-(def ^:private natives
-  (when (resolve 'undertone/trigger)
+(def sound-mode
+  "How the game starts its sound (Matt, 2026-11-24): ?sound=off in the browser
+   (XSOFY_SOUND=off in a terminal) never starts audio at all, so no audio
+   context; ?sound=muted starts it silent, for M to unmute; anything else
+   plays."
+  (let [v (or (js/url-param "sound") (os/getenv "XSOFY_SOUND"))]
+    (case v
+      ("off" "0" "false") :off
+      ("muted" "mute")    :muted
+      :on)))
+
+(def ^:private raw-natives
+  (when (and (not= :off sound-mode) (resolve 'undertone/trigger))
     (try
       (require '[undertone.ambience])
       {:trigger        @(resolve 'undertone/trigger)
@@ -47,6 +60,38 @@
        :theme-playing? (some-> (resolve 'undertone/theme-playing?) deref)
        :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
       (catch e nil))))
+
+(def ^:private mute
+  "Muting holds both gains at 0 while remembering what the game last asked
+   for, so the duck's glides and the title's fade keep their bookkeeping and
+   unmuting lands on the level the game would be at."
+  (atom {:muted? (= :muted sound-mode) :music 0.0 :sfx 0.0}))
+
+(def ^:private natives
+  (when raw-natives
+    (let [{:keys [set-music-gain glide-music-gain set-sfx-gain]} raw-natives]
+      (cond-> (assoc raw-natives
+                     :set-music-gain (fn [g]
+                                       (swap! mute assoc :music g)
+                                       (set-music-gain (if (:muted? @mute) 0.0 g)))
+                     :set-sfx-gain (when set-sfx-gain
+                                     (fn [g]
+                                       (swap! mute assoc :sfx g)
+                                       (set-sfx-gain (if (:muted? @mute) 0.0 g)))))
+        glide-music-gain
+        (assoc :glide-music-gain (fn [g s]
+                                   (swap! mute assoc :music g)
+                                   (when-not (:muted? @mute) (glide-music-gain g s))))))))
+
+(defn toggle-mute!
+  "M in the game: silence everything, or bring it back at the level the game
+   is at now."
+  []
+  (when raw-natives
+    (let [{:keys [muted? music sfx]} (swap! mute update :muted? not)
+          {:keys [set-music-gain set-sfx-gain]} raw-natives]
+      (set-music-gain (if muted? 0.0 music))
+      (when set-sfx-gain (set-sfx-gain (if muted? 0.0 sfx))))))
 
 (defn enabled?
   "Whether this lg has the undertone binding linked."
