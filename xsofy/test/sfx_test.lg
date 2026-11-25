@@ -247,6 +247,8 @@
         (is (contains? shots :web-scuff))))
     (testing "one tug or two, drawn per turn"
       (is (< 1 (count (set (map #(count (turn %)) (range 20)))))))
+    (testing "seeds are whole numbers, as every trigger's are"
+      (is (every? #(integer? (:seed %)) (turn 3))))
     (testing "the tug comes after the catch"
       (is (every? #(>= (last-ms (turn %)) 270) (range 10))))))
 

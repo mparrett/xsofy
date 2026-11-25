@@ -688,8 +688,11 @@
   [seed]
   (let [g    (* 1.2 (+ 0.7 (* 0.6 (unit seed :level))))
         pan  (if (< (unit seed :foot) 0.5) 0.45 0.55)
+        ;; whole ms: the grains' times are fractional, and a fractional seed
+        ;; breaks every reader that parses seeds as integers
         tr   (fn [ms shot lv note]
-               {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note ms) :delay-ms (long ms)})
+               (let [ms (long ms)]
+                 {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note ms) :delay-ms ms}))
         ;; 3 grains over span ms from at, each at lv +-25%
         burst (fn [at span lv k]
                 (map (fn [i] (tr (+ at (* span (unit seed [k :t i]))) :web-grain
