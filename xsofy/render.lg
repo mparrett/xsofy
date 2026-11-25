@@ -934,8 +934,12 @@
         items (menu-filter world action)
         sel (or (:menu-sel world) -1)
         letters "abcdefghijklmnopqrstuvwxyz"
-        menu-h (+ (count items) 4)
-        menu-w 36
+        menu-h (+ (max 1 (count items)) 4)
+        hint (if (empty? items)
+               " [any key] close"
+               " [a-z] select  [enter] confirm  [esc] cancel")
+        ;; wide enough for the hint, so it isn't cut off
+        menu-w (max 36 (+ 3 (count hint)))
         mx (- (quot tw 2) (quot menu-w 2))
         my (- (quot th 2) (quot menu-h 2))
         r (ui/rect mx my menu-w menu-h)
@@ -959,9 +963,7 @@
           (ui/write-line inner i
                          (str " " letter ") " gch " " iname stats-txt)
                          fg bg))))
-    (ui/write-line inner (dec (:h inner))
-                   " [a-z] select  [enter] confirm  [esc] cancel"
-                   [60 60 60] [20 18 16]))))
+    (ui/write-line inner (dec (:h inner)) hint [80 80 80] [20 18 16]))))
 
 ;; --- Message Log Screen (modal) ---
 
