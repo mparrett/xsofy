@@ -488,7 +488,8 @@
                               (or (= k "n") (= k "\r") (= k "\n") (= k " ")) (reduced :new-game)
                               (= k "m")                    (reduced :messages)
                               (= k :eof)                  (reduced :quit)
-                              (= k "\u001b")               (reduced :esc)
+                              ;; native esc quits; the web has nothing to quit to
+                              (and (= k "\u001b") (not *in-wasm*)) (reduced :esc)
                               :else st))
                           st)))
                ;; The fade into the scene (see render/death-fade-plan). Keys are
@@ -533,18 +534,9 @@
              (let [w (new-game)]
                (render/render-full w)
                (recur w w (term/size)))
-             ;; esc: wasm offers a restart confirm (declining re-enters the death
-             ;; screen); native esc quits.
+             ;; esc (native only): quit
              (= result :esc)
-             (if *in-wasm*
-               (do
-                 (if (= (ui/prompt-key! (fn [] (render/render-hazard-prompt world "Start a new game?"))
-                                       nil) "y")
-                   (let [w (new-game)]
-                     (render/render-full w)
-                     (recur w w (term/size)))
-                   (recur world world prev-size)))
-               (assoc world :running false))
+             (assoc world :running false)
              ;; :quit (EOF)
              :else (assoc world :running false)))
 
