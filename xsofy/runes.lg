@@ -43,7 +43,7 @@
    :mul :add])
 
 ;; numerals are NOT randomized — they're always the same glyphs
-(def numeral-glyphs {1 "①" 2 "②" 3 "③" 4 "④" 5 "⑤"})
+(def numeral-glyphs {1 "❶" 2 "❷" 3 "❸" 4 "❹" 5 "❺"})
 
 ;; --- Rune Table ---
 
