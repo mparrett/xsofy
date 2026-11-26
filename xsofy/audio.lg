@@ -429,20 +429,22 @@
 (def death-music
   "Matt, 2026-11-26: on death the music \"should fade fast or cut (200-300
    ms), then a fade-in of the outro, ping while that's ramping up, and then
-   it keeps playing\". The floor's music glides out over :out-ms, the outro
-   starts silent then, and glides up over :in-s, long enough that the
-   blip-out (about 3.15 s in) lands while it rises."
-  {:out-ms 250 :in-s 4.0})
+   it keeps playing\"; then \"sound needs to stop immediately and the
+   abrupt silence felt\". So the floor's music stops in :out-ms (short of
+   a click, no shorter), :silence-ms passes with nothing, then the outro
+   starts at zero and glides up over :in-s, so the blip-out (about 3.15 s
+   in) lands while it rises."
+  {:out-ms 20 :silence-ms 1200 :in-s 3.0})
 
 (defn outro-plan
   "The death's music as [ms action & args], ms from death: the floor's
    music out, the outro theme in, and the blip-out at `blip-ms` (nil
    without the death fade)."
   [blip-ms]
-  (let [{:keys [out-ms in-s]} death-music]
+  (let [{:keys [out-ms silence-ms in-s]} death-music]
     (cond-> [[0 :glide 0.0 (/ out-ms 1000.0)]
-             [out-ms :theme]
-             [out-ms :glide music-gain in-s]]
+             [silence-ms :theme]
+             [silence-ms :glide music-gain in-s]]
       blip-ms (conj [blip-ms :blip]))))
 
 (defn outro!
