@@ -161,6 +161,22 @@
     ;; return inner rect
     (rect (+ (:x r) 1) (+ (:y r) 1) (- w 2) (- h 2))))
 
+(defn box-frame
+  "Like `box`, but draws only the border and leaves the inside as it is. For a
+   panel that redraws in place (scrolling): blanking the inside first and then
+   writing the text over it shows as a flicker."
+  [r title fg bgg]
+  (let [w (:w r)
+        h (:h r)]
+    (write-line r 0 (str "╭" (apply str (repeat (- w 2) "─")) "╮") fg bgg)
+    (dotimes [y (- h 2)]
+      (write-at r 0 (inc y) "│" fg bgg)
+      (write-at r (dec w) (inc y) "│" fg bgg))
+    (write-line r (dec h) (str "╰" (apply str (repeat (- w 2) "─")) "╯") fg bgg)
+    (when title
+      (write-at r 2 0 (str " " title " ") fg bgg))
+    (rect (+ (:x r) 1) (+ (:y r) 1) (- w 2) (- h 2))))
+
 ;; --- Fixed Layout ---
 ;; Game area is fixed size, centered in terminal
 
