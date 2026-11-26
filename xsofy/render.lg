@@ -1495,7 +1495,9 @@
                        (cond (>= room-full 3) [body-full (min 6 room-full)]
                              :else [body-compact (max 1 (min 6 room-compact))]))
         total (+ (fixed body) lines)
-        y0 (max 0 (quot (- th total) 2))
+        ;; centred, then a row lower where there is room for it (Matt: the
+        ;; column sat a touch high)
+        y0 (max 0 (min (- th total) (inc (quot (- th total) 2))))
         sx (- cx (quot (+ inner 2) 2))
         crown-y (+ y0 3)
         bot (+ crown-y 2 (count body))
@@ -1515,7 +1517,8 @@
         (put! (+ sx dx) (- bot up) ch (nth grass-far g) bg)))
     ;; the stone: a _ crown resting on the face, slanted shoulders, sides, a
     ;; side strip for thickness
-    (put! (+ sx 3) crown-y (apply str (repeat (- inner 4) "_")) stone-edge bg)
+    ;; "," and "." cap the crown's ends, over the shoulders (Matt's sketch)
+    (put! (+ sx 2) crown-y (str "," (apply str (repeat (- inner 4) "_")) ".") stone-edge bg)
     (put! (+ sx 1) (inc crown-y) "╱" stone-edge bg)
     (put! (+ sx 2) (inc crown-y) (apply str (repeat (- inner 2) " ")) stone-edge stone-face)
     (put! (+ sx inner) (inc crown-y) "╲" stone-edge bg)
