@@ -1698,14 +1698,21 @@
         ;; step before it goes dark; the sidebar and log just go dark
         drawn (into {} (keep (fn [[[x y] app]] (when-let [sc (map-cell mr x y)] [sc app])))
                     @cell-appearance)
-        max-d (math/sqrt (+ (* tw tw 0.25) (* th th)))
+        ;; distance runs to the game area's farthest corner, not the
+        ;; terminal's: on a wide window the game sits in the middle, and
+        ;; scaling to the whole terminal spent most of the fade on empty screen
+        gw (min ui/game-width tw) gh (min ui/game-height th)
+        gx0 (inc (quot (- tw gw) 2)) gy0 (inc (quot (- th gh) 2))
+        max-d (apply max 1.0
+                     (for [cx [gx0 (+ gx0 gw -1)] cy [gy0 (+ gy0 gh -1)]]
+                       (math/sqrt (+ (* (- cx pc) (- cx pc) 0.25) (* (- cy pr) (- cy pr))))))
         dark [" " ui/bg ui/bg]
         out-events
         (for [col (range 1 (inc tw)) row (range 1 (inc th))
               :when (not (and (= col pc) (= row pr)))
               :let [d (/ (math/sqrt (+ (* (- col pc) (- col pc) 0.25) (* (- row pr) (- row pr)))) max-d)
                     ;; outer cells first; the noise roughens the closing edge
-                    gone (+ (* 0.85 (- 1 (min 1.0 (* d 1.6)))) (* (rand) 0.12))
+                    gone (+ (* 0.85 (- 1 (min 1.0 (* d 1.15)))) (* (rand) 0.12))
                     app (get drawn [col row])]
               e (cond-> [(into [(+ hold (* out gone)) col row] dark)]
                   app (conj (let [[ch fg bg] (app->cell app)]
