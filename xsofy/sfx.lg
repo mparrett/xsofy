@@ -161,6 +161,10 @@
    {:name :web-thread :gate-ms 300
     :patch [[:env 0.002 0.12 0 0.08] [:pluck 0 0.8] [:mul] [:hpf 900] [:out 0.4 0.5]
             [:env 0.01 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:svf 4200 0.5 1 0] [:out 0.25 0.5]]}
+   ;; The generic hit taken's click, S156 (round 49): the thud alone sits near
+   ;; 100 Hz and is close to inaudible on a laptop.
+   {:name :hit-click :gate-ms 400
+    :patch [[:env 0.001 0.02 0 0.012] [:osc 0 :noise 0 1] [:mul] [:svf 2200 0.5 1 0] [:out 0.6 0.5]]}
    ;; The ice elemental's death, V054 (round 30, Matt's pick): a cracking
    ;; snap, then glass-like shards, each a sine with two inharmonic partials.
    {:name :ice-crack :gate-ms 400
@@ -483,13 +487,22 @@
   [ev seed]
   (if-let [takes (get creature-hits (:creature ev))]
     (voice-take (pick-take takes seed) seed :hit 0.5 (or (:flight-ms ev) 0))
-    (let [s (severity ev)]
+    ;; S156 (Matt, 2026-11-25): the thud with a click on top, at the board's
+    ;; level for it, 0.46 of the thud's old gain. Both grow with severity.
+    (let [s  (severity ev)
+          at (or (:flight-ms ev) 0)]
       [{:shot :thud
         :note (- 45 (int (* 9.0 s)) (jit seed :note 2))
-        :gain (+ 0.4 (* 0.267 s))
+        :gain (* 0.46 (+ 0.4 (* 0.267 s)))
         :pan  0.5
-        :delay-ms (or (:flight-ms ev) 0)
-        :seed seed}])))
+        :delay-ms at
+        :seed seed}
+       {:shot :hit-click
+        :note 60
+        :gain (* 0.23 (+ 0.5 (* 0.5 s)))
+        :pan  0.5
+        :delay-ms at
+        :seed (det/combine seed [:click])}])))
 
 (defn- door-shots
   "A door swinging. Spatial and unhurried: it is almost always something else
