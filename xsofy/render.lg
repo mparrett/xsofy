@@ -1124,7 +1124,12 @@
   (let [[tw th] (term-dims)
         r (ui/centered-rect tw th messages-panel-w (messages-panel-h th))
         _ (reset! open-panel-rect r)
-        inner (ui/pad-rows (ui/box r "Message Log" [180 170 140] panel-bg))
+        ;; the border only, then every inside row written once below: blanking
+        ;; the whole panel before each scroll step made it flicker
+        frame (ui/box-frame r "Message Log" [180 170 140] panel-bg)
+        _ (ui/write-line frame 0 "" [80 80 80] panel-bg)
+        _ (ui/write-line frame (dec (:h frame)) "" [80 80 80] panel-bg)
+        inner (ui/pad-rows frame)
         visible-lines (message-visible-lines th)
         window (message-log-window (:log world) visible-lines (:message-scroll world)
                                    (message-text-w tw))
@@ -1142,6 +1147,9 @@
                                 (max 60 (- brightness 20))
                                 (max 40 (- brightness 80))]
                                panel-bg))))
+    ;; the rows between the text and the footer
+    (doseq [y (range (max 1 cnt) (dec (:h inner)))]
+      (ui/write-line inner y "" [80 80 80] panel-bg))
     (let [pos (if (> (:count window) 0)
                 (str (inc (:start window)) "-" (:end window) "/" (:count window))
                 "0/0")

@@ -344,3 +344,11 @@
       (finally
         (reset! render/last-camera saved-cam)
         (reset! render/last-player-drawn saved-seen)))))
+
+(deftest message-log-redraws-without-blanking
+  ;; scrolling redraws the log in place; blanking a row ("│     │") and then
+  ;; writing its text over it showed as a flicker
+  (let [world {:log (mapv #(str "message " %) (range 60)) :message-scroll 3}
+        out (with-out-str (render/render-messages-screen world))]
+    (is (cstr/includes? out "message 5"))
+    (is (nil? (re-find #"│ {20,}│" out)))))
