@@ -220,3 +220,15 @@
     (is (= {:w 29 :cols 2 :h 17 :mode :bare} (render/codex-layout 27 31 19))))
   (testing "never taller than the terminal"
     (is (<= (:h (render/codex-layout 27 31 10)) 8))))
+
+(deftest help-panel-is-two-tight-columns-when-they-fit
+  (testing "a wide terminal: two columns, no wider than the other panels"
+    (let [{:keys [w columns]} (render/help-layout 120 40)]
+      (is (= 2 (count columns)))
+      (is (<= w 76))))
+  (testing "too narrow for two: one column holding every section"
+    (let [{:keys [columns]} (render/help-layout 40 60)]
+      (is (= 1 (count columns)))
+      (is (= 5 (count (first columns))))))
+  (testing "never taller than the terminal"
+    (is (<= (:h (render/help-layout 120 20)) 18))))
