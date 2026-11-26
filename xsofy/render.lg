@@ -452,9 +452,19 @@
 ;; drawn once with what ends up on top. Painting the tile and then the entity
 ;; over it every turn rewrote every visible creature and item, and a frame shown
 ;; between the two writes blanked them to bare floor.
+;; Where the player was last drawn, and how: {:pos [x y] :app [...]}. A killed
+;; player is removed from the world, so the death fade reads this to close in
+;; on the right cell (render-side only; the world is untouched).
+(def last-player-drawn (atom nil))
+
+(defn- note-player! [entity app]
+  (when (= :player (:id entity))
+    (reset! last-player-drawn {:pos (:pos entity) :app app})))
+
 (defn render-entity [world r entity]
   (when-let [app (entity-appearance world r entity)]
     (let [[x y] (:pos entity)]
+      (note-player! entity app)
       (draw-cell! r x y app))))
 
 (defn top-entities
@@ -475,7 +485,10 @@
   "Draw world cell [x y] as it should finally look: the top entity in `top`
    if one stands there, else the tile (lit if in view, remembered if not)."
   [world r top x y]
-  (if-let [app (when-let [e (get top [x y])] (entity-appearance world r e))]
+  (if-let [app (when-let [e (get top [x y])]
+                 (when-let [app (entity-appearance world r e)]
+                   (note-player! e app)
+                   app))]
     (draw-cell! r x y app)
     (let [visible (contains? (:fov world) [x y])]
       (render-map-tile r x y
@@ -1715,9 +1728,14 @@
    per death; render-death-fade! plays it back."
   [world tw th]
   (let [{:keys [hold out linger beat in ramp] :as ms} death-fade-ms
-        mr (with-camera world (:map (ui/layout tw th)))
+        ;; the camera the game last drew with: with-camera on the dead world
+        ;; would recompute it for a player who is no longer there
+        r0 (:map (ui/layout tw th))
+        mr (if-let [c @last-camera] (assoc r0 :cx (:cx c) :cy (:cy c)) (with-camera world r0))
+        ;; the killed player is gone from the world; use where it was drawn
+        seen @last-player-drawn
         player (get-in world [:entities :player])
-        [pc pr] (or (when-let [[x y] (:pos player)] (map-cell mr x y))
+        [pc pr] (or (when-let [[x y] (or (:pos player) (:pos seen))] (map-cell mr x y))
                     [(quot tw 2) (quot th 2)])
         ;; the map as drawn, by screen position, so the edge can dim it a
         ;; step before it goes dark; the sidebar and log just go dark
@@ -1745,6 +1763,7 @@
                                (toward-bg fg 0.45) (toward-bg bg 0.45)])))]
           e)
         [pch pfg pbg] (or (some->> player (entity-appearance world mr) app->cell)
+                          (some-> (:app seen) app->cell)
                           ["@" [255 220 80] ui/bg])
         linger-events
         (for [i (range 1 9)

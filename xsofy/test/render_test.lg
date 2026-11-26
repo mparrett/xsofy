@@ -1,6 +1,7 @@
 (ns xsofy.test.render-test
   (:require [test :refer [deftest is testing]]
             [xsofy.render :as render]
+            [xsofy.ui :as ui]
             [xsofy.screenfx :as screenfx]
             [clojure.string :as cstr]))
 
@@ -324,3 +325,22 @@
     (is (= (count last-write) (* tw th)))
     (is (every? (fn [[xy cell]] (= (get last-write xy) cell)) cells))
     (is (every? (fn [[xy [ch]]] (or (contains? cells xy) (= ch " "))) last-write))))
+
+(deftest death-fade-closes-on-where-the-player-was-drawn
+  ;; a killed player is removed from the world, so the fade must find it from
+  ;; the last frame drawn, not fall back to the middle of the screen
+  (let [tw 31 th 20
+        saved-cam @render/last-camera saved-seen @render/last-player-drawn
+        r0 (:map (ui/layout tw th))
+        app ["@" 255 220 80 10 10 10]]
+    (try
+      (reset! render/last-camera {:cx 10 :cy 4 :depth 5 :rw (:w r0) :rh (:h r0)})
+      (reset! render/last-player-drawn {:pos [12 6] :app app})
+      (let [[pc pr] (render/map-cell (assoc r0 :cx 10 :cy 4) 12 6)
+            {:keys [events]} (render/death-fade-plan dead-world tw th)
+            at-player (filter (fn [[_ c r ch]] (and (= c pc) (= r pr) (= ch "@"))) events)]
+        (is (not= [pc pr] [(quot tw 2) (quot th 2)]))
+        (is (seq at-player)))
+      (finally
+        (reset! render/last-camera saved-cam)
+        (reset! render/last-player-drawn saved-seen)))))
