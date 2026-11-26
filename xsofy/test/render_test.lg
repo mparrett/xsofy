@@ -309,3 +309,18 @@
     (let [w (assoc dead-world :log ["You wait." "The goblin-shaman with a very long name shoots and kills you!"])
           rows (map #(scene-text (render/death-scene w 31 18) %) (range 18))]
       (is (some #(cstr/includes? % "The goblin-shaman") rows)))))
+
+(deftest death-fade-ends-on-the-scene
+  ;; the fade's last write to each cell is the scene at full brightness, so
+  ;; marking the scene drawn afterwards is true; and every screen cell went
+  ;; dark first, so nothing of the game is left behind it
+  (let [tw 80 th 24
+        {:keys [events total]} (render/death-fade-plan dead-world tw th)
+        {:keys [cells]} (render/death-scene dead-world tw th)
+        last-write (reduce (fn [m [_ col row ch fg bg]] (assoc m [(dec col) (dec row)] [ch fg bg]))
+                           {} events)]
+    (is (= (map first events) (sort (map first events))))
+    (is (<= (first (last events)) total))
+    (is (= (count last-write) (* tw th)))
+    (is (every? (fn [[xy cell]] (= (get last-write xy) cell)) cells))
+    (is (every? (fn [[xy [ch]]] (or (contains? cells xy) (= ch " "))) last-write))))

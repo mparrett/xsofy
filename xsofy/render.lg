@@ -1673,6 +1673,115 @@
           (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
           (term/write (:glyph r)))))))
 
+;; --- Death fade ---
+;; The way into the death screen: the dungeon holds a moment, darkness closes
+;; in from the edges until only the player is lit, that light dies, a beat of
+;; black, then the scene fades in from the stone outward. Matt picked these
+;; timings in the fade mock (project-docs joint-xsofy/death-screen-mock/fade.html,
+;; at 0.7x its base speed).
+(def death-fade-ms {:hold 300 :out 1850 :linger 1000 :beat 350 :in 1570 :ramp 370})
+
+(defn- toward-bg
+  "Colour `c` faded by `k` (0 dark .. 1 full) toward the screen background."
+  [c k]
+  (mapv (fn [v b] (int (+ b (* (- v b) k)))) c ui/bg))
+
+(defn- app->cell
+  "A map cell's appearance [ch fr fg fb br bg bb] as [ch fg bg]."
+  [[ch fr fg fb br bgg bb]]
+  [ch [fr fg fb] [br bgg bb]])
+
+(defn- fade-in-events
+  "Writes that bring the scene in: each cell gets a start time by its
+   distance from the stone, plus noise, then brightens in four steps."
+  [{:keys [cells]} tw th t0 {:keys [in ramp]}]
+  (let [face-ys (keep (fn [[[_ y] [_ _ bg]]] (when (= bg stone-face) y)) cells)
+        my (if (seq face-ys)
+             (/ (+ (apply min face-ys) (apply max face-ys)) 2.0)
+             (* th 0.4))
+        mx (/ tw 2.0)]
+    (for [[[x y] [ch fg bg]] cells
+          :let [dx (/ (- x mx) (/ tw 2.0))
+                dy (/ (- y my) (/ th 2.0))
+                d (min 1.0 (math/sqrt (+ (* dx dx 0.35) (* dy dy))))
+                start (+ t0 (* in (+ (* d 0.75) (* (rand) 0.25))))]
+          step [1 2 3 4]
+          :let [k (/ step 4.0)]]
+      [(+ start (* ramp k)) (inc x) (inc y) ch (toward-bg fg k) (toward-bg bg k)])))
+
+(defn death-fade-plan
+  "Every write the fade makes on a tw x th terminal, as [ms col row ch fg bg]
+   sorted by time (terminal coordinates, 1-based), plus :total ms. Built once
+   per death; render-death-fade! plays it back."
+  [world tw th]
+  (let [{:keys [hold out linger beat in ramp] :as ms} death-fade-ms
+        mr (with-camera world (:map (ui/layout tw th)))
+        player (get-in world [:entities :player])
+        [pc pr] (or (when-let [[x y] (:pos player)] (map-cell mr x y))
+                    [(quot tw 2) (quot th 2)])
+        ;; the map as drawn, by screen position, so the edge can dim it a
+        ;; step before it goes dark; the sidebar and log just go dark
+        drawn (into {} (keep (fn [[[x y] app]] (when-let [sc (map-cell mr x y)] [sc app])))
+                    @cell-appearance)
+        ;; distance runs to the game area's farthest corner, not the
+        ;; terminal's: on a wide window the game sits in the middle, and
+        ;; scaling to the whole terminal spent most of the fade on empty screen
+        gw (min ui/game-width tw) gh (min ui/game-height th)
+        gx0 (inc (quot (- tw gw) 2)) gy0 (inc (quot (- th gh) 2))
+        max-d (apply max 1.0
+                     (for [cx [gx0 (+ gx0 gw -1)] cy [gy0 (+ gy0 gh -1)]]
+                       (math/sqrt (+ (* (- cx pc) (- cx pc) 0.25) (* (- cy pr) (- cy pr))))))
+        dark [" " ui/bg ui/bg]
+        out-events
+        (for [col (range 1 (inc tw)) row (range 1 (inc th))
+              :when (not (and (= col pc) (= row pr)))
+              :let [d (/ (math/sqrt (+ (* (- col pc) (- col pc) 0.25) (* (- row pr) (- row pr)))) max-d)
+                    ;; outer cells first; the noise roughens the closing edge
+                    gone (+ (* 0.85 (- 1 (min 1.0 (* d 1.15)))) (* (rand) 0.12))
+                    app (get drawn [col row])]
+              e (cond-> [(into [(+ hold (* out gone)) col row] dark)]
+                  app (conj (let [[ch fg bg] (app->cell app)]
+                              [(+ hold (* out (max 0 (- gone 0.06)))) col row ch
+                               (toward-bg fg 0.45) (toward-bg bg 0.45)])))]
+          e)
+        [pch pfg pbg] (or (some->> player (entity-appearance world mr) app->cell)
+                          ["@" [255 220 80] ui/bg])
+        linger-events
+        (for [i (range 1 9)
+              :let [k (- 1 (/ i 8.0))]]
+          [(+ hold out (* linger (/ i 8.0))) pc pr (if (pos? k) pch " ")
+           (toward-bg pfg k) (toward-bg pbg k)])
+        t-in (+ hold out linger beat)
+        in-events (fade-in-events (death-scene world tw th) tw th t-in ms)]
+    {:events (vec (sort-by first (concat out-events linger-events in-events)))
+     :total (+ t-in in ramp)
+     :i (atom 0)}))
+
+(defn render-death-fade!
+  "Make every write in `plan` due by `elapsed` ms that isn't made yet."
+  [plan elapsed]
+  (let [events (:events plan)
+        n (count events)]
+    (sfx/with-frame
+      (loop [i @(:i plan)]
+        (if (and (< i n) (<= (first (nth events i)) elapsed))
+          (let [[_ col row ch [r g b] [br bgc bb]] (nth events i)]
+            (term/move-cursor col row)
+            (term/set-fg r g b)
+            (term/set-bg br bgc bb)
+            (term/write ch)
+            (recur (inc i)))
+          (reset! (:i plan) i))))))
+
+(defn death-fade-done? [plan elapsed]
+  (and (>= @(:i plan) (count (:events plan))) (>= elapsed (:total plan))))
+
+(defn mark-death-drawn!
+  "The fade has left the whole scene up: tell render-death-screen not to
+   draw it again."
+  [world tw th]
+  (reset! death-drawn {:size [tw th] :world world}))
+
 ;; --- Rune Codex Screen ---
 
 (defn codex-entries
