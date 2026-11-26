@@ -373,10 +373,38 @@
 ;; sounds (subtle, offset on turn like we did before with hits)".
 (def monster-step-level 0.5)
 
+(def ^:private monster-grit
+  "What a monster's step on stone carries, one drawn per step, [ms shot note
+   share-of-the-step's-peak]: round 50's S183, S184 and S185 (Matt,
+   2026-11-25, \"maybe could pick random\"). Two grains; one grain, or a
+   foot dragging three; a grain, or grit."
+  [[[20 :web-grain 50 0.4] [65 :web-grain 53 0.25]]
+   [[20 :web-grain 50 0.4]]
+   [[20 :web-grain 50 0.3] [80 :web-grain 53 0.25] [130 :web-grain 55 0.12]]
+   [[20 :web-grain 51 0.45]]
+   [[25 :step-grit 40 0.5] [60 :step-grit 44 0.3]]])
+
+(defn- monster-step
+  "A monster's step: quieter than yours, one foot sometimes lighter (S183,
+   S184: x0.7-0.8), and on stone a little grit so it is not your step."
+  [ev seed trs]
+  (let [foot (if (< (unit seed :foot) 0.5) 1.0 0.75)
+        trs  (mapv #(update % :gain * monster-step-level foot) trs)]
+    (if (or (:surface ev) (empty? trs))
+      trs
+      (let [peak  (apply max (map :gain trs))
+            pan   (:pan (first trs))
+            extra (nth monster-grit (mod (bit-and (det/combine seed [:grit]) 0xffffff)
+                                         (count monster-grit)))]
+        (into trs (map (fn [[ms shot note g]]
+                         {:shot shot :note note :gain (* g peak) :pan pan
+                          :seed (det/combine seed [:grit ms]) :delay-ms ms})
+                       extra))))))
+
 (defn- footstep-shots [ev seed]
-  (cond-> (surface-step-shots ev seed)
-    (:emerged ev) (into (emerge-shots ev seed))
-    (:monster ev) (->> (mapv #(update % :gain * monster-step-level)))))
+  (cond->> (surface-step-shots ev seed)
+    (:emerged ev) (#(into % (emerge-shots ev seed)))
+    (:monster ev) (monster-step ev seed)))
 
 
 (defn- combat-hit-shots
