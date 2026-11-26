@@ -514,8 +514,43 @@
                 [140 30 30] [40 12 12] [180 150 130])
         (render-status-bars r (inc row) c)))))
 
+;; What the sidebar last drew, as the values it reads. Every turn calls
+;; render-sidebar, but most turns change nothing in it, and a clear-and-redraw
+;; of the whole column shows as flicker and costs output. Reset wherever the
+;; screen under it was blanked (render-full, close-panel!).
+(def ^:private sidebar-drawn (atom nil))
+
+(defn- sidebar-visible-creatures [world]
+  (let [fov (or (:fov world) #{})]
+    (->> (vals (:entities world))
+         (filter (fn [e]
+                   (and (some? e) (map? e) (:id e)
+                        (not= :player (:id e))
+                        (:pos e)
+                        (some? (get-in e [:body :hp]))
+                        (contains? fov (:pos e)))))
+         (vec)
+         (sort-by (fn [e] (or (get-in e [:body :hp]) 0))))))
+
+(defn- sidebar-key
+  "Everything render-sidebar shows, minus what it doesn't (a creature's
+   position), so a turn where nothing in the column changed compares equal."
+  [world r creatures]
+  (let [player (get-in world [:entities :player])
+        shown (fn [e] [(:id e) (:template e) (:friendly e) (:visual e)
+                       (get-in e [:body :hp]) (get-in e [:body :max-hp])
+                       (status/entity-active-statuses e)])]
+    [r (:body player) (status/entity-active-statuses player)
+     (ent/get-weapon world :player) (ent/get-armor world :player)
+     (:gold world) (:depth world) (:seed-input world)
+     (mapv shown creatures)]))
+
 (defn render-sidebar [world r]
   (when r
+   (let [creatures (sidebar-visible-creatures world)
+         k (sidebar-key world r creatures)]
+    (when (not= k @sidebar-drawn)
+    (reset! sidebar-drawn k)
     (ui/clear-rect r)
     (when-let [player (get-in world [:entities :player])]
     (let [hp (or (get-in player [:body :hp]) 0)
@@ -568,20 +603,10 @@
       (ui/write-line r @row (apply str (repeat (:w r) "-")) [40 40 40] ui/bg)
       (swap! row inc)
       ;; visible creatures
-      (let [fov (or (:fov world) #{})
-            creatures (->> (vals (:entities world))
-                           (filter (fn [e]
-                                     (and (some? e) (map? e) (:id e)
-                                          (not= :player (:id e))
-                                          (:pos e)
-                                          (some? (get-in e [:body :hp]))
-                                          (contains? fov (:pos e)))))
-                           (vec)
-                           (sort-by (fn [e] (or (get-in e [:body :hp]) 0))))]
-        (doseq [c creatures]
-          (when (< @row (:h r))
-            (let [next-row (render-creature-entry r @row c)]
-              (reset! row (or next-row (+ @row 2)))))))))))
+      (doseq [c creatures]
+        (when (< @row (:h r))
+          (let [next-row (render-creature-entry r @row c)]
+            (reset! row (or next-row (+ @row 2))))))))))))
 
 ;; --- Top Bar (narrow-width HP/status; replaces the folded sidebar) ---
 ;; One row, left-aligned (it does NOT fill the width): a fixed-width HP bar
@@ -678,6 +703,24 @@
 (defn max-message-scroll [world visible-lines]
   (:max-scroll (message-log-window (:log world) visible-lines (:message-scroll world))))
 
+;; Rune glyphs in a message ("You learn: ᛇ means ...") take the runestone's
+;; glow, faded with the line like the rest of it. Messages are plain strings,
+;; so the colour is applied when the line is drawn.
+(def ^:private rune-chars (into (set runes/rune-glyphs) (vals runes/numeral-glyphs)))
+(def ^:private rune-color [180 140 255])
+
+(defn- write-message-line!
+  "ui/write-line, then any rune glyphs in text redrawn in rune-color, scaled
+   by the line's own brightness (fg's red channel, out of 220)."
+  [r y text fg bgc]
+  (ui/write-line r y text fg bgc)
+  (let [k (min 1.0 (/ (first fg) 220.0))
+        c (mapv #(int (* % k)) rune-color)]
+    (doseq [[i ch] (keep-indexed (fn [i ch] (when (contains? rune-chars (str ch)) [i (str ch)]))
+                                 text)
+            :when (< i (:w r))]
+      (ui/write-at r i y ch c bgc))))
+
 (defn render-log [world r]
   (when r
     (ui/clear-rect r)
@@ -690,11 +733,11 @@
               msg (format-log-entry entry)
               age (- cnt i 1)
               brightness (max 60 (- 220 (* age 50)))]
-          (ui/write-line r (+ (- n cnt) i) (str " " msg)
-                         [brightness
-                          (max 60 (- brightness 20))
-                          (max 40 (- brightness 80))]
-                         ui/bg))))))
+          (write-message-line! r (+ (- n cnt) i) (str " " msg)
+                               [brightness
+                                (max 60 (- brightness 20))
+                                (max 40 (- brightness 80))]
+                               ui/bg))))))
 
 ;; --- VFX Rendering ---
 ;; line-cells lives in xsofy.util now (use u/line-cells).
@@ -972,17 +1015,16 @@
         sel (or (:menu-sel world) -1)
         letters "abcdefghijklmnopqrstuvwxyz"
         menu-h (+ (max 1 (count items)) 4 ui/panel-pad-rows)
-        hint (if (empty? items)
-               " [any key] close"
-               " [letter] choose  [any other key] cancel")
-        ;; wide enough for the hint, so it isn't cut off
+        long-hint " [letter] choose  [any other key] cancel"
+        ;; a phone is narrower than the long hint; a box wider than the
+        ;; terminal wraps its lines and scrolls the whole screen
+        hint (cond (empty? items) " [any key] close"
+                   (<= (+ 3 (count long-hint)) (- tw 2)) long-hint
+                   :else " [a-z] pick  [esc] cancel")
         menu-w (max 36 (+ 3 (count hint)))
-        mx (- (quot tw 2) (quot menu-w 2))
-        my (- (quot th 2) (quot menu-h 2))
-        r (ui/rect mx my menu-w menu-h)
+        r (ui/centered-rect tw th menu-w menu-h)
         _ (reset! open-panel-rect r)
         inner (ui/pad-rows (ui/box r (menu-title action) [220 200 160] [20 18 16]))]
-    (ui/clear-rect inner)
     (if (empty? items)
       (ui/write-line inner 0 " Nothing available." [80 80 80] [20 18 16])
       (dotimes [i (count items)]
@@ -1020,11 +1062,11 @@
         (let [msg (format-log-entry (nth entries i))
               age (- cnt i 1)
               brightness (max 60 (- 220 (* age 6)))]
-          (ui/write-line inner i (str " " msg)
-                         [brightness
-                          (max 60 (- brightness 20))
-                          (max 40 (- brightness 80))]
-                         panel-bg))))
+          (write-message-line! inner i (str " " msg)
+                               [brightness
+                                (max 60 (- brightness 20))
+                                (max 40 (- brightness 80))]
+                               panel-bg))))
     (let [pos (if (> (:count window) 0)
                 (str (inc (:start window)) "-" (:end window) "/" (:count window))
                 "0/0")
@@ -1428,6 +1470,8 @@
 (def ^:private codex-panel-w 76)
 (def ^:private codex-label-w 9)   ; "ᚠ essence": glyph, space, the longest label (7)
 (def ^:private codex-cell-w 11)   ; a label and the gap before the next one
+;; fewer, taller columns read down more easily than a wide 6-across grid
+(def ^:dynamic *codex-max-cols* 5)
 
 (defn codex-layout
   "{:w :cols :h :mode} for n runes on a tw x th terminal: as many columns as
@@ -1436,10 +1480,13 @@
    gaps and puts the numerals on the count line, and :bare also drops the
    footer (the phone's keyboard has its own Esc), so the whole grid shows."
   [n tw th]
-  (let [w (max 20 (min codex-panel-w (- tw 2)))
+  (let [fit-w (max 20 (min codex-panel-w (- tw 2)))
         ;; inner width is w - 2 and cells start at x 1; the last column needs
         ;; only its label, not the gap after it
-        cols (max 1 (inc (quot (- w 3 codex-label-w) codex-cell-w)))
+        cols (min *codex-max-cols*
+                  (max 1 (inc (quot (- fit-w 3 codex-label-w) codex-cell-w))))
+        ;; the panel shrinks to its columns, so a capped grid isn't left-heavy
+        w (min fit-w (+ 3 codex-label-w (* (dec cols) codex-cell-w) 2))
         rows (quot (+ n cols -1) cols)
         room (- th 2)
         ;; border 2, padding 2, count + gap, grid, gap + numerals, gap + footer
@@ -1680,6 +1727,7 @@
           panels (ui/layout tw th)
           mr (with-camera world (:map panels))]
       (reset! open-panel-rect nil)
+      (reset! sidebar-drawn nil)
       (sfx/with-frame
         (ui/apply-bg ui/bg)
         (ui/apply-fg ui/bg)
@@ -1724,6 +1772,7 @@
   (let [[tw th] (term-dims)
         panels (ui/layout tw th)
         mr (with-camera world (:map panels))]
+    (reset! sidebar-drawn nil)
     (sfx/with-frame
     ;; blank entire terminal with bg color
     (ui/apply-bg ui/bg)

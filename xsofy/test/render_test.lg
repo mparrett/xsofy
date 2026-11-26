@@ -214,10 +214,10 @@
 
 (deftest codex-panel-fits-its-grid
   (testing "a wide terminal: 76 columns, 6 runes per row, roomy"
-    (is (= {:w 76 :cols 6 :h 15 :mode :roomy} (render/codex-layout 27 120 40))))
+    (is (= {:w 58 :cols 5 :h 16 :mode :roomy} (render/codex-layout 27 120 40))))
   (testing "a phone: 2 columns of 14 rows, then compact, then bare as height runs out"
-    (is (= {:w 29 :cols 2 :h 18 :mode :compact} (render/codex-layout 27 31 20)))
-    (is (= {:w 29 :cols 2 :h 17 :mode :bare} (render/codex-layout 27 31 19))))
+    (is (= {:w 25 :cols 2 :h 18 :mode :compact} (render/codex-layout 27 31 20)))
+    (is (= {:w 25 :cols 2 :h 17 :mode :bare} (render/codex-layout 27 31 19))))
   (testing "never taller than the terminal"
     (is (<= (:h (render/codex-layout 27 31 10)) 8))))
 
