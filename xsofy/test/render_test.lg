@@ -1,7 +1,8 @@
 (ns xsofy.test.render-test
   (:require [test :refer [deftest is testing]]
             [xsofy.render :as render]
-            [xsofy.screenfx :as screenfx]))
+            [xsofy.screenfx :as screenfx]
+            [clojure.string :as cstr]))
 
 ;; --- Synchronized output (DEC 2026), shared in xsofy.screenfx ---
 
@@ -232,3 +233,29 @@
       (is (= 5 (count (first columns))))))
   (testing "never taller than the terminal"
     (is (<= (:h (render/help-layout 120 20)) 18))))
+
+(deftest wrap-text-breaks-at-spaces-and-hangs-continuations
+  (testing "fits: one line, untouched"
+    (is (= ["You hit the rat."] (render/wrap-text "You hit the rat." 20))))
+  (testing "breaks at a space; later lines hang one in and stay within w"
+    (let [lines (render/wrap-text "The runestone crumbles as you touch it. You learn: x means form!" 20)]
+      (is (= "The runestone" (subs (first lines) 0 13)))
+      (is (every? #(<= (count %) 20) lines))
+      (is (every? #(= " " (subs % 0 1)) (rest lines)))
+      (is (= "The runestone crumbles as you touch it. You learn: x means form!"
+             (cstr/join " " (map cstr/trim lines))))))
+  (testing "a word longer than the line is cut, not lost"
+    (let [lines (render/wrap-text "aaaaaaaaaaaa" 5)]
+      (is (every? #(<= (count %) 5) lines))
+      (is (= "aaaaaaaaaaaa" (apply str (map cstr/trim lines)))))))
+
+(deftest message-log-window-scrolls-by-wrapped-line
+  (let [log ["one" "a message long enough to wrap" "two"]
+        lines (render/log-lines log 12)
+        w (render/message-log-window log 2 0 12)]
+    (testing "a long entry takes several lines"
+      (is (> (count lines) 3)))
+    (testing "the newest lines show; the footer counts entries"
+      (is (= "two" (:text (peek (:lines w)))))
+      (is (= 3 (:end w)))
+      (is (= (- (count lines) 2) (:max-scroll w))))))

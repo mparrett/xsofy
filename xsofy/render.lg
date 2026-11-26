@@ -11,7 +11,8 @@
             [xsofy.runes :as runes]
             [xsofy.input :as input]
             [xsofy.screenfx :as sfx]
-            [xsofy.ui :as ui]))
+            [xsofy.ui :as ui]
+            [clojure.string :as cstr]))
 
 ;; --- Color Helpers ---
 
@@ -671,6 +672,44 @@
     (str (:msg entry) " (x" (:count entry) ")")
     (str entry)))
 
+(defn wrap-text
+  "Lines of at most w chars, broken at spaces; a word longer than a line is
+   cut. Lines after the first start with a space, so a wrapped message hangs
+   one in under its first line."
+  [s w]
+  (let [w (max 2 w)]
+    (loop [words (remove empty? (cstr/split (str s) #" "))
+           line nil
+           out []]
+      (if-let [word (first words)]
+        (let [lead (if (empty? out) "" " ")
+              cap (- w (count lead))]
+          (cond
+            (nil? line)
+            (if (> (count word) cap)
+              (recur (cons (subs word cap) (rest words)) nil
+                     (conj out (str lead (subs word 0 cap))))
+              (recur (rest words) word out))
+
+            (<= (+ (count line) 1 (count word)) cap)
+            (recur (rest words) (str line " " word) out)
+
+            :else
+            (recur words nil (conj out (str lead line)))))
+        (if line
+          (conj out (str (if (empty? out) "" " ") line))
+          (if (empty? out) [""] out))))))
+
+(defn log-lines
+  "The log as display lines, [{:text :entry} ...], oldest first: each entry
+   wrapped to w, or one line each when w is nil."
+  [log w]
+  (vec (mapcat (fn [i entry]
+                 (let [msg (format-log-entry entry)]
+                   (map (fn [t] {:text t :entry i})
+                        (if w (wrap-text msg w) [msg]))))
+               (range) log)))
+
 ;; The log screen is a centred panel: the inventory's width, three quarters of
 ;; the terminal's height but never under 12 rows, so it reads as a window over
 ;; the game rather than a page that replaces it.
@@ -685,23 +724,41 @@
   [term-height]
   (max 1 (- (messages-panel-h term-height) 2 ui/panel-pad-rows 1)))
 
-(defn message-log-window [log visible-lines scroll-offset]
-  (let [log (vec (or log []))
-        log-count (count log)
-        visible-lines (max 1 visible-lines)
-        max-scroll (max 0 (- log-count visible-lines))
-        scroll (min (max 0 (or scroll-offset 0)) max-scroll)
-        end-idx (- log-count scroll)
-        start-idx (max 0 (- end-idx visible-lines))]
-    {:entries (subvec log start-idx end-idx)
-     :start start-idx
-     :end end-idx
-     :count log-count
-     :scroll scroll
-     :max-scroll max-scroll}))
+(defn message-text-w
+  "Chars of message per log-window row: the panel's inner width less the
+   leading space."
+  [term-width]
+  (- (min messages-panel-w (- term-width 2)) 2 1))
+
+(defn message-log-window
+  "The slice of the log the window shows. Scrolling counts display lines, so
+   with a width each entry may take several; :start/:end/:count stay in
+   entries, for the footer."
+  ([log visible-lines scroll-offset]
+   (message-log-window log visible-lines scroll-offset nil))
+  ([log visible-lines scroll-offset width]
+   (let [log (vec (or log []))
+         lines (log-lines log width)
+         n (count lines)
+         visible-lines (max 1 visible-lines)
+         max-scroll (max 0 (- n visible-lines))
+         scroll (min (max 0 (or scroll-offset 0)) max-scroll)
+         end-line (- n scroll)
+         shown (subvec lines (max 0 (- end-line visible-lines)) end-line)
+         start-idx (if (seq shown) (:entry (first shown)) 0)
+         end-idx (if (seq shown) (inc (:entry (peek shown))) 0)]
+     {:lines shown
+      :entries (subvec log start-idx end-idx)
+      :start start-idx
+      :end end-idx
+      :count (count log)
+      :scroll scroll
+      :max-scroll max-scroll})))
 
 (defn max-message-scroll [world visible-lines]
-  (:max-scroll (message-log-window (:log world) visible-lines (:message-scroll world))))
+  (let [[tw _] (term-dims)]
+    (:max-scroll (message-log-window (:log world) visible-lines (:message-scroll world)
+                                     (message-text-w tw)))))
 
 ;; Rune glyphs in a message ("You learn: ᛇ means ...") take the runestone's
 ;; glow, faded with the line like the rest of it. Messages are plain strings,
@@ -726,14 +783,17 @@
     (ui/clear-rect r)
     (let [log (vec (or (:log world) []))
           n (:h r)
+          ;; n entries always cover n rows; wrapping only makes them longer
           recent (if (> (count log) n) (subvec log (- (count log) n)) log)
-          cnt (count recent)]
+          lines (log-lines recent (- (:w r) 1))
+          lines (if (> (count lines) n) (subvec lines (- (count lines) n)) lines)
+          cnt (count lines)
+          newest (dec (count recent))]
       (dotimes [i cnt]
-        (let [entry (nth recent i)
-              msg (format-log-entry entry)
-              age (- cnt i 1)
+        (let [{:keys [text entry]} (nth lines i)
+              age (- newest entry)
               brightness (max 60 (- 220 (* age 50)))]
-          (write-message-line! r (+ (- n cnt) i) (str " " msg)
+          (write-message-line! r (+ (- n cnt) i) (str " " text)
                                [brightness
                                 (max 60 (- brightness 20))
                                 (max 40 (- brightness 80))]
@@ -1053,16 +1113,18 @@
         _ (reset! open-panel-rect r)
         inner (ui/pad-rows (ui/box r "Message Log" [180 170 140] panel-bg))
         visible-lines (message-visible-lines th)
-        window (message-log-window (:log world) visible-lines (:message-scroll world))
-        entries (:entries window)
-        cnt (count entries)]
+        window (message-log-window (:log world) visible-lines (:message-scroll world)
+                                   (message-text-w tw))
+        lines (:lines window)
+        cnt (count lines)
+        newest (dec (:end window))]
     (if (= cnt 0)
       (ui/write-line inner 0 " No messages yet." [90 90 90] panel-bg)
       (dotimes [i cnt]
-        (let [msg (format-log-entry (nth entries i))
-              age (- cnt i 1)
+        (let [{:keys [text entry]} (nth lines i)
+              age (- newest entry)
               brightness (max 60 (- 220 (* age 6)))]
-          (write-message-line! inner i (str " " msg)
+          (write-message-line! inner i (str " " text)
                                [brightness
                                 (max 60 (- brightness 20))
                                 (max 40 (- brightness 80))]
