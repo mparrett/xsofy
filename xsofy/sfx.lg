@@ -461,17 +461,19 @@
         note (- 48 (int (* 11.0 s)) (jit seed :note 2))
         ;; Level rises only a little with severity; the drop in pitch carries
         ;; most of the weight.
-        gain (+ 0.344 (* 0.086 s))
         ;; A ranged blow lands after the release, not with it: without the
         ;; flight time the impact started with the twang and masked it.
         flight (or (:flight-ms ev) 0)
+        ;; An arrow's hit 3.5 dB under a melee blow's (Matt, 2026-11-25:
+        ;; "arrow hits sound about 3-4dB too high").
+        gain (* (if (pos? flight) 0.668 1.0) (+ 0.344 (* 0.086 s)))
         base {:shot :hit :note note :gain gain :pan 0.5 :delay-ms flight :seed seed}]
     (if (:killed ev)
       ;; The kill was a thud an octave down, ~35 Hz and inaudible; a bright
       ;; tink two octaves up reads as the final blow. Both kept down, since
       ;; the cry lands on top of them.
       [(update base :gain * 0.836)
-       {:shot :tink :note (+ note 24) :gain 0.236 :pan 0.5
+       {:shot :tink :note (+ note 24) :gain (* 0.236 (/ gain (+ 0.344 (* 0.086 s)))) :pan 0.5
         :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
       (let [pain (get pains (:creature ev))
             base (into [base] (when-let [takes (get struck (:creature ev))]

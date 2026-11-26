@@ -662,3 +662,9 @@
   (testing "a creature with its own hit sound still plays that"
     (is (not (contains? (set (map :shot (sfx/for-event {:kind :hit-taken :creature "rat"} 7)))
                         :hit-click)))))
+
+(deftest an-arrows-hit-is-quieter-than-a-melee-blow
+  (let [peak (fn [ev] (apply max (map :gain (sfx/for-event ev 9))))]
+    (doseq [killed [false true]]
+      (is (< (peak {:kind :hit-dealt :severity 0.5 :killed killed :flight-ms 150})
+             (* 0.75 (peak {:kind :hit-dealt :severity 0.5 :killed killed})))))))
