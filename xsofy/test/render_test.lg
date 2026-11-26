@@ -303,3 +303,9 @@
                     ;; runes are 1-based terminal cells; keep-out is 0-based
                     (some (fn [[x0 y0 x1 y1]] (and (<= x0 (dec x) x1) (<= y0 (dec y) y1))) keep-out))
                   runes))))
+
+(deftest death-panel-shows-whole-messages
+  (testing "one row of room and a kill line that wraps: it shows from its start"
+    (let [w (assoc dead-world :log ["You wait." "The goblin-shaman with a very long name shoots and kills you!"])
+          rows (map #(scene-text (render/death-scene w 31 18) %) (range 18))]
+      (is (some #(cstr/includes? % "The goblin-shaman") rows)))))

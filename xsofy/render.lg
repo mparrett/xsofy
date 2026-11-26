@@ -1460,7 +1460,7 @@
         panel-w (min 46 (- tw 2))
         ;; the stone's face, top to bottom; :compact drops the blank rows
         body-full (vec (concat ["" "R . I . P" ""] epitaph ["" divider runes-txt]))
-        body-compact (vec (concat ["R . I . P"] epitaph [divider runes-txt]))
+        body-compact (vec (concat ["R . I . P"] epitaph [divider] (when (seq runes-txt) [runes-txt])))
         ;; rows above the panel's lines: title, seed, gap, crown, shoulder,
         ;; body, bottom, weeds, gap, stats, gap, panel border; below: border,
         ;; gap, prompt
@@ -1535,16 +1535,23 @@
         (put! x y ch (nth grass-near g) cbg)))
     (let [weeds (subs ".:;,.:  \"  .;,.\" .; ,.:;. \"" 0 (+ inner 6))]
       (put! (- cx (quot (count weeds) 2)) (inc bot) weeds (first grass-near) bg))
-    (swap! boxes conj [(- sx 15) crown-y (+ sx inner 16) (inc bot)])
     ;; stats
     (center! (+ bot 3) stats [140 120 90])
     ;; last moments, under a red frame titled with the cause
     (let [py (+ bot 5)
           px (- cx (quot panel-w 2))
           cause (death-cause world)
-          ls (log-lines (vec (or (:log world) [])) (- panel-w 4))
-          ls (if (> (count ls) lines) (subvec ls (- (count ls) lines)) ls)
-          newest (:entry (peek ls))
+          all (log-lines (vec (or (:log world) [])) (- panel-w 4))
+          newest (:entry (peek all))
+          ;; whole messages from the newest back, as many as fit; a killing
+          ;; blow that alone wraps past the panel shows from its start
+          firsts (loop [e newest]
+                   (let [n (count (filter #(>= (:entry %) e) all))]
+                     (cond (and newest (> n lines) (= e newest)) e
+                           (> n lines) (inc e)
+                           (or (nil? e) (zero? e)) e
+                           :else (recur (dec e)))))
+          ls (vec (take lines (filter #(>= (:entry %) (or firsts 0)) all)))
           hdr (str "╭─ " cause " ")]
       (put! px py (str hdr (apply str (repeat (max 0 (- panel-w (count hdr) 1)) "─")) "╮") death-red bg)
       (put! (+ px 3) py cause [225 85 55] bg)
@@ -1558,7 +1565,10 @@
                       (let [b (max 110 (- 190 (* 12 (- newest entry))))] [b (- b 20) (- b 60)]))
                   bg))))
       (put! px (+ py lines 1) (str "╰" (apply str (repeat (- panel-w 2) "─")) "╯") death-red bg)
-      (swap! boxes conj [(dec px) py (+ px panel-w) (+ py lines 1)]))
+      ;; the runes keep out of one clear column, title to panel, as wide as
+      ;; the stone with its grass or the panel, whichever is wider
+      (let [half (max (quot panel-w 2) (+ (quot inner 2) 15))]
+        (swap! boxes conj [(- cx half 1) (dec y0) (+ cx half 1) (+ py lines 2)])))
     ;; prompt on the last row
     (center! (dec th) prompt [80 70 60])
     {:cells @cells :keep-out @boxes}))
