@@ -668,3 +668,13 @@
     (doseq [killed [false true]]
       (is (< (peak {:kind :hit-dealt :severity 0.5 :killed killed :flight-ms 150})
              (* 0.75 (peak {:kind :hit-dealt :severity 0.5 :killed killed})))))))
+
+(deftest a-monsters-step-on-stone-has-grit-yours-does-not
+  ;; the monster's grit, told from the step's own scuffs by its notes
+  (let [grit? (fn [tr] (and (#{:web-grain :step-grit} (:shot tr)) (#{40 44 50 51 53 55} (:note tr))))
+        has   (fn [ev] (some grit? (sfx/for-event ev 3)))]
+    (is (every? (fn [salt] (some grit? (sfx/for-event {:kind :footstep :dist 2 :monster true} salt)))
+                (range 6)))
+    (is (not (has {:kind :footstep :dist 0})))
+    (testing "not on water or grass"
+      (is (not (has {:kind :footstep :dist 2 :monster true :surface :grass}))))))
