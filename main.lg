@@ -414,8 +414,9 @@
            (recur w w (term/size)))
 
          :help
-         (let [w (ui/modal-loop world render/render-help-screen ui/dismiss-input)]
-           (render/render-full w)
+         (let [w (ui/modal-loop world render/render-help-screen ui/dismiss-input
+                                {:background! (repaint-after-first world)})]
+           (render/close-panel! w world)
            (recur w w (term/size)))
 
          :inventory

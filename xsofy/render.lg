@@ -1046,35 +1046,67 @@
    [:information "Information"]
    [:system "System"]])
 
-(defn render-help-row [r y binding]
-  (ui/write-line r y (str " " (input/binding-key-labels binding)) [180 170 130] ui/bg)
-  (ui/write-at r 24 y (:label binding) [170 170 170] ui/bg))
+(defn- help-sections
+  "[[title bindings] ...] for categories, in help-categories order."
+  [categories]
+  (mapv (fn [[category title]]
+          [title (filterv #(= category (:category %)) input/key-bindings)])
+        categories))
 
-(defn render-help-column [r categories]
-  (let [row (atom 0)]
-    (doseq [[category title] categories]
-      (when (< @row (:h r))
-        (ui/write-line r @row (str " " title) [220 200 160] ui/bg)
-        (swap! row inc)
-        (let [bindings (vec (filter (fn [binding] (= category (:category binding)))
-                                    input/key-bindings))]
-          (dotimes [i (min (count bindings) (- (:h r) @row))]
-            (render-help-row r @row (nth bindings i))
-            (swap! row inc)))
-        (swap! row inc)))))
+(defn- help-column-size
+  "{:key-w :w :h} for a column of sections: keys and labels each as wide as
+   their widest entry, so the columns sit tight instead of on a fixed grid."
+  [sections]
+  (let [bs (mapcat second sections)
+        key-w (apply max 1 (map #(count (input/binding-key-labels %)) bs))
+        label-w (apply max 1 (map #(count (:label %)) bs))]
+    ;; heading at x 1; entries indented one more, then keys, a 2-space gap, label
+    {:key-w key-w
+     :w (+ 2 key-w 2 label-w)
+     ;; a heading row per section, its entries, a blank line between sections
+     :h (+ (count bs) (* 2 (count sections)) -1)}))
+
+(defn help-layout
+  "{:w :h :columns} for the help panel on a tw x th terminal: two columns
+   (movement and actions | items, information, system) when they fit side by
+   side, otherwise one."
+  [tw th]
+  (let [two [(help-sections (subvec help-categories 0 2))
+             (help-sections (subvec help-categories 2))]
+        one [(help-sections help-categories)]
+        size (fn [cols]
+               (let [ss (map help-column-size cols)]
+                 ;; border 2, a column each plus 2 between, 1 spare on the right
+                 {:w (+ 2 (reduce + (map :w ss)) (* 2 (dec (count ss))) 1)
+                  ;; border 2, padding 2, tallest column, gap + footer
+                  :h (+ 2 ui/panel-pad-rows (apply max (map :h ss)) 2)}))
+        s2 (size two)
+        [cols sz] (if (<= (:w s2) (- tw 2)) [two s2] [one (size one)])]
+    {:w (:w sz) :h (min (:h sz) (- th 2)) :columns cols}))
+
+(defn- render-help-column! [inner x0 sections]
+  (let [{:keys [key-w]} (help-column-size sections)]
+    (loop [ss sections y 0]
+      (when-let [[title bs] (first ss)]
+        (ui/write-at inner (+ x0 1) y title [220 200 160] panel-bg)
+        (dotimes [i (count bs)]
+          (let [b (nth bs i) yy (+ y 1 i)]
+            (ui/write-at inner (+ x0 2) yy (input/binding-key-labels b) [180 170 130] panel-bg)
+            (ui/write-at inner (+ x0 2 key-w 2) yy (:label b) [170 170 170] panel-bg)))
+        (recur (rest ss) (+ y 2 (count bs)))))))
 
 (defn render-help-screen [world]
   (sfx/with-frame
   (let [[tw th] (term-dims)
-        r (ui/rect 1 1 tw th)
-        inner (ui/box r "Keybindings" [180 170 140] ui/bg)
-        [left right] (ui/rect-split-h inner (quot (:w inner) 2))]
-    (ui/clear-rect inner)
-    (render-help-column left (subvec help-categories 0 2))
-    (render-help-column right (subvec help-categories 2))
-    (ui/write-line inner (dec (:h inner))
-                   " [press any key to close]"
-                   [80 80 80] ui/bg))))
+        {:keys [w h columns]} (help-layout tw th)
+        r (ui/centered-rect tw th w h)
+        _ (reset! open-panel-rect r)
+        inner (ui/pad-rows (ui/box r "Keybindings" [180 170 140] panel-bg))]
+    (loop [cs columns x0 0]
+      (when-let [c (first cs)]
+        (render-help-column! inner x0 c)
+        (recur (rest cs) (+ x0 (:w (help-column-size c)) 2))))
+    (ui/write-line inner (dec (:h inner)) " [esc] close" [80 80 80] panel-bg))))
 
 ;; --- Inventory Screen (modal) ---
 
