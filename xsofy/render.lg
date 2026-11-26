@@ -1492,8 +1492,8 @@
         (put! (+ sx dx) (- bot up) ch (nth grass-far g) bg)))
     ;; the stone: a _ crown resting on the face, slanted shoulders, sides, a
     ;; side strip for thickness
-    ;; "," and "." cap the crown's ends, over the shoulders (Matt's sketch)
-    (put! (+ sx 2) crown-y (str "," (apply str (repeat (- inner 4) "_")) ".") stone-edge bg)
+    ;; the edge runs out to meet the shoulders: " ___ " over "/   \"
+    (put! (+ sx 2) crown-y (apply str (repeat (- inner 2) "_")) stone-edge bg)
     (put! (+ sx 1) (inc crown-y) "╱" stone-edge bg)
     (put! (+ sx 2) (inc crown-y) (apply str (repeat (- inner 2) " ")) stone-edge stone-face)
     (put! (+ sx inner) (inc crown-y) "╲" stone-edge bg)
