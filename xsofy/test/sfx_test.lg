@@ -506,7 +506,7 @@
         rat-hit {:kind :hit-taken :creature "rat" :severity 0.1}]
     (testing "a rat's hit is its claws, not the thud; other creatures thud"
       (is (= #{:bite-scrape} (shots rat-hit)))
-      (is (= #{:thud} (shots (assoc rat-hit :creature "goblin")))))
+      (is (= #{:thud :hit-click} (shots (assoc rat-hit :creature "goblin")))))
     (testing "the two scratch takes (J008 falling, J009 rising) alternate by seed"
       (is (= #{-4 4} (set (for [seed (range 40)]
                             (let [[a b] (map :note (sfx/for-event rat-hit seed))]
@@ -655,3 +655,10 @@
     (terrain/tset! (:terrain room) (:width room) 2 2 1)
     (testing "an ordinary step does not"
       (is (not (contains? (heard) :step-drip))))))
+
+(deftest a-generic-hit-taken-is-the-thud-with-a-click
+  (let [shots (set (map :shot (sfx/for-event {:kind :hit-taken :severity 0.5} 7)))]
+    (is (= #{:thud :hit-click} shots)))
+  (testing "a creature with its own hit sound still plays that"
+    (is (not (contains? (set (map :shot (sfx/for-event {:kind :hit-taken :creature "rat"} 7)))
+                        :hit-click)))))
