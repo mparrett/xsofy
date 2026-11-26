@@ -1379,35 +1379,77 @@
 
 ;; --- Rune Codex Screen ---
 
+(defn codex-entries
+  "Every randomized rune as {:glyph :label :known?}, in glyph order. The order
+   is fixed for the whole game, so identifying a rune lights its cell up in
+   place instead of moving it between lists."
+  [rune-table]
+  (let [order (into {} (map-indexed (fn [i g] [g i]) runes/rune-glyphs))]
+    (->> rune-table
+         (map (fn [[k v]]
+                {:glyph (:glyph v)
+                 :known? (boolean (:identified v))
+                 :label (if (:identified v) (name k) (:garbled v))}))
+         (sort-by #(get order (:glyph %) 999))
+         vec)))
+
+(def ^:private codex-panel-w 76)
+(def ^:private codex-label-w 9)   ; "ᚠ essence": glyph, space, the longest label (7)
+(def ^:private codex-cell-w 11)   ; a label and the gap before the next one
+
+(defn codex-layout
+  "{:w :cols :h :mode} for n runes on a tw x th terminal: as many columns as
+   fit, and rows to hold them all. A phone (the on-screen keyboard takes half
+   the height) can't fit the roomy panel, so :compact drops the padding and
+   gaps and puts the numerals on the count line, and :bare also drops the
+   footer (the phone's keyboard has its own Esc), so the whole grid shows."
+  [n tw th]
+  (let [w (max 20 (min codex-panel-w (- tw 2)))
+        ;; inner width is w - 2 and cells start at x 1; the last column needs
+        ;; only its label, not the gap after it
+        cols (max 1 (inc (quot (- w 3 codex-label-w) codex-cell-w)))
+        rows (quot (+ n cols -1) cols)
+        room (- th 2)
+        ;; border 2, padding 2, count + gap, grid, gap + numerals, gap + footer
+        roomy (+ 2 ui/panel-pad-rows 2 rows 2 2)
+        ;; border 2, count and numerals, grid, footer
+        compact (+ 2 1 rows 1)
+        bare (+ 2 1 rows)
+        [mode h] (cond (<= roomy room)   [:roomy roomy]
+                       (<= compact room) [:compact compact]
+                       :else             [:bare (min bare room)])]
+    {:w w :cols cols :h h :mode mode}))
+
 (defn render-rune-codex [world]
   (sfx/with-frame
   (let [[tw th] (term-dims)
-        r (ui/rect 1 1 tw th)
-        inner (ui/box r "Rune Codex" [170 140 220] ui/bg)
-        rune-table (or (:rune-table world) {})
-        discovered (runes/discovered-runes rune-table)
-        undiscovered (runes/undiscovered-runes rune-table)]
-    (ui/clear-rect inner)
-    (ui/write-line inner 0 " Known Runes:" [200 180 240] ui/bg)
-    (if (empty? discovered)
-      (ui/write-line inner 1 "  (none yet)" [80 80 80] ui/bg)
-      (dotimes [i (min (count discovered) (- (quot (:h inner) 2) 2))]
-        (let [d (nth discovered i)]
-          (ui/write-line inner (inc i)
-                         (str "  " (:glyph d) "  " (:name d))
-                         [160 140 220] ui/bg))))
-    (let [sep-y (+ 2 (max 1 (count discovered)))]
-      (ui/write-line inner sep-y " Unknown Runes:" [200 180 240] ui/bg)
-      (if (empty? undiscovered)
-        (ui/write-line inner (inc sep-y) "  (all runes known!)" [120 200 120] ui/bg)
-        (dotimes [i (min (count undiscovered) (- (:h inner) sep-y 3))]
-          (let [u (nth undiscovered i)]
-            (ui/write-line inner (+ sep-y 1 i)
-                           (str "  " (:glyph u) "  " (:garbled u))
-                           [100 80 140] ui/bg)))))
-    (ui/write-line inner (dec (:h inner))
-                   " [press any key to close]"
-                   [80 80 80] ui/bg))))
+        entries (codex-entries (or (:rune-table world) {}))
+        n (count entries)
+        known (count (filter :known? entries))
+        {:keys [w cols h mode]} (codex-layout n tw th)
+        roomy? (= mode :roomy)
+        rows (quot (+ n cols -1) cols)
+        r (ui/centered-rect tw th w h)
+        _ (reset! open-panel-rect r)
+        box (ui/box r "Rune Codex" [170 140 220] panel-bg)
+        inner (if roomy? (ui/pad-rows box) box)
+        numerals (apply str (interpose " " (vals (into (sorted-map) runes/numeral-glyphs))))
+        grid-y (if roomy? 2 1)]
+    (ui/write-line inner 0 (if roomy?
+                             (str " Known " known " of " n)
+                             (str " Known " known " of " n "   " numerals))
+                   [200 180 240] panel-bg)
+    (dotimes [i n]
+      (let [{:keys [glyph label known?]} (nth entries i)
+            x (+ 1 (* (mod i cols) codex-cell-w))
+            y (+ grid-y (quot i cols))]
+        (ui/write-at inner x y glyph (if known? [210 190 255] [105 90 140]) panel-bg)
+        (ui/write-at inner (+ x 2) y label (if known? [175 155 225] [85 75 105]) panel-bg)))
+    (when roomy?
+      (ui/write-line inner (+ grid-y rows 1) (str " " numerals "  numerals, always known")
+                     [120 110 150] panel-bg))
+    (when-not (= mode :bare)
+      (ui/write-line inner (dec (:h inner)) " [esc] close" [80 80 80] panel-bg)))))
 
 ;; --- Inscription Screen ---
 
