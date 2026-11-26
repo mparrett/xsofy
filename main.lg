@@ -446,8 +446,7 @@
                  (recur w w (term/size)))))
 
          :death
-         (let [[tw th] (term/size)
-               _ (sfx/clear-screen tw th)  ;; initial clear; the loop re-clears + re-scatters on resize
+         (let [[tw th] (or (term/size) [ui/game-width ui/game-height])
                ;; Capture this organic run's replay code at its final state. On
                ;; web this always fires: the shell's config pane renders the emit
                ;; as a player-facing ?replay= link (the live per-10-turn capture
@@ -492,8 +491,27 @@
                               (= k "\u001b")               (reduced :esc)
                               :else st))
                           st)))
+               ;; The fade into the scene (see render/death-fade-plan). Keys are
+               ;; read and dropped meanwhile, so an attack key still held as you
+               ;; die can't skip the death screen. A resize cuts it short; the
+               ;; loop below then draws the scene at the new size.
+               _ (let [plan (render/death-fade-plan world tw th)
+                       t0 (ui/millis)
+                       r (ui/run-loop
+                           {:sources  [(ui/input-source ui/raw-key->event) (ui/clock-source 0)]
+                            :state    {:size [tw th]}
+                            :step     (fn [st [tag _]]
+                                        (cond
+                                          (not= tag :tick) st
+                                          (not= (or (term/size) (:size st)) (:size st)) (reduced :resized)
+                                          (render/death-fade-done? plan (- (ui/millis) t0)) (reduced :done)
+                                          :else st))
+                            :render   (fn [_] (render/render-death-fade! plan (- (ui/millis) t0)))
+                            :frame-ms 30})]
+                   (if (= r :done)
+                     (render/mark-death-drawn! world tw th)
+                     (render/reset-death-screen!)))
                result (loop []
-                        (render/reset-death-screen!)
                         (let [[tw th] (or (term/size) [tw th])
                               r (ui/run-loop
                                   {:sources  [(ui/input-source ui/raw-key->event) (ui/clock-source 0)]
@@ -507,6 +525,7 @@
                                                ;; the scene under the log: already up on
                                                ;; entry; redrawn at the new size on a resize
                                                {:background! (fn [& _] (render/render-death-screen world [] 0))})
+                                (render/reset-death-screen!)
                                 (recur))
                             r)))]
            (cond
