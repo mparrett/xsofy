@@ -168,6 +168,10 @@
    ;; Water pouring off as you climb out of deep water, S151 (round 48)
    {:name :emerge-pour :gate-ms 500
     :patch [[:env 0.04 0.29 0 0.2] [:osc 0 :noise 0 1] [:mul] [:svf 800 0.4 1 0] [:lpf 1800] [:out 0.7 0.5]]}
+   ;; Your death's blip-out, C045 (round 54, Matt 2026-11-26): round 21's
+   ;; crushed-pulse chirp, sagging down, the descent's tone.
+   {:name :death-blip :gate-ms 500
+    :patch [[:env 0.002 0.16 0 0.1] [:osc 0 :pulse 5 0.14] [:mul] [:lpf 900] [:crush 3000 5] [:lpf 3200] [:verb 0.4] [:out 0.45 0.5]]}
    ;; The ice elemental's death, V054 (round 30, Matt's pick): a cracking
    ;; snap, then glass-like shards, each a sine with two inharmonic partials.
    {:name :ice-crack :gate-ms 400
@@ -603,6 +607,21 @@
                           {:shot shot :note (+ note j) :gain (* g a) :pan pan
                            :delay-ms ms :seed (det/combine seed [:cry i])})
                         take)))))
+
+(defn blip-out-ms
+  "When the @ goes fully dark in the death fade, in ms from death: hold, out
+   and linger of the fade's timings (xsofy.render/death-fade-ms), read from
+   the fade rather than copied, since they may still change. Nil without
+   a fade."
+  [fade]
+  (when fade
+    (+ (get fade :hold 0) (get fade :out 0) (get fade :linger 0))))
+
+(defn death-blip-shots
+  "Your death's blip-out, C045, `delay-ms` from now, at the board's level
+   (0.248 of the patch at 0.5)."
+  [delay-ms]
+  [{:shot :death-blip :note 64 :gain 0.124 :pan 0.5 :delay-ms delay-ms :seed 54}])
 
 (defn- death-shots
   "Something died. Louder than the blow that killed it and longer than any

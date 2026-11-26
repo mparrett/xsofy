@@ -678,3 +678,14 @@
     (is (not (has {:kind :footstep :dist 0})))
     (testing "not on water or grass"
       (is (not (has {:kind :footstep :dist 2 :monster true :surface :grass}))))))
+
+(deftest your-death-blips-out-when-the-at-goes-dark
+  (let [fade {:hold 300 :out 1850 :linger 1000 :beat 350 :in 1570 :ramp 370}]
+    (testing "the time comes from the fade's own timings"
+      (is (= 3150 (sfx/blip-out-ms fade)))
+      (is (= 1500 (sfx/blip-out-ms (assoc fade :out 200)))))
+    (testing "no fade, no blip"
+      (is (nil? (sfx/blip-out-ms nil))))
+    (let [[b] (sfx/death-blip-shots 3150)]
+      (is (= :death-blip (:shot b)))
+      (is (= 3150 (:delay-ms b))))))
