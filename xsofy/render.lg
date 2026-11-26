@@ -1366,12 +1366,12 @@
 
 ;; --- Death Screen ---
 
-(def death-messages
-  ["The darkness takes you." "Your story ends here."
-   "Silence falls." "The dungeon claims another soul."
-   "You will not be remembered." "The torches dim."
-   "Your light goes out." "Nothing remains."
-   "The abyss stares back." "All is lost."])
+(declare codex-entries)
+
+;; A scene drawn once (on entry and on a resize), then only the background
+;; runes each tick. Redrawing the whole screen every tick to pulse a few glyphs
+;; was most of its output and showed as flicker. Design and mocks:
+;; project-docs/docs/joint-xsofy/death-screen-mock/.
 
 (def tombstone-epitaphs
   [["Here lies a"    "brave soul"]
@@ -1384,159 +1384,291 @@
    ["So long and"    "thanks for"      "the fish"]
    ["No refunds"     "for the deceased"]])
 
-(defn death-runes
-  "Scatter the death-screen's background runes once. They stay fixed across
-   frames — the render loop only pulses their brightness, never re-scatters.
-   Re-scattering every frame churned the runes and the per-frame allocation
-   triggered periodic GC-pause flicker."
-  [tw th]
-  (sfx/scatter-runes tw th 30 [200 50 30]))  ;; crimson runes
+;; One is carved under each epitaph, picked per run. ᛉ/ᛦ was tried and
+;; dropped: it reads as one of the game's runes.
+(def ^:private death-dividers
+  ["───  ✝  ───" "·  ·  ✦  ·  ·" "◦ ──  ✧  ── ◦" "⌒⌒  ✝  ⌒⌒"])
 
-(defn render-death-screen [world runes scroll-offset frame]
-  (sfx/with-frame
-  (let [[tw th] (term-dims)
+(def ^:private stone-inner 21)
+(def ^:private stone-face [26 23 19])
+(def ^:private stone-side [21 19 16])
+(def ^:private stone-edge [150 135 110])
+(def ^:private grass-near [[45 85 32] [65 120 45] [90 150 60]])
+(def ^:private grass-far [[28 50 22] [36 62 27]])
+(def ^:private death-red [150 45 30])
+;; share of the empty face cells that carry a weathering mark
+(def ^:private speckle-rate 0.07)
+
+(defn- run-pick
+  "A number in [0, n) fixed for this run's death (seed, turn and what it is
+   for), so a replay or a shared ?seed= draws the same stone."
+  [world what n]
+  (mod (math/abs (hash [(:seed-input world) (:turn world) what])) n))
+
+(defn- run-rng
+  "A deterministic stream of floats in [0, 1) for this run's death."
+  [world what]
+  (let [s (atom (mod (math/abs (hash [(:seed-input world) (:turn world) what])) 2147483647))]
+    (fn []
+      (swap! s (fn [v] (mod (+ (* v 1103515245) 12345) 2147483648)))
+      (/ (double @s) 2147483648.0))))
+
+(defn- log-text [entry]
+  (if (map? entry) (:msg entry) (str entry)))
+
+(defn death-cause
+  "The panel title: who or what ended the run."
+  [world]
+  (let [lines (map log-text (take-last 6 (or (:log world) [])))
+        named (some (fn [l] (second (re-find #"^The (.+?) (?:shoots and )?kills you!" l)))
+                    (reverse lines))
+        kid (:cause-of-death world)
+        tpl (when (keyword? kid) (get-in world [:entities kid :template]))
+        who (or named (when tpl (cstr/replace (name tpl) "-" " ")))
+        recent (cstr/lower-case (cstr/join " " lines))]
+    (cond
+      who (str "slain by " (if (contains? #{"a" "e" "i" "o" "u"} (subs who 0 1)) "an " "a ") who)
+      (cstr/includes? recent "lava") "taken by the lava"
+      (or (cstr/includes? recent "burn") (cstr/includes? recent "fire")) "burned to death"
+      (cstr/includes? recent "poison") "poisoned"
+      (or (cstr/includes? recent "drown") (cstr/includes? recent "water")) "drowned"
+      :else "the end")))
+
+(defn- learned-runes [world]
+  (->> (codex-entries (:rune-table world))
+       (filter :known?)
+       (map :glyph)
+       (take 10)
+       (cstr/join " ")))
+
+(defn- death-prompt [tw]
+  (let [esc (if *in-wasm* "restart" "quit")]
+    (first (filter #(<= (count %) (- tw 2))
+                   [(str "[n] new game    [m] messages    [esc] " esc)
+                    (str "[n] new  [m] log  [esc] " esc)
+                    "[n] new  [m] log  [esc]"
+                    "[n] new"]))))
+
+(defn- death-stats [world tw]
+  (let [d (or (:depth world) 1) t (or (:turn world) 0) g (or (:gold world) 0)]
+    (first (filter #(<= (count %) (- tw 2))
+                   [(str "Depth " d "  ·  Turn " t "  ·  Gold " g)
+                    (str "Depth " d " · Turn " t " · Gold " g)
+                    (str "D" d " · T" t " · " g "g")]))))
+
+(defn death-scene
+  "The death screen as data: {:cells {[x y] [glyph fg bg]} :keep-out [[x0 y0
+   x1 y1] ...]}, 0-based, clipped to tw x th. :keep-out is where the
+   background runes may not land: the text, the stone and its grass, the panel."
+  [world tw th]
+  (let [cells (atom {})
+        boxes (atom [])
+        bg ui/bg
+        put! (fn [x y text fg cbg]
+               (let [text (str text)]
+                 (dotimes [i (count text)]
+                   (let [xx (+ x i)]
+                     (when (and (< -1 xx tw) (< -1 y th))
+                       (swap! cells assoc [xx y] [(subs text i (inc i)) fg cbg]))))))
+        center! (fn [y text fg]
+                  (let [x (- (quot tw 2) (quot (count text) 2))]
+                    (put! x y text fg bg)
+                    (swap! boxes conj [(dec x) y (+ x (count text)) y])))
         cx (quot tw 2)
-        cy (quot th 2)
-        seed (or (:turn world) 0)]
-    ;; draw runes in background — pulse over `frame` so they keep flickering
-    ;; while the screen waits for input. The caller scatters `runes` and clears
-    ;; the screen ONCE; this repaints only the (stable) rune cells each frame.
-    (doseq [r runes]
-      (let [b (max 0.1 (sfx/rune-brightness (:phase r) frame))
-            [cr cg cb] (:color r)]
-        (term/move-cursor (:x r) (:y r))
-        (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
-        (term/set-bg (int (* cr b 0.08)) (int (* cg b 0.08)) (int (* cb b 0.08)))
-        (term/write (:glyph r))))
-    ;; tombstone
-    (let [game-title (or (:title world) "")
-          epitaph (nth tombstone-epitaphs (rem seed (count tombstone-epitaphs)))
-          ;; tombstone geometry
-          inner-w 21
-          slab-h 12
-          title-y (max 1 (- (quot cy 2) (quot slab-h 2) 2))
-          start-y (+ title-y 2)
-          slab-x (- cx (quot (+ inner-w 2) 2))
-          ;; helper to write centered text inside the slab
-          write-slab-line (fn [y text fg]
-                            (let [padded (u/center-pad text inner-w)]
-                              (term/move-cursor (inc slab-x) y)
-                              (let [[fr fgg fb] fg]
-                                (term/set-fg fr fgg fb))
-                              (term/set-bg 10 10 10)
-                              (term/write padded)))]
-      ;; game title above
-      (when (seq game-title)
-        (term/move-cursor (max 1 (- cx (quot (count game-title) 2))) title-y)
-        (term/set-fg 230 200 100)
-        (term/set-bg 10 10 10)
-        (term/write game-title))
-      ;; draw slab frame
-      (let [top-bar (str "╭" (apply str (repeat inner-w "─")) "╮")
-            bot-bar (str "╰" (apply str (repeat inner-w "─")) "╯")
-            side-line (str "│" (apply str (repeat inner-w " ")) "│")
-            stone-fg [130 115 90]]
-        ;; top edge
-        (term/move-cursor slab-x start-y)
-        (term/set-fg 150 135 110) (term/set-bg 10 10 10)
-        (term/write top-bar)
-        ;; body rows
-        (dotimes [row (- slab-h 2)]
-          (let [y (+ start-y 1 row)
-                ;; gradient: lighter at top, darker at bottom
-                bright (- 135 (* row 4))
-                fg [bright (- bright 15) (- bright 40)]]
-            (term/move-cursor slab-x y)
-            (let [[fr fgg fb] fg] (term/set-fg fr fgg fb))
-            (term/set-bg 10 10 10)
-            (term/write side-line)))
-        ;; bottom edge
-        (term/move-cursor slab-x (+ start-y slab-h -1))
-        (term/set-fg 100 85 65) (term/set-bg 10 10 10)
-        (term/write bot-bar))
-      ;; text content centered inside slab
-      (let [y0 (+ start-y 1)
-            epi-lines (count epitaph)]
-        (write-slab-line (+ y0 0) "" [0 0 0])
-        (write-slab-line (+ y0 1) "R . I . P" [160 140 110])
-        (write-slab-line (+ y0 2) "" [0 0 0])
-        ;; epitaph lines (2 or 3)
-        (dotimes [i epi-lines]
-          (write-slab-line (+ y0 3 i) (nth epitaph i) [120 105 85]))
-        ;; fill blank if only 2 lines
-        (when (< epi-lines 3)
-          (write-slab-line (+ y0 5) "" [0 0 0]))
-        (write-slab-line (+ y0 6) "" [0 0 0])
-        (write-slab-line (+ y0 7) "---  +  ---" [100 85 70])
-        (write-slab-line (+ y0 8) "" [0 0 0]))
-      ;; foliage at base
-      (let [ground-y (+ start-y slab-h)
-            ground-w (+ inner-w 6)
-            ground-x (- cx (quot ground-w 2))
-            weeds ".:;,.:  \"  .;,.\" .; ,.:;. \""]
-        (term/move-cursor ground-x ground-y)
-        (term/set-fg 40 75 30) (term/set-bg 10 10 10)
-        (term/write (subs weeds 0 (min ground-w (count weeds)))))
-      ;; stats line
-      (let [depth (or (:depth world) 1)
-            turn (or (:turn world) 0)
-            gold (or (:gold world) 0)
-            stats-y (+ start-y slab-h 2)
-            stats (str "Depth " depth "  Turns " turn "  Gold " gold)]
-        (term/move-cursor (max 1 (- cx (quot (count stats) 2))) stats-y)
-        (term/set-fg 140 120 90)
-        (term/set-bg 10 10 10)
-        (term/write stats)
-        ;; death message
-        (let [dmsg (nth death-messages (rem seed (count death-messages)))
-              msg-y (+ stats-y 2)]
-          (term/move-cursor (max 1 (- cx (quot (count dmsg) 2))) msg-y)
-          (term/set-fg 200 60 40)
-          (term/set-bg 10 10 10)
-          (term/write dmsg)
-          ;; seed line — note/share to replay this exact run via ?seed=
-          (let [sd (:seed-input world)
-                sline (str "seed " sd "  ·  ?seed=" sd " to replay")
-                sy (min (- th 1) (+ msg-y 2))]
-            (term/move-cursor (max 1 (- cx (quot (count sline) 2))) sy)
-            (term/set-fg 110 105 90)
-            (term/set-bg 10 10 10)
-            (term/write sline)))))
-    ;; message log — scrollable
-    (let [log (or (:log world) [])
-          log-count (count log)
-          log-top (+ cy 3)
-          log-height (max 1 (- th log-top 2))
-          max-offset (max 0 (- log-count log-height))
-          offset (min scroll-offset max-offset)
-          start-idx (max 0 (- log-count log-height offset))
-          visible (subvec (vec log) start-idx (min log-count (+ start-idx log-height)))]
-      ;; header
-      (term/move-cursor 2 log-top)
-      (term/set-fg 90 80 65)
+        inner stone-inner
+        epitaph (nth tombstone-epitaphs (rem (or (:turn world) 0) (count tombstone-epitaphs)))
+        divider (nth death-dividers (run-pick world :divider (count death-dividers)))
+        runes-txt (learned-runes world)
+        title (or (:title world) "")
+        stats (death-stats world tw)
+        prompt (death-prompt tw)
+        panel-w (min 46 (- tw 2))
+        ;; the stone's face, top to bottom; :compact drops the blank rows
+        body-full (vec (concat ["" "R . I . P" ""] epitaph ["" divider runes-txt]))
+        body-compact (vec (concat ["R . I . P"] epitaph [divider] (when (seq runes-txt) [runes-txt])))
+        ;; rows above the panel's lines: title, seed, gap, crown, shoulder,
+        ;; body, bottom, weeds, gap, stats, gap, panel border; below: border,
+        ;; gap, prompt
+        fixed (fn [body] (+ 2 1 2 (count body) 1 1 1 1 1 1 1 1 1))
+        [body lines] (let [room-full (- th (fixed body-full))
+                           room-compact (- th (fixed body-compact))]
+                       (cond (>= room-full 3) [body-full (min 6 room-full)]
+                             :else [body-compact (max 1 (min 6 room-compact))]))
+        total (+ (fixed body) lines)
+        y0 (max 0 (quot (- th total) 2))
+        sx (- cx (quot (+ inner 2) 2))
+        crown-y (+ y0 3)
+        bot (+ crown-y 2 (count body))
+        rnd (run-rng world :speckle)
+        flip? (= 1 (run-pick world :grass-side 2))]
+    ;; title and seed
+    (when (seq title) (center! y0 title [230 200 100]))
+    (center! (inc y0) (str "seed " (:seed-input world)) [110 105 90])
+    ;; background grass first, so the stone covers what is behind it: dim,
+    ;; uneven, a couple of rows up; flipped per run
+    (doseq [[dx up ch g] [[-2 1 "|" 1] [-3 1 "," 0] [-7 1 "/" 1] [-9 1 "'" 0] [-13 1 "," 0]
+                          [-5 2 "'" 0] [-10 2 "," 1] [-6 3 "'" 0]
+                          [(+ inner 4) 1 "," 0] [(+ inner 8) 1 "\\" 1] [(+ inner 9) 1 "'" 0]
+                          [(+ inner 8) 2 "'" 0]]]
+      (let [dx (if flip? (- (+ inner 1) dx) dx)
+            ch (if flip? (get {"/" "\\" "\\" "/"} ch ch) ch)]
+        (put! (+ sx dx) (- bot up) ch (nth grass-far g) bg)))
+    ;; the stone: a _ crown resting on the face, slanted shoulders, sides, a
+    ;; side strip for thickness
+    (put! (+ sx 3) crown-y (apply str (repeat (- inner 4) "_")) stone-edge bg)
+    (put! (+ sx 1) (inc crown-y) "╱" stone-edge bg)
+    (put! (+ sx 2) (inc crown-y) (apply str (repeat (- inner 2) " ")) stone-edge stone-face)
+    (put! (+ sx inner) (inc crown-y) "╲" stone-edge bg)
+    (put! (+ sx inner 1) (inc crown-y) " " stone-edge stone-side)
+    (dotimes [r (count body)]
+      (let [y (+ crown-y 2 r)
+            b (- 135 (* r 4))]
+        (put! sx y "│" [b (- b 15) (- b 40)] bg)
+        (put! (inc sx) y (apply str (repeat inner " ")) stone-edge stone-face)
+        (put! (+ sx inner 1) y "│" [(- b 20) (- b 35) (- b 55)] bg)
+        (put! (+ sx inner 2) y " " stone-edge stone-side)
+        (let [t (nth body r)]
+          (when (seq t)
+            (put! (+ sx 1 (quot (- inner (count t)) 2)) y t
+                  (cond (= t "R . I . P") [160 140 110]
+                        (= t divider) [120 102 80]
+                        (= t runes-txt) [150 130 100]
+                        :else [120 105 85])
+                  stone-face)))))
+    (put! sx bot (str "╰" (apply str (repeat inner "─")) "╯") [100 85 65] bg)
+    (put! (+ sx inner 2) bot " " stone-edge stone-side)
+    ;; weathering: faint marks on empty face cells, never beside a letter,
+    ;; where one would read as punctuation
+    (let [face? (fn [x y] (let [c (get @cells [x y])]
+                            (and c (= " " (first c)) (= stone-face (nth c 2)))))
+          letter? (fn [x y] (let [c (get @cells [x y])]
+                              (and c (not= " " (first c)) (= stone-face (nth c 2)))))]
+      (doseq [y (range (+ crown-y 2) bot) x (range (inc sx) (+ sx inner 1))]
+        (when (and (face? x y) (not (letter? (dec x) y)) (not (letter? (inc x) y))
+                   (< (rnd) speckle-rate))
+          (let [v (+ 40 (int (* 18 (rnd))))]
+            (put! x y (nth ["." "·" "," "`" "'" "·" "."] (int (* 7 (rnd))))
+                  [v (- v 4) (- v 10)] stone-face)))))
+    ;; grass in front: taller blades over the bottom corners, a few sprigs
+    (doseq [[dx up ch g] [[-1 0 "\\" 1] [0 0 "|" 2] [0 1 "|" 1] [0 2 "'" 2] [1 0 "/" 1] [1 1 "/" 0]
+                          [-2 0 "ψ" 1] [3 0 "," 0] [3 1 "'" 1] [9 0 "^" 0] [12 0 "ψ" 0]
+                          [(dec inner) 0 "\\" 2] [(dec inner) 1 "\\" 1] [inner 0 "|" 1] [inner 1 "|" 2]
+                          [inner 2 "," 1] [(inc inner) 0 "/" 1] [(+ inner 2) 0 "ψ" 2] [(- inner 4) 0 "'" 0]]]
+      (let [x (+ sx dx) y (- bot up)
+            under (get @cells [x y])
+            cbg (if (and under (pos? up)) (nth under 2) bg)]
+        (put! x y ch (nth grass-near g) cbg)))
+    (let [weeds (subs ".:;,.:  \"  .;,.\" .; ,.:;. \"" 0 (+ inner 6))]
+      (put! (- cx (quot (count weeds) 2)) (inc bot) weeds (first grass-near) bg))
+    ;; stats
+    (center! (+ bot 3) stats [140 120 90])
+    ;; last moments, under a red frame titled with the cause
+    (let [py (+ bot 5)
+          px (- cx (quot panel-w 2))
+          cause (death-cause world)
+          all (log-lines (vec (or (:log world) [])) (- panel-w 4))
+          newest (:entry (peek all))
+          ;; whole messages from the newest back, as many as fit; a killing
+          ;; blow that alone wraps past the panel shows from its start
+          firsts (loop [e newest]
+                   (let [n (count (filter #(>= (:entry %) e) all))]
+                     (cond (and newest (> n lines) (= e newest)) e
+                           (> n lines) (inc e)
+                           (or (nil? e) (zero? e)) e
+                           :else (recur (dec e)))))
+          ls (vec (take lines (filter #(>= (:entry %) (or firsts 0)) all)))
+          hdr (str "╭─ " cause " ")]
+      (put! px py (str hdr (apply str (repeat (max 0 (- panel-w (count hdr) 1)) "─")) "╮") death-red bg)
+      (put! (+ px 3) py cause [225 85 55] bg)
+      (dotimes [i lines]
+        (let [y (+ py 1 i)]
+          (put! px y "│" death-red bg)
+          (put! (+ px panel-w -1) y "│" death-red bg)
+          (when-let [{:keys [text entry]} (get ls i)]
+            (put! (+ px 2) y text
+                  (if (= entry newest) [230 210 170]
+                      (let [b (max 110 (- 190 (* 12 (- newest entry))))] [b (- b 20) (- b 60)]))
+                  bg))))
+      (put! px (+ py lines 1) (str "╰" (apply str (repeat (- panel-w 2) "─")) "╯") death-red bg)
+      ;; the runes keep out of one clear column, title to panel, as wide as
+      ;; the stone with its grass or the panel, whichever is wider
+      (let [half (max (quot panel-w 2) (+ (quot inner 2) 15))]
+        (swap! boxes conj [(- cx half 1) (dec y0) (+ cx half 1) (+ py lines 2)])))
+    ;; prompt on the last row
+    (center! (dec th) prompt [80 70 60])
+    {:cells @cells :keep-out @boxes}))
+
+(defn death-runes
+  "Scatter the background runes once per scene: crimson, centre-biased, and
+   kept out of the scene's text, stone and panel. They stay fixed; each tick
+   only pulses their brightness."
+  [world tw th]
+  (let [keep-out (:keep-out (death-scene world tw th))
+        blocked? (fn [x y] (some (fn [[x0 y0 x1 y1]] (and (<= x0 x x1) (<= y0 y y1))) keep-out))
+        ;; fewer on a small screen, where little room is left outside the scene
+        n (min 30 (quot (* tw th) 90))]
+    (loop [out [] tries 0]
+      (if (or (>= (count out) n) (> tries (* 40 n)))
+        out
+        (let [x (quot (+ (rand-int tw) (rand-int tw)) 2)
+              y (quot (+ (rand-int th) (rand-int th)) 2)
+              v (- (rand-int 60) 30)]
+          (if (or (blocked? x y) (some #(and (= (:x %) (inc x)) (= (:y %) (inc y))) out))
+            (recur out (inc tries))
+            (recur (conj out {:x (inc x) :y (inc y)
+                              :glyph (nth sfx/rune-glyphs (rand-int (count sfx/rune-glyphs)))
+                              :color [(max 30 (min 255 (+ 200 v)))
+                                      (max 30 (min 255 (+ 50 v)))
+                                      (max 30 (min 255 (+ 30 v)))]
+                              :phase (rand-int 60)})
+                   (inc tries))))))))
+
+;; What render-death-screen last drew in full: the size and the world. Cleared
+;; when something else drew over it (the message log), so the next frame
+;; redraws the scene.
+(def ^:private death-drawn (atom nil))
+
+(defn reset-death-screen! [] (reset! death-drawn nil))
+
+(defn- draw-scene! [{:keys [cells]} tw th]
+  (ui/apply-bg ui/bg)
+  (ui/apply-fg ui/bg)
+  (dotimes [y th]
+    (term/move-cursor 1 (inc y))
+    (term/write (apply str (repeat tw " "))))
+  ;; row by row, a cursor move and colour change per run of like cells
+  (doseq [y (range th)]
+    (let [xs (sort (keep (fn [[[x yy] _]] (when (= yy y) x)) cells))]
+      (loop [xs xs prev-x -2 pen nil]
+        (when-let [x (first xs)]
+          (let [[ch fg cbg] (get cells [x y])
+                p [fg cbg]]
+            (when (not= x (inc prev-x)) (term/move-cursor (inc x) (inc y)))
+            (when (not= p pen)
+              (let [[r g b] fg [br bgc bb] cbg]
+                (term/set-fg r g b) (term/set-bg br bgc bb)))
+            (term/write ch)
+            (recur (rest xs) x p)))))))
+
+(defn render-death-screen
+  "Draw the death screen: the whole scene only when it isn't already up (a
+   new death, a resize, or after the message log covered it), then the
+   background runes at their brightness for `frame`."
+  [world runes frame]
+  (sfx/with-frame
+    (let [[tw th] (term-dims)
+          drawn @death-drawn]
+      (when-not (and drawn (= (:size drawn) [tw th]) (identical? (:world drawn) world))
+        (draw-scene! (death-scene world tw th) tw th)
+        (reset! death-drawn {:size [tw th] :world world}))
+      ;; no background behind a rune: a tinted cell showed as a dim box
       (term/set-bg 10 10 10)
-      (term/write (u/right-pad (str "─── Messages " (if (> max-offset 0) (str "(" (- log-count offset) "/" log-count ") ") "") "───") (- tw 4)))
-      ;; messages
-      (dotimes [i (count visible)]
-        (let [msg (format-log-entry (nth visible i))
-              age (- (count visible) i)
-              bright (max 50 (- 170 (* age 6)))]
-          (term/move-cursor 3 (+ log-top 1 i))
-          (term/set-fg bright (max 40 (- bright 25)) (max 30 (- bright 50)))
-          (term/set-bg 10 10 10)
-          ;; pad to the panel width so a shorter line erases the residue of a
-          ;; longer one when scrolling — the death screen never clear-rects per
-          ;; frame, so each line must clear its own trailing cells.
-          (let [w (- tw 4)]
-            (term/write (u/right-pad (if (> (count msg) w) (subs msg 0 w) msg) w))))))
-    ;; prompt
-    (let [prompt (if *in-wasm*
-                   "[n/enter] new game    [esc] confirm restart    [j/k] scroll"
-                   "[n/enter] new game    [esc] exit    [j/k] scroll")]
-      (term/move-cursor (max 1 (- cx (quot (count prompt) 2))) (dec th))
-      (term/set-fg 80 70 60)
-      (term/set-bg 10 10 10)
-      (term/write prompt)))))
+      (doseq [r runes]
+        (let [b (max 0.1 (sfx/rune-brightness (:phase r) frame))
+              [cr cg cb] (:color r)]
+          (term/move-cursor (:x r) (:y r))
+          (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
+          (term/write (:glyph r)))))))
 
 ;; --- Rune Codex Screen ---
 

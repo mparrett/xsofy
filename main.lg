@@ -482,37 +482,47 @@
                          (js/emit "xsofy/replay-dump" {:code payload :turn (or (:turn world) 0)})
                          (do (write! *err* (str "replay-code: " payload "\n"))
                              (flush! *err*))))))
-               ;; Animate the death screen via the poll-based event loop: a
-               ;; cosmetic clock pulses the runes each tick while we wait for a
-               ;; key, instead of freezing on a blocking read (see xsofy.ui /
-               ;; #56). :ui carries {:frame :scroll}; raw keys drive scroll/exit.
+               ;; Animate the death screen via the poll-based event loop: the
+               ;; scene is drawn once and a cosmetic clock pulses the runes each
+               ;; tick while we wait for a key (see xsofy.ui / #56). `m` leaves
+               ;; the loop for the message log and comes back to a fresh scene.
                step (fn [st ev]
                       (let [[tag payload] ev]
                         (case tag
                           :tick (let [cur (or (term/size) (:size st))]
                                   (if (= cur (:size st))
                                     (assoc st :frame payload)
-                                    ;; resized: re-scatter + clear for the new size
+                                    ;; resized: re-scatter for the new size; the
+                                    ;; renderer redraws the scene on its own
                                     (let [[nw nh] cur]
-                                      (sfx/clear-screen nw nh)
                                       (assoc st :frame payload :size cur
-                                             :runes (render/death-runes nw nh)))))
+                                             :runes (render/death-runes world nw nh)))))
                           :action
                           (let [k payload]
                             (cond
                               (or (= k "n") (= k "\r") (= k "\n") (= k " ")) (reduced :new-game)
+                              (= k "m")                    (reduced :messages)
                               (= k :eof)                  (reduced :quit)
                               (= k "\u001b")               (reduced :esc)
-                              (or (= k "j") (= k "\u001b[B")) (update st :scroll (fn [s] (max 0 (dec s))))
-                              (or (= k "k") (= k "\u001b[A")) (update st :scroll inc)
                               :else st))
                           st)))
-               result (ui/run-loop
-                        {:sources  [(ui/input-source ui/raw-key->event) (ui/clock-source 0)]
-                         :state    {:frame 0 :scroll 0 :size [tw th] :runes (render/death-runes tw th)}
-                         :step     step
-                         :render   (fn [st] (render/render-death-screen world (:runes st) (:scroll st) (:frame st)))
-                         :frame-ms 120})]
+               result (loop []
+                        (render/reset-death-screen!)
+                        (let [[tw th] (or (term/size) [tw th])
+                              r (ui/run-loop
+                                  {:sources  [(ui/input-source ui/raw-key->event) (ui/clock-source 0)]
+                                   :state    {:frame 0 :size [tw th] :runes (render/death-runes world tw th)}
+                                   :step     step
+                                   :render   (fn [st] (render/render-death-screen world (:runes st) (:frame st)))
+                                   :frame-ms 120})]
+                          (if (= r :messages)
+                            (do (ui/modal-loop (assoc world :screen :messages)
+                                               render/render-messages-screen messages-input
+                                               ;; the scene under the log: already up on
+                                               ;; entry; redrawn at the new size on a resize
+                                               {:background! (fn [& _] (render/render-death-screen world [] 0))})
+                                (recur))
+                            r)))]
            (cond
              (= result :new-game)
              (let [w (new-game)]

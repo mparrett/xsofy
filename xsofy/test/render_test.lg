@@ -259,3 +259,53 @@
       (is (= "two" (:text (peek (:lines w)))))
       (is (= 3 (:end w)))
       (is (= (- (count lines) 2) (:max-scroll w))))))
+
+;; --- Death screen ---
+
+(def ^:private dead-world
+  {:seed-input 12345 :turn 47 :depth 5 :gold 0 :title "Chasms of Infinity"
+   :rune-table {}
+   :log ["You open the door." "The wraith hits you for 5."
+         "The wraith hits you for 4. Long enough that it wraps in the panel." "The wraith kills you!"]})
+
+(defn- scene-text [{:keys [cells]} y]
+  (apply str (map (fn [x] (first (get cells [x y] [" "]))) (range 120))))
+
+(deftest death-scene-names-the-killer-and-fits
+  (doseq [[tw th] [[100 38] [80 24] [31 20]]]
+    (let [{:keys [cells]} (render/death-scene dead-world tw th)
+          rows (map #(scene-text {:cells cells} %) (range th))]
+      (testing (str tw "x" th ": nothing drawn off the screen")
+        (is (every? (fn [[[x y] _]] (and (< -1 x tw) (< -1 y th))) cells)))
+      (testing (str tw "x" th ": the panel is titled with the killer")
+        (is (some #(cstr/includes? % "slain by a wraith") rows)))
+      (testing (str tw "x" th ": the killing blow is shown")
+        (is (some #(cstr/includes? % "The wraith kills you!") rows)))
+      (testing (str tw "x" th ": the stone")
+        (is (some #(cstr/includes? % "R . I . P") rows))))))
+
+(deftest death-cause-reads-the-log
+  (is (= "slain by an ogre" (render/death-cause {:log ["The ogre kills you!"]})))
+  (is (= "slain by a goblin-shaman"
+         (render/death-cause {:log ["The goblin-shaman shoots and kills you!"]})))
+  (is (= "burned to death" (render/death-cause {:log ["You are burning!" "You die..."]})))
+  (is (= "the end" (render/death-cause {:log ["You die..."]}))))
+
+(deftest death-scene-is-the-same-on-a-replay
+  (is (= (:cells (render/death-scene dead-world 100 38))
+         (:cells (render/death-scene dead-world 100 38)))))
+
+(deftest death-runes-stay-off-the-scene
+  (let [{:keys [keep-out]} (render/death-scene dead-world 100 38)
+        runes (render/death-runes dead-world 100 38)]
+    (is (pos? (count runes)))
+    (is (not-any? (fn [{:keys [x y]}]
+                    ;; runes are 1-based terminal cells; keep-out is 0-based
+                    (some (fn [[x0 y0 x1 y1]] (and (<= x0 (dec x) x1) (<= y0 (dec y) y1))) keep-out))
+                  runes))))
+
+(deftest death-panel-shows-whole-messages
+  (testing "one row of room and a kill line that wraps: it shows from its start"
+    (let [w (assoc dead-world :log ["You wait." "The goblin-shaman with a very long name shoots and kills you!"])
+          rows (map #(scene-text (render/death-scene w 31 18) %) (range 18))]
+      (is (some #(cstr/includes? % "The goblin-shaman") rows)))))
