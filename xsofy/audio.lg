@@ -426,14 +426,48 @@
         (dissoc world :sfx))
     world))
 
+(def death-music
+  "Matt, 2026-11-26: on death the music \"should fade fast or cut (200-300
+   ms), then a fade-in of the outro, ping while that's ramping up, and then
+   it keeps playing\". The floor's music glides out over :out-ms, the outro
+   starts silent then, and glides up over :in-s, long enough that the
+   blip-out (about 3.15 s in) lands while it rises."
+  {:out-ms 250 :in-s 4.0})
+
+(defn outro-plan
+  "The death's music as [ms action & args], ms from death: the floor's
+   music out, the outro theme in, and the blip-out at `blip-ms` (nil
+   without the death fade)."
+  [blip-ms]
+  (let [{:keys [out-ms in-s]} death-music]
+    (cond-> [[0 :glide 0.0 (/ out-ms 1000.0)]
+             [out-ms :theme]
+             [out-ms :glide music-gain in-s]]
+      blip-ms (conj [blip-ms :blip]))))
+
 (defn outro!
   "The death outro. Once per death: the death screen re-enters itself when a
    restart is declined, and the outro should not restart with it."
   []
   (when (and natives (not (:outro @state)))
     (swap! state assoc :outro true)
-    (call :play-theme outro-theme)
+    ;; A pending duck release would bring the floor's bed back over the
+    ;; outro; bumping the generation retires it.
+    (swap! state update :duck-gen (fnil inc 0))
     ;; The blip as the @ goes out. Resolved, not required: render needs no
     ;; audio, and a build without the death fade plays no blip.
-    (when-let [ms (sfx/blip-out-ms (some-> (resolve 'xsofy.render/death-fade-ms) deref))]
-      (call :trigger (sfx/death-blip-shots ms)))))
+    (let [blip-ms (sfx/blip-out-ms (some-> (resolve 'xsofy.render/death-fade-ms) deref))
+          glide   (:glide-music-gain natives)
+          act!    (fn [[_ k & args]]
+                    (case k
+                      :glide (apply glide args)
+                      :theme (call :play-theme outro-theme)
+                      :blip  (call :trigger (sfx/death-blip-shots 0))))]
+      (if glide
+        (doseq [[ms :as step] (outro-plan blip-ms)]
+          (if (pos? ms)
+            (go (<!! (timeout ms)) (act! step))
+            (act! step)))
+        ;; An lg without glides: the theme at once, as before.
+        (do (call :play-theme outro-theme)
+            (when blip-ms (call :trigger (sfx/death-blip-shots blip-ms))))))))

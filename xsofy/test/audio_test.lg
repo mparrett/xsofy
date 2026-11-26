@@ -54,3 +54,19 @@
 (deftest sound-mode-defaults-to-on
   (testing "with no ?sound= and no XSOFY_SOUND, the game plays"
     (is (= :on audio/sound-mode))))
+
+(deftest on-death-the-music-cuts-fast-and-the-outro-rises-under-the-blip
+  (let [plan   (audio/outro-plan 3150)
+        at     (fn [k] (some #(when (= k (second %)) (first %)) plan))
+        rise   (some #(when (and (= :glide (second %)) (pos? (nth % 2))) %) plan)
+        [ms _ _ secs] rise]
+    (testing "the floor's music is gone within 300 ms"
+      (is (= [0 :glide 0.0] (subvec (first plan) 0 3)))
+      (is (<= (* 1000 (nth (first plan) 3)) 300)))
+    (testing "the outro starts as the cut ends, and rises"
+      (is (= (at :theme) ms))
+      (is (<= (at :theme) 300)))
+    (testing "the blip lands while the outro is still rising"
+      (is (< ms (at :blip) (+ ms (* 1000 secs)))))
+    (testing "no fade, no blip"
+      (is (not-any? #(= :blip (second %)) (audio/outro-plan nil))))))
