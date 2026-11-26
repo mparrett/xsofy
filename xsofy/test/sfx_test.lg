@@ -487,7 +487,8 @@
       (is (= {:delay-ms (- run-ms 1000) :cut? false} (sfx/arrival-plan 1000 (+ run-ms 1) true))))))
 
 (deftest round-31-creatures-have-their-own-cries
-  (doseq [[who shot] [["slime" :cry-sli-bubble] ["archer" :cry-arch-uh-swirl] ["goblin-shaman" :cry-sham-groan]]]
+  (doseq [[who shot] [["slime" :cry-sli-bubble] ["archer" :cry-arch-uh-swirl] ["goblin-shaman" :cry-sham-groan]
+                      ["ice-elemental" :ice-shard]]]
     (testing who
       (let [trs (triggers {:kind :death :creature who :dist 2 :dir 0})]
         (is (some #(= shot (:shot %)) trs))

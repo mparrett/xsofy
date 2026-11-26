@@ -161,6 +161,14 @@
    {:name :web-thread :gate-ms 300
     :patch [[:env 0.002 0.12 0 0.08] [:pluck 0 0.8] [:mul] [:hpf 900] [:out 0.4 0.5]
             [:env 0.01 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:svf 4200 0.5 1 0] [:out 0.25 0.5]]}
+   ;; The ice elemental's death, V054 (round 30, Matt's pick): a cracking
+   ;; snap, then glass-like shards, each a sine with two inharmonic partials.
+   {:name :ice-crack :gate-ms 400
+    :patch [[:env 0.001 0.03 0 0.02] [:osc 0 :noise 0 1] [:mul] [:hpf 1500] [:drive 2 0] [:verb 0.3] [:out 0.5 0.5]]}
+   {:name :ice-shard :gate-ms 400
+    :patch [[:env 0.001 0.08 0 0.048] [:osc 0 :sine 0 1] [:mul] [:verb 0.35] [:out 0.12 0.5]
+            [:env 0.001 0.05 0 0.03] [:osc 17.6 :sine 0 1] [:mul] [:verb 0.35] [:out 0.07 0.5]
+            [:env 0.001 0.03 0 0.018] [:osc 29.2 :sine 0 1] [:mul] [:verb 0.35] [:out 0.03 0.5]]}
    ;; A swimming stroke's slosh (round 47): round 45's squelch drawn out.
    {:name :swim-slosh :gate-ms 500
     :patch [[:env 0.04 0.18 0 0.12] [:osc 0 :noise 0 1] [:mul] [:svf 1000 0.45 1 0] [:lpf 2500] [:out 0.7 0.5]]}
@@ -529,7 +537,13 @@
                 [200 :cry-spi-click 79 1.311] [228 :cry-spi-click 78 1.245] [260 :cry-spi-click 78 1.179]
                 [296 :cry-spi-click 76 1.114] [340 :cry-spi-click 75 0.983] [392 :cry-spi-click 74 0.852]
                 [455 :cry-spi-click 72 0.721] [530 :cry-spi-click 71 0.524] [620 :cry-spi-click 69 0.393]]]
-   "wraith"   [[[0 :cry-wra-mist 64 0.427] [40 :cry-wra-moan 64 0.533]]]})     ; V090
+   "wraith"   [[[0 :cry-wra-mist 64 0.427] [40 :cry-wra-moan 64 0.533]]]      ; V090
+   ;; V054: the board's gains (a share of the shared cry, 0.445) at its
+   ;; level for the row, x0.733
+   "ice-elemental" [[[0 :ice-crack 84 0.326]
+                     [10 :ice-shard 88 0.326] [45 :ice-shard 84 0.294] [70 :ice-shard 91 0.261]
+                     [120 :ice-shard 86 0.277] [150 :ice-shard 82 0.228] [210 :ice-shard 89 0.196]
+                     [260 :ice-shard 80 0.163] [340 :ice-shard 85 0.131] [430 :ice-shard 78 0.098]]]})
 
 (defn- creature-cry
   "A creature's own cry, nil when it has none."
