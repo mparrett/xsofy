@@ -432,4 +432,8 @@
   []
   (when (and natives (not (:outro @state)))
     (swap! state assoc :outro true)
-    (call :play-theme outro-theme)))
+    (call :play-theme outro-theme)
+    ;; The blip as the @ goes out. Resolved, not required: render needs no
+    ;; audio, and a build without the death fade plays no blip.
+    (when-let [ms (sfx/blip-out-ms (some-> (resolve 'xsofy.render/death-fade-ms) deref))]
+      (call :trigger (sfx/death-blip-shots ms)))))
