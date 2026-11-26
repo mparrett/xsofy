@@ -200,3 +200,23 @@
   (is (= 8 (render/messages-panel-h 10)))
   (testing "visible rows leave room for border, padding and footer"
     (is (= 22 (render/message-visible-lines 36)))))
+
+(deftest codex-lists-every-rune-in-glyph-order
+  (let [table {:fire {:glyph "ᚢ" :garbled "vorth" :identified true}
+               :ice  {:glyph "ᚠ" :garbled "kael" :identified false}
+               :heal {:glyph "☉" :garbled "thryn" :identified false}}
+        es (render/codex-entries table)]
+    (testing "fixed order by glyph, so identifying a rune doesn't move it"
+      (is (= ["ᚠ" "ᚢ" "☉"] (mapv :glyph es))))
+    (testing "known runes show their name, unknown ones only the garbled one"
+      (is (= ["kael" "fire" "thryn"] (mapv :label es)))
+      (is (= [false true false] (mapv :known? es))))))
+
+(deftest codex-panel-fits-its-grid
+  (testing "a wide terminal: 76 columns, 6 runes per row, roomy"
+    (is (= {:w 76 :cols 6 :h 15 :mode :roomy} (render/codex-layout 27 120 40))))
+  (testing "a phone: 2 columns of 14 rows, then compact, then bare as height runs out"
+    (is (= {:w 29 :cols 2 :h 18 :mode :compact} (render/codex-layout 27 31 20)))
+    (is (= {:w 29 :cols 2 :h 17 :mode :bare} (render/codex-layout 27 31 19))))
+  (testing "never taller than the terminal"
+    (is (<= (:h (render/codex-layout 27 31 10)) 8))))
