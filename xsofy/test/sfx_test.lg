@@ -226,7 +226,7 @@
 (deftest new-kinds-are-voiced
   (testing "the kinds producers already emitted but nothing rendered"
     (is (= :thunk (:shot (first (triggers {:kind :door :dist 4 :dir 0.5})))))
-    (is (= :cry   (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
+    (is (= :death-uh (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
     (is (= :twang (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
     (is (= :creak (:shot (first (triggers {:kind :blocked}))))))
   (testing "spatial kinds attenuate with distance like every other one"
@@ -450,8 +450,8 @@
   (is (contains? (cry-shots "fire-imp") :cry-imp-poof-short))
   (is (some #{:cry-rat-squeak :cry-rat-squeal :cry-rat-chit} (cry-shots "rat")))
   (testing "anything else keeps the shared cry"
-    (is (= #{:cry} (cry-shots "troll")))
-    (is (= #{:cry} (cry-shots nil)))))
+    (is (= #{:death-uh} (cry-shots "troll")))
+    (is (= #{:death-uh} (cry-shots nil)))))
 
 (defn- rat-take [salt]
   (mapv :shot (sfx/for-events base salt [{:kind :death :creature "rat" :dist 1}])))
@@ -492,7 +492,7 @@
     (testing who
       (let [trs (triggers {:kind :death :creature who :dist 2 :dir 0})]
         (is (some #(= shot (:shot %)) trs))
-        (is (not-any? #(= :cry (:shot %)) trs))))))
+        (is (not-any? #(= :death-uh (:shot %)) trs))))))
 
 (deftest round-32-creatures-have-their-own-cries
   (doseq [[who shot] [["spider" :cry-spi-rasp-soft] ["wraith" :cry-wra-moan]]]
