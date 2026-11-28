@@ -638,13 +638,13 @@
                         take)))))
 
 (defn blip-out-ms
-  "When the @ goes fully dark in the death fade, in ms from death: hold, out
-   and linger of the fade's timings (xsofy.render/death-fade-ms), read from
-   the fade rather than copied, since they may still change. Nil without
-   a fade."
+  "When the @ goes fully dark in the death fade, in ms from death: flash,
+   hold, out and linger of the fade's timings (xsofy.render/death-fade-ms),
+   read from the fade rather than copied, since they keep changing (the
+   flash arrived 2026-11-27). Nil without a fade."
   [fade]
   (when fade
-    (+ (get fade :hold 0) (get fade :out 0) (get fade :linger 0))))
+    (+ (get fade :flash 0) (get fade :hold 0) (get fade :out 0) (get fade :linger 0))))
 
 (defn death-blip-shots
   "Your death's blip-out, C045, `delay-ms` from now, at the board's level
