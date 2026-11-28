@@ -174,7 +174,7 @@
    ;; down, its band-pass following (3 kHz to 187.5 Hz), then shaken: random
    ;; pitch steps (lfo mode 2, 11.3 Hz, 2.8 semitones), its level stepping at
    ;; random (a stutter), and a crackle of random impulses under it. Played
-   ;; doubled; see death-shots.
+   ;; twice, the second high; see death-shots.
    {:name :death-squeal :gate-ms 400
     :patch [[:lfo 11.3 2] [:pitch 2.8] [:env 0.006 0.3 0 0.1] [:osc 0 :saw 6 0.28] [:mul]
             [:lfo 23 2] [:scale 0.6 0.4] [:mul]
@@ -641,12 +641,14 @@
    so a death out in the dark still tells you where."
   [ev seed]
   (or (creature-cry ev seed)
-      ;; Two copies, the second 0.6 semitones flat and 23 ms late, so they
-      ;; beat; each seeds its own random steps. Gains are the board's for
+      ;; Two copies, the second 23 ms late at note 60, each seeding its own
+      ;; random steps. The board's S247 asked for 37.4 (0.6 flat); undertone
+      ;; reads whole notes only and played a fractional one at its default,
+      ;; 60, and that is the sound Matt picked. Gains are the board's for
       ;; S247, which sits 6 dB under the :cry (G014) it replaces.
       (let [a (attenuate (:dist ev)) pan (pan-of (:dir ev))]
         [{:shot :death-squeal :note 38 :gain (* 0.1288 a) :pan pan :seed seed}
-         {:shot :death-squeal :note 37.4 :gain (* 0.1011 a) :pan pan :delay-ms 23
+         {:shot :death-squeal :note 60 :gain (* 0.1011 a) :pan pan :delay-ms 23
           :seed (det/combine seed [:double])}])))
 
 ;; ---- Changing floor: going, then arrived ----
