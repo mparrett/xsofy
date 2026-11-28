@@ -1846,11 +1846,16 @@
 ;; black, then the scene fades in from the stone outward. Matt picked these
 ;; timings in the fade mock (project-docs joint-xsofy/death-screen-mock/fade.html,
 ;; at 0.7x its base speed).
-;; Matt's tuning, 2026-11-27: a quick flash on the @ as the blow lands, then
-;; a shorter hold, linger and beat, and a quicker fade-in
-(def death-fade-ms {:flash 220 :hold 150 :out 1850 :linger 600 :beat 300 :in 1400 :ramp 330})
-;; when the @ turns white and back during :flash, ms from the death
-(def ^:private death-flash-steps [[0 :white] [60 :base] [110 :white] [170 :base]])
+;; Matt's tuning, 2026-11-27: a flash on the @ as the blow lands, then a
+;; shorter hold, linger and beat, and a quicker fade-in
+(def death-fade-ms {:flash 500 :hold 150 :out 1850 :linger 600 :beat 300 :in 1400 :ramp 330})
+;; The flash (Matt's pick from the mock, death-flash.html G'): the @ cycles
+;; through # @ 0 @ twice, all white the first time, then white, its own
+;; colour, white, and a darker shade of it, which it keeps until it goes out.
+;; [ms glyph colour], "@" meaning the player's own glyph
+(def ^:private death-flash-steps
+  [[0 "#" :white] [62 "@" :white] [125 "0" :white] [188 "@" :white]
+   [250 "#" :white] [312 "@" :base] [375 "0" :white] [438 "@" :dim]])
 
 (defn- toward-bg
   "Colour `c` faded by `k` (0 dark .. 1 full) toward the screen background."
@@ -1925,14 +1930,16 @@
         [pch pfg pbg] (or (some->> player (entity-appearance world mr) app->cell)
                           (some-> (:app seen) app->cell)
                           ["@" [255 220 80] ui/bg])
+        ;; the shade the flash leaves the @ in (255 220 80 -> 215 180 60 or so)
+        pdim (mapv #(int (* % 0.84)) pfg)
         flash-events
-        (for [[t c] death-flash-steps]
-          [t pc pr pch (if (= c :white) [255 255 255] pfg) pbg])
+        (for [[t g c] death-flash-steps]
+          [t pc pr (if (= g "@") pch g) (case c :white [255 255 255] :base pfg :dim pdim) pbg])
         linger-events
         (for [i (range 1 9)
               :let [k (- 1 (/ i 8.0))]]
           [(+ hold out (* linger (/ i 8.0))) pc pr (if (pos? k) pch " ")
-           (toward-bg pfg k) (toward-bg pbg k)])
+           (toward-bg pdim k) (toward-bg pbg k)])
         t-in (+ hold out linger beat)
         in-events (fade-in-events (death-scene world tw th) tw th t-in ms)]
     {:events (vec (sort-by first (concat flash-events out-events linger-events in-events)))
