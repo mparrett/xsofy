@@ -1395,6 +1395,183 @@
 ;; share of the empty face cells that carry a weathering mark
 (def ^:private speckle-rate 0.06)
 
+;; Grave grass, from Matt's favourites in the grass spike (2026-11-27,
+;; project-docs joint-xsofy/death-screen-mock/grass.html, favourites mode): a
+;; clump on one corner seam of the stone, something lighter on the other side,
+;; at most one tall thin stem (it carries the bud when there is one), the
+;; middle of the stone low, the floor scatter wide. A base is three cells on
+;; the stone's bottom row, and each glyph decides what grows above it.
+(def ^:private grass-dominant ["\\|/" " |/" "\\| " " |," ".| " " !/" "\\! " " V "])
+(def ^:private grass-light [" |," ".| " " !/" " |/" " V " "\\! "])
+(def ^:private grass-bud [205 198 170])
+(def ^:private grass-flip {"/" "\\" "\\" "/"})
+
+(defn- mirror-base [base]
+  (apply str (map #(get grass-flip % %) (reverse (map str base)))))
+
+(defn- grass-symmetric?
+  "Too regular: every mark has a partner across the clump's middle, the same
+   glyph or its mirror. Light tip marks all count as one kind, since in the
+   game font ' slants like a mirrored `."
+  [m]
+  (let [kind (fn [ch] (if (cstr/includes? "'`,.:;" ch) :tip ch))]
+    (and (> (count m) 1)
+         (let [xs (map ffirst m)
+               span (+ (apply min xs) (apply max xs))]
+           (every? (fn [[[x u] ch]]
+                     (when-let [o (get m [(- span x) u])]
+                       (let [a (kind ch) c (kind o)]
+                         (or (= a c) (= c (get grass-flip a))))))
+                   m)))))
+
+(defn- grave-grass
+  "The grass around the stone as {:far {[dx up] [ch fg]} :near {...}}. dx
+   counts from the stone's left wall, up from its bottom row (0 is the bottom
+   row itself, -1 the scatter under it). Drawn from rnd, so a run keeps its
+   grass on a replay."
+  [inner rnd]
+  (let [ri (fn [n] (int (* (rnd) n)))
+        pick (fn [xs] (nth xs (ri (count xs))))
+        heavy (if (< (rnd) 0.5) -1 1)
+        far (atom {})
+        near (atom {})
+        wrote (atom nil)
+        spots (atom [])
+        tall-left (atom 1)
+        wall? (fn [dx] (contains? #{0 (inc inner) (+ inner 2)} dx))
+        ;; the middle ~75% of the stone stays low; the corner columns keep
+        ;; a tip on a clump tucked into the seam
+        centre? (fn [dx] (<= 3 dx (- inner 2)))
+        blade! (fn [dx up ch shade]
+                 (when-not (and (> up 1) (centre? dx))
+                   (swap! near assoc [dx up] [ch (nth grass-near shade)])
+                   (when @wrote (swap! wrote assoc [dx up] ch))))
+        tip (fn [] (pick ["'" "`" "'" ","]))
+        grow! (fn [dx ch dom? light?]
+                (let [h (cond (and (= ch "|") dom? (pos? @tall-left) (< (rnd) 0.75))
+                              (do (reset! tall-left 0) (if (< (rnd) 0.5) 1 2))
+                              (and (or (= ch "/") (= ch "\\")) (not light?) (< (rnd) 0.35)) 1
+                              :else 0)]
+                  (cond
+                    (= ch "|")
+                    (do (doseq [u (range 1 (inc h))] (blade! dx u "|" (if (= u h) 2 1)))
+                        (when (< h 2) (blade! dx (inc h) (tip) 2))
+                        ;; a bud only ever sits on a tall straight stem
+                        (when (pos? h) (swap! spots conj [dx (inc h)])))
+                    (or (= ch "/") (= ch "\\"))
+                    (let [s (if (= ch "/") 1 -1)]
+                      (doseq [u (range 1 (inc h))] (blade! (+ dx (* s u)) u ch 1))
+                      (blade! (+ dx (* s (inc h))) (inc h) (tip) 2))
+                    ;; one arm only: "\\ /" over "V" reads as a drawn shape
+                    (= ch "V")
+                    (let [s (if (< (rnd) 0.5) -1 1)
+                          other [(- dx s) 1]]
+                      (blade! (+ dx s) 1 (if (neg? s) "\\" "/") 1)
+                      ;; a background tuft could supply the other arm by chance
+                      (when (= (first (get @far other)) (if (neg? s) "/" "\\"))
+                        (swap! far dissoc other))
+                      (when (< (rnd) 0.5) (blade! (+ dx (* 2 s)) 2 (tip) 2))))))
+        grow-once! (fn [centre base dom? light?]
+                     (doseq [[i ch] (map-indexed vector (map str base))]
+                       (let [x (+ centre (dec i))]
+                         ;; a straight stem on the wall reads as part of it;
+                         ;; leans and Vs may straddle the corner
+                         (when (and (not= ch " ")
+                                    (not (and (wall? x) (or (= ch "|") (= ch "!")) (< (rnd) 0.92)))
+                                    (not (and light? (not= i 1) (< (rnd) 0.5))))
+                           (blade! x 0 ch (if (or (= ch ",") (= ch ".")) 0 (if (< (rnd) 0.4) 2 1)))
+                           (grow! x ch dom? light?)))))
+        clump! (fn [centre base dom? light?]
+                 (let [snap [@near @far @tall-left @spots]]
+                   (loop [tries 1]
+                     (reset! wrote {})
+                     (grow-once! centre base dom? light?)
+                     (when (and (grass-symmetric? @wrote) (< tries 6))
+                       (let [[n f t sp] snap]
+                         (reset! near n) (reset! far f) (reset! tall-left t) (reset! spots sp))
+                       (recur (inc tries))))
+                   (let [m @wrote]
+                     (when (grass-symmetric? m)
+                       ;; still regular after six tries: take the top mark off one side
+                       (let [xs (map ffirst m)
+                             mid (/ (+ (apply min xs) (apply max xs)) 2.0)
+                             left? (< (rnd) 0.5)
+                             side (filter (fn [[[x _] _]] (if left? (< x mid) (> x mid))) m)
+                             [[x u] _] (or (last (sort-by (fn [[[_ u] _]] u) side)) (first m))]
+                         (if-let [prev (get (first snap) [x u])]
+                           (swap! near assoc [x u] prev)
+                           (swap! near dissoc [x u])))))
+                   (reset! wrote nil)))]
+    ;; background tufts: a few on each side, tilted a little toward the heavy one
+    (doseq [side [-1 1]]
+      (let [tilt (if (= side heavy) 1.15 0.75)
+            n1 (max 3 (int (+ 0.5 (* (+ 3 (ri 4)) tilt))))
+            ds (vec (concat (vec (repeatedly n1 #(vector (+ 2 (ri 13)) 1)))
+                            (vec (repeatedly (ri 3) #(vector (+ 3 (ri 9)) 2)))
+                            (when (< (rnd) 0.5) [[(+ 4 (ri 6)) 3]])))]
+        (doseq [[d up] ds]
+          (swap! far assoc [(if (neg? side) (- d) (+ inner 1 d)) up]
+                 [(pick ["," "'" "/" "\\" "|" "`"]) (nth grass-far (ri 2))]))))
+    ;; the clumps: the heavy side's on the seam (just outside, straddling the
+    ;; wall, or tucked into the face's corner), the light one a little way out
+    (let [dom (pick grass-dominant)
+          lite (loop [b (pick grass-light)] (if (= b dom) (recur (pick grass-light)) b))
+          ;; on the right, the dominant base faces the stone more often than not
+          dom (if (and (pos? heavy) (< (rnd) 0.6)) (mirror-base dom) dom)
+          out-at (fn [side] (if (neg? side) (- (inc (ri 3))) (+ inner 3 (ri 3))))
+          seam-at (fn [side] (pick (if (neg? side) [-1 1 2 2] [(+ inner 3) (inc inner) inner inner])))]
+      (doseq [side [-1 1]]
+        (let [dom? (= side heavy)]
+          (if (and (not dom?) (< (rnd) 0.3))
+            ;; sometimes the light side is just a mark or two at the foot of the wall
+            (let [x (out-at side)]
+              (blade! x 0 (pick ["," "'" "`" "." "v"]) 1)
+              (when (< (rnd) 0.5) (blade! (+ x (if (< (rnd) 0.5) -1 1)) 0 (pick ["," "."]) 0)))
+            (clump! (if dom? (seam-at side) (out-at side)) (if dom? dom lite) dom? (not dom?))))))
+    ;; the heavy side's ground: low punctuation spreading out from its
+    ;; corner along the bottom row, thinning as it goes
+    (let [corner (if (neg? heavy) 0 (inc inner))
+          reach (+ 5 (ri 7))]
+      (doseq [d (range 2 (inc reach))]
+        (when-not (> (rnd) (- 1 (/ d (+ reach 2.0))))
+          (doseq [s [heavy (- heavy)]]
+            ;; only a little way in over the stone's base
+            (when-not (and (= s (- heavy)) (or (> d 4) (< (rnd) 0.5)))
+              (let [x (+ corner (* s d))]
+                (when-not (get @near [x 0])
+                  (blade! x 0 (pick [":" ";" "," "." "+" "'" "`" "," "."]) (if (< (rnd) 0.3) 1 0))
+                  (when (and (= s heavy) (< (rnd) 0.12))
+                    (blade! x 1 (pick ["," "'" "`"]) 0)))))))))
+    ;; at most one bud, pale, on the tall stem's tip and never on a wall
+    (let [ok (vec (filter (fn [[x u]] (and (not (wall? x)) (not (and (> u 1) (centre? x))))) @spots))]
+      (when (and (seq ok) (< (rnd) 0.35))
+        (swap! near assoc (pick ok) ["*" grass-bud])))
+    ;; singles along the stone's base, not side by side
+    (loop [i 0 used #{} n (+ 3 (ri 3))]
+      (when (< i n)
+        (let [x (+ 4 (ri (- inner 7)))]
+          (if (or (used x) (used (dec x)) (used (inc x)))
+            (recur (inc i) used n)
+            (do (blade! x 0 (pick ["," "^" "'" "." "`"]) (ri 2))
+                (recur (inc i) (conj used x) n))))))
+    ;; the scatter under it: densest at the stone's corners, thinning to the
+    ;; middle and out to ten columns past each corner, no glyph twice running
+    (let [weeds ["." "." ":" ";" "," "," "'" "\"" "`"]]
+      (loop [x -10 prev nil]
+        (when (<= x (+ inner 11))
+          (let [nearc (min (math/abs x) (math/abs (- x (inc inner))))
+                outside (cond (neg? x) (- x) (> x (inc inner)) (- x (inc inner)) :else 0)
+                tilt (if (= (if (< (* 2 x) (inc inner)) -1 1) heavy) 1.15 0.75)
+                p (min 0.95 (* tilt (if (pos? outside)
+                                      (* 0.7 (- 1 (/ outside 11.0)))
+                                      (cond (< nearc 3) 0.85 (< nearc 7) 0.55 :else 0.3))))]
+            (if (> (rnd) p)
+              (recur (inc x) nil)
+              (let [c (loop [c (pick weeds)] (if (= c prev) (recur (pick weeds)) c))]
+                (swap! near assoc [x -1] [c (first grass-near)])
+                (recur (inc x) c)))))))
+    {:far @far :near @near}))
+
 (defn- run-pick
   "A number in [0, n) fixed for this run's death (seed, turn and what it is
    for), so a replay or a shared ?seed= draws the same stone."
@@ -1503,19 +1680,13 @@
         crown-y (+ y0 3)
         bot (+ crown-y 2 (count body))
         rnd (run-rng world :speckle)
-        flip? (= 1 (run-pick world :grass-side 2))]
+        grass (grave-grass inner (run-rng world :grass))]
     ;; title and seed
     (when (seq title) (center! y0 title [230 200 100]))
     (center! (inc y0) (str "seed " (:seed-input world)) [110 105 90])
-    ;; background grass first, so the stone covers what is behind it: dim,
-    ;; uneven, a couple of rows up; flipped per run
-    (doseq [[dx up ch g] [[-2 1 "|" 1] [-3 1 "," 0] [-7 1 "/" 1] [-9 1 "'" 0] [-13 1 "," 0]
-                          [-5 2 "'" 0] [-10 2 "," 1] [-6 3 "'" 0]
-                          [(+ inner 4) 1 "," 0] [(+ inner 8) 1 "\\" 1] [(+ inner 9) 1 "'" 0]
-                          [(+ inner 8) 2 "'" 0]]]
-      (let [dx (if flip? (- (+ inner 1) dx) dx)
-            ch (if flip? (get {"/" "\\" "\\" "/"} ch ch) ch)]
-        (put! (+ sx dx) (- bot up) ch (nth grass-far g) bg)))
+    ;; background grass first, so the stone covers what is behind it
+    (doseq [[[dx up] [ch fg]] (:far grass)]
+      (put! (+ sx dx) (- bot up) ch fg bg))
     ;; the stone: a _ crown resting on the face, slanted shoulders, sides, a
     ;; side strip for thickness
     ;; the edge runs out to meet the shoulders: " ___ " over "/   \"
@@ -1553,17 +1724,12 @@
           (let [v (+ 40 (int (* 18 (rnd))))]
             (put! x y (nth ["." "·" "," "`" "'" "·" "."] (int (* 7 (rnd))))
                   [v (- v 4) (- v 10)] stone-face)))))
-    ;; grass in front: taller blades over the bottom corners, a few sprigs
-    (doseq [[dx up ch g] [[-1 0 "\\" 1] [0 0 "|" 2] [0 1 "|" 1] [0 2 "'" 2] [1 0 "/" 1] [1 1 "/" 0]
-                          [-2 0 "ψ" 1] [3 0 "," 0] [3 1 "'" 1] [9 0 "^" 0] [12 0 "ψ" 0]
-                          [(dec inner) 0 "\\" 2] [(dec inner) 1 "\\" 1] [inner 0 "|" 1] [inner 1 "|" 2]
-                          [inner 2 "," 1] [(inc inner) 0 "/" 1] [(+ inner 2) 0 "ψ" 2] [(- inner 4) 0 "'" 0]]]
+    ;; grass in front, over the stone's face where it climbs onto it
+    (doseq [[[dx up] [ch fg]] (:near grass)]
       (let [x (+ sx dx) y (- bot up)
             under (get @cells [x y])
             cbg (if (and under (pos? up)) (nth under 2) bg)]
-        (put! x y ch (nth grass-near g) cbg)))
-    (let [weeds (subs ".:;,.:  \"  .;,.\" .; ,.:;. \"" 0 (+ inner 6))]
-      (put! (- cx (quot (count weeds) 2)) (inc bot) weeds (first grass-near) bg))
+        (put! x y ch fg cbg)))
     ;; stats
     (center! (+ bot 3) stats [140 120 90])
     ;; last moments, under a red frame titled with the cause
@@ -1596,7 +1762,7 @@
       (put! px (+ py lines 1) (str "╰" (apply str (repeat (- panel-w 2) "─")) "╯") death-red bg)
       ;; the runes keep out of one clear column, title to panel, as wide as
       ;; the stone with its grass or the panel, whichever is wider
-      (let [half (max (quot panel-w 2) (+ (quot inner 2) 15))]
+      (let [half (max (quot panel-w 2) (+ (quot inner 2) 17))]
         (swap! boxes conj [(- cx half 1) (dec y0) (+ cx half 1) (+ py lines 2)])))
     ;; prompt on the last row
     (center! (dec th) prompt [80 70 60])
