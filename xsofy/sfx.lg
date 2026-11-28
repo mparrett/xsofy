@@ -204,6 +204,15 @@
             [:env 0.005 0.4 0 0.02] [:osc 0 :noise 0 1] [:mul] [:lfo 35 2] [:svf 350 0.7 1 1.2] [:drive 3 0.2] [:verb 0.05] [:out 0.2 0.5]]}
    {:name :gob-eyy-tail :gate-ms 700
     :patch [[:env 0.006 0.2 0 0.08] [:osc -12 :saw 0.6 0.03] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
+   ;; The ogre's death, S259 (round 57, Matt 2026-11-27), after the breathy
+   ;; ones of rounds 31-33 sounded like a kazoo: S247's shaken squeal (random
+   ;; pitch steps, a level stutter, a crackle) lasting 0.75 s, low-passed
+   ;; under 260 Hz, with a sine an octave down. Patch as the board exported it.
+   {:name :ogre-squeal :gate-ms 1100
+    :patch [[:lfo 11.3 2] [:pitch 2.8] [:env 0.01 0.75 0 0.2] [:osc 0 :saw 3 0.6] [:mul] [:lfo 23 2] [:scale 0.6 0.4] [:mul]
+            [:svf 260 0.65 1 0] [:drive 2.6 0.15] [:verb 0.3] [:out 0.45 0.5]
+            [:env 0.01 0.75 0 0.2] [:dust 70 1 0] [:mul] [:svf 260 0.5 1 0] [:drive 2 0.1] [:out 0.5 0.5]
+            [:env 0.01 0.75 0 0.2] [:osc -12 :sine 3 0.6] [:mul] [:lpf 180] [:out 0.35 0.5]]}
    ;; The dragon's death, S251 (round 56, Matt 2026-11-27, "for now"): round
    ;; 30's long roar (V059), a driven low "aa" at 550 and 1000 Hz with
    ;; breath, its pitch jostled at random, made irregular by its level
@@ -643,7 +652,9 @@
                      [260 :ice-shard 80 0.163] [340 :ice-shard 85 0.131] [430 :ice-shard 78 0.098]]]
    ;; S251: the board's gains (a share of the shared cry, 0.445, as V054)
    ;; at its level for the row, x0.861 x1.161
-   "dragon" [[[0 :dragon-roar 33 0.445] [300 :dragon-fire-out 70 0.356]]]})
+   "dragon" [[[0 :dragon-roar 33 0.445] [300 :dragon-fire-out 70 0.356]]]
+   ;; S259: 2 dB under the dragon, as on the board (measured)
+   "ogre"   [[[0 :ogre-squeal 36 0.2784]]]})
 
 (defn- creature-cry
   "A creature's own cry, nil when it has none."

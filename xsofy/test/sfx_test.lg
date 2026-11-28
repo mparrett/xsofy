@@ -709,3 +709,7 @@
          (map :shot (triggers {:kind :death :creature "kobold" :dist 1 :dir 0}))))
   (is (= [:gob-eyy-head :gob-eyy-tail]
          (map :shot (triggers {:kind :death :creature "goblin" :dist 1 :dir 0})))))
+
+(deftest the-ogre-dies-in-its-own-voice
+  (let [trs (triggers {:kind :death :creature "ogre" :dist 1 :dir 0})]
+    (is (= [:ogre-squeal] (map :shot trs)))))
