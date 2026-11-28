@@ -184,6 +184,26 @@
    ;; crushed-pulse chirp, sagging down, the descent's tone.
    {:name :death-blip :gate-ms 500
     :patch [[:env 0.002 0.16 0 0.1] [:osc 0 :pulse 5 0.14] [:mul] [:lpf 900] [:crush 3000 5] [:lpf 3200] [:verb 0.4] [:out 0.45 0.5]]}
+   ;; The kobold's death, C055 (round 52, Matt 2026-11-27): the goblin's old
+   ;; gurgle (V014) at half length, heavily crushed, stumbling down halfway
+   ;; in two uneven steps (1.8, then 4.7 semitones). Patches as the board
+   ;; exported them.
+   {:name :kob-gurgle-head :gate-ms 100
+    :patch [[:env 0.01 0.2 0 0.02] [:osc -12 :saw 2 0.175] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
+   {:name :kob-gurgle-step1 :gate-ms 40
+    :patch [[:env 0.006 0.1 0 0.015] [:osc -13.8 :saw 0.3 0.02] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
+   {:name :kob-gurgle-step2 :gate-ms 700
+    :patch [[:env 0.006 0.075 0 0.035] [:osc -16.7 :saw 0.4 0.025] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
+   ;; The goblin's death, S231 (round 52, Matt 2026-11-27): the same gurgle,
+   ;; full length, starting 3.4 semitones low with a heavier, guttural "eyy"
+   ;; (harder drive, a sub saw an octave down, a growl of wobbled noise),
+   ;; then cracking up halfway.
+   {:name :gob-eyy-head :gate-ms 200
+    :patch [[:env 0.005 0.4 0 0.02] [:osc -15.4 :saw 2 0.35] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 4.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]
+            [:env 0.005 0.4 0 0.02] [:osc -27.4 :saw 2 0.35] [:mul] [:lpf 350] [:drive 3 0.2] [:verb 0.05] [:out 0.35 0.5]
+            [:env 0.005 0.4 0 0.02] [:osc 0 :noise 0 1] [:mul] [:lfo 35 2] [:svf 350 0.7 1 1.2] [:drive 3 0.2] [:verb 0.05] [:out 0.2 0.5]]}
+   {:name :gob-eyy-tail :gate-ms 700
+    :patch [[:env 0.006 0.2 0 0.08] [:osc -12 :saw 0.6 0.03] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
    ;; The dragon's death, S251 (round 56, Matt 2026-11-27, "for now"): round
    ;; 30's long roar (V059), a driven low "aa" at 550 and 1000 Hz with
    ;; breath, its pitch jostled at random, made irregular by its level
@@ -527,12 +547,10 @@
         gain (* (if (pos? flight) 0.668 1.0) (+ 0.344 (* 0.086 s)))
         base {:shot :hit :note note :gain gain :pan 0.5 :delay-ms flight :seed seed}]
     (if (:killed ev)
-      ;; The kill was a thud an octave down, ~35 Hz and inaudible; a bright
-      ;; tink two octaves up reads as the final blow. Both kept down, since
-      ;; the cry lands on top of them.
-      [(update base :gain * 0.836)
-       {:shot :tink :note (+ note 24) :gain (* 0.236 (/ gain (+ 0.344 (* 0.086 s)))) :pan 0.5
-        :delay-ms (+ flight 90) :seed (det/combine seed [:kill])}]
+      ;; The blow alone, kept down since the cry lands on top of it. The kill
+      ;; had a bright tink two octaves up; Matt dropped it (2026-11-27: "no
+      ;; tink"), and a coin drop for loot is to come instead.
+      [(update base :gain * 0.836)]
       (let [pain (get pains (:creature ev))
             base (into [base] (when-let [takes (get struck (:creature ev))]
                                 (voice-take (pick-take takes seed) seed :struck 0.5 flight)))]
@@ -594,8 +612,11 @@
                [[0 :cry-rat-chit 88 0.259] [32 :cry-rat-chit 86 0.227] ; V025
                 [70 :cry-rat-chit 89 0.259] [101 :cry-rat-chit 85 0.194]
                 [135 :cry-rat-squeal 86 0.324]]]
-   "kobold"   [[[0 :cry-kob-yrrr-short 47 1.146]]]                  ; V030
-   "goblin"   [[[0 :cry-gob-whine 62 0.543]]]                       ; V013
+   ;; C055 and S231 (2026-11-27): the board's gains scaled to sound as loud
+   ;; as the cries they replaced (V030 x4.867, V013 x4.253, measured).
+   "kobold"   [[[0 :kob-gurgle-head 62 0.742] [92 :kob-gurgle-step1 62 0.416]
+                [134 :kob-gurgle-step2 62 0.327]]]                   ; C055
+   "goblin"   [[[0 :gob-eyy-head 62 0.281] [192 :gob-eyy-tail 62 0.123]]] ; S231
    "fire-imp" [[[0 :cry-imp-poof-short 70 0.388] [20 :crackle 70 0.194] ; V028
                 [60 :crackle 70 0.136] [105 :crackle 70 0.097]
                 [30 :imp-harmonic 70 0.388]]]

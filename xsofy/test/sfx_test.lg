@@ -105,18 +105,14 @@
            (:note (first (triggers {:kind :hit-dealt :severity 1.0})))))
     (is (>= (:gain (first (triggers {:kind :hit-dealt :severity -1.0}))) 0))))
 
-(deftest a-kill-adds-a-bright-shot-behind-the-blow
+(deftest a-kill-is-the-blow-alone-without-a-tink
   (let [shots (triggers {:kind :hit-dealt :severity 0.6 :killed true})]
-    (is (= 2 (count shots)))
-    (testing "the second is a tink above the blow, just behind it: the old
-              octave-down thud sat near 35 Hz and could not be heard"
-      (is (= :tink (:shot (second shots))))
-      (is (> (:note (second shots)) (:note (first shots))))
-      (is (> (:delay-ms (second shots)) (:delay-ms (first shots))))))
-  (testing "a ranged blow lands after its flight, the kill shot after that"
+    (is (= [:hit] (map :shot shots)))
+    (testing "kept under a non-fatal blow, since the cry lands on it"
+      (is (< (:gain (first shots)) (:gain (first (triggers {:kind :hit-dealt :severity 0.6})))))))
+  (testing "a ranged kill lands after its flight"
     (let [shots (triggers {:kind :hit-dealt :severity 0.6 :killed true :flight-ms 100})]
-      (is (= 100 (:delay-ms (first shots))))
-      (is (> (:delay-ms (second shots)) 100))))
+      (is (= 100 (:delay-ms (first shots))))))
   (testing "a non-fatal blow is a single shot"
     (is (= 1 (count (triggers {:kind :hit-dealt :severity 0.6}))))))
 
@@ -445,8 +441,8 @@
       (is (not (contains? ev :creature))))))
 
 (deftest each-picked-creature-cries-in-its-own-voice
-  (is (contains? (cry-shots "kobold") :cry-kob-yrrr-short))
-  (is (contains? (cry-shots "goblin") :cry-gob-whine))
+  (is (contains? (cry-shots "kobold") :kob-gurgle-head))
+  (is (contains? (cry-shots "goblin") :gob-eyy-head))
   (is (contains? (cry-shots "fire-imp") :cry-imp-poof-short))
   (is (some #{:cry-rat-squeak :cry-rat-squeal :cry-rat-chit} (cry-shots "rat")))
   (testing "anything else keeps the shared cry"
@@ -707,3 +703,9 @@
     (is (= [:dragon-roar :dragon-fire-out] (map :shot trs)))
     (is (= [0 300] (map #(:delay-ms % 0) trs)))
     (is (not-any? #(= :death-squeal (:shot %)) trs))))
+
+(deftest the-kobold-and-goblin-die-in-their-picked-voices
+  (is (= [:kob-gurgle-head :kob-gurgle-step1 :kob-gurgle-step2]
+         (map :shot (triggers {:kind :death :creature "kobold" :dist 1 :dir 0}))))
+  (is (= [:gob-eyy-head :gob-eyy-tail]
+         (map :shot (triggers {:kind :death :creature "goblin" :dist 1 :dir 0})))))

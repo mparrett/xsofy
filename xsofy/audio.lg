@@ -431,9 +431,10 @@
    ms), then a fade-in of the outro, ping while that's ramping up, and then
    it keeps playing\"; then \"sound needs to stop immediately and the
    abrupt silence felt\". So the floor's music stops in :out-ms (short of
-   a click, no shorter), :silence-ms passes with nothing, then the outro
-   starts at zero and glides up over :in-s, so the blip-out (about 3.15 s
-   in) lands while it rises."
+   a click, no shorter) and every effect with it (the killing blow too,
+   2026-11-27), :silence-ms passes with nothing, the effects come back, then
+   the outro starts at zero and glides up over :in-s, so the blip-out
+   (about 2.8 s in) lands while it rises."
   {:out-ms 20 :silence-ms 1200 :in-s 3.0})
 
 (defn outro-plan
@@ -443,6 +444,8 @@
   [blip-ms]
   (let [{:keys [out-ms silence-ms in-s]} death-music]
     (cond-> [[0 :glide 0.0 (/ out-ms 1000.0)]
+             [0 :sfx 0.0]
+             [silence-ms :sfx sfx-gain]
              [silence-ms :theme]
              [silence-ms :glide music-gain in-s]]
       blip-ms (conj [blip-ms :blip]))))
@@ -463,6 +466,7 @@
           act!    (fn [[_ k & args]]
                     (case k
                       :glide (apply glide args)
+                      :sfx   (call :set-sfx-gain (first args))
                       :theme (call :play-theme outro-theme)
                       :blip  (call :trigger (sfx/death-blip-shots 0))))]
       (if glide
