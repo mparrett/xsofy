@@ -690,12 +690,13 @@
       (is (= :death-blip (:shot b)))
       (is (= 3150 (:delay-ms b))))))
 
-(deftest the-default-death-cry-is-doubled-and-beats
+(deftest the-default-death-cry-is-played-twice-the-second-high
   (let [[a b :as trs] (triggers {:kind :death :creature "troll" :dist 0 :dir 0})]
     (is (= 2 (count trs)))
     (is (= [:death-squeal :death-squeal] (map :shot trs)))
-    (testing "the second is a little flat and a little late"
-      (is (< (:note b) (:note a) (+ 1 (:note b))))
+    (testing "whole notes, which is all undertone reads: deep, then high and late"
+      (is (= [38 60] (map :note trs)))
+      (is (every? integer? (map :note trs)))
       (is (< 0 (:delay-ms b 0) 50)))
     (testing "each copy seeds its own random steps"
       (is (not= (:seed a) (:seed b))))))
