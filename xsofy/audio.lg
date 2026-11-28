@@ -355,6 +355,12 @@
       (duck-arrival! delay-ms (not later?))
       (call :trigger (sfx/arrival-shots :down seed delay-ms)))))
 
+(defn- turn-group
+  "A turn's shots tagged :turn (unless they carry a group already), so your
+   death can cut exactly them and leave its own sounds playing."
+  [trs]
+  (mapv #(update % :group (fn [g] (or g :turn))) trs))
+
 (defn turn!
   "Play one turn's frame (xsofy.sfx/audio-frame): advance the envelope,
    restage the mood if it moved audibly, and fire the turn's one-shots."
@@ -374,7 +380,7 @@
             (duck!)
             (when-let [at (some #(when (= :chirp-land (:shot %)) (:delay-ms %)) trs)]
               (duck-arrival! at)))
-          (call :trigger trs))))))
+          (call :trigger (turn-group trs)))))))
 
 (defn descent-min-ms
   "How long the descending screen should last at least, so the floor does
@@ -422,7 +428,7 @@
   (if-let [evs (seq (:sfx world))]
     (do (when natives
           (let [trs (sfx/for-events world (or (:turn world) 0) (vec evs))]
-            (when (seq trs) (call :trigger trs))))
+            (when (seq trs) (call :trigger (turn-group trs)))))
         (dissoc world :sfx))
     world))
 
@@ -432,23 +438,28 @@
    it keeps playing\"; then \"sound needs to stop immediately and the
    abrupt silence felt\". So the floor's music stops in :out-ms (short of
    a click, no shorter) and every effect with it (the killing blow too,
-   2026-11-27), :silence-ms passes with nothing, the effects come back, then
-   the outro starts at zero and glides up over :in-s, so the blip-out
-   (about 2.8 s in) lands while it rises."
+   2026-11-27), but for the @'s blink, which plays from 0 (S264, 750 ms);
+   :silence-ms passes with nothing else, then the outro starts at zero and
+   glides up over :in-s, so the blip-out (about 3.35 s in) lands while it
+   rises."
   {:out-ms 20 :silence-ms 1200 :in-s 3.0})
 
 (defn outro-plan
-  "The death's music as [ms action & args], ms from death: the floor's
-   music out, the outro theme in, and the blip-out at `blip-ms` (nil
-   without the death fade)."
-  [blip-ms]
+  "The death's sound as [ms action & args], ms from death: the floor's music
+   out, the turn's effects cut, the blink, the outro theme in, and the
+   blip-out at `blip-ms` (nil without the death fade). With `cut?` false
+   (an lg without undertone/cut) every effect is muted instead, the blink
+   with them, and brought back before the outro."
+  ([blip-ms] (outro-plan blip-ms true))
+  ([blip-ms cut?]
   (let [{:keys [out-ms silence-ms in-s]} death-music]
-    (cond-> [[0 :glide 0.0 (/ out-ms 1000.0)]
-             [0 :sfx 0.0]
-             [silence-ms :sfx sfx-gain]
-             [silence-ms :theme]
-             [silence-ms :glide music-gain in-s]]
-      blip-ms (conj [blip-ms :blip]))))
+    (cond-> (into [[0 :glide 0.0 (/ out-ms 1000.0)]]
+                  (if cut?
+                    [[0 :cut-turn] [0 :blink]]
+                    [[0 :sfx 0.0] [silence-ms :sfx sfx-gain]]))
+      true (into [[silence-ms :theme]
+                  [silence-ms :glide music-gain in-s]])
+      blip-ms (conj [blip-ms :blip])))))
 
 (defn outro!
   "The death outro. Once per death: the death screen re-enters itself when a
@@ -467,10 +478,12 @@
                     (case k
                       :glide (apply glide args)
                       :sfx   (call :set-sfx-gain (first args))
+                      :cut-turn (call :cut {:group :turn :fade-ms 20})
+                      :blink (call :trigger (sfx/death-blink-shots))
                       :theme (call :play-theme outro-theme)
                       :blip  (call :trigger (sfx/death-blip-shots 0))))]
       (if glide
-        (doseq [[ms :as step] (outro-plan blip-ms)]
+        (doseq [[ms :as step] (outro-plan blip-ms (some? (:cut natives)))]
           (if (pos? ms)
             (go (<!! (timeout ms)) (act! step))
             (act! step)))
