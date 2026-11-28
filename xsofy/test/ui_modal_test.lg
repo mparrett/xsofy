@@ -134,3 +134,13 @@
       (is (= "y" k))
       (is (= 1 @drawn))
       (is (>= @ticks 5)))))
+
+(deftest prompt-key-waits-past-a-refused-key
+  (testing "a key accept? refuses is skipped, and the prompt waits for the next"
+    ;; the hazard prompt refuses a toward-press for a moment after it opens,
+    ;; so a held key can't carry the player straight into lava
+    (let [queue (atom ["k" "j"])
+          k (ui/prompt-key! (fn [] nil) nil
+                            {:source (queued-source queue) :frame-ms 1
+                             :accept? (fn [k] (not= k "k"))})]
+      (is (= "j" k)))))

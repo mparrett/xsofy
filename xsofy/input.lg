@@ -47,6 +47,7 @@
    {:action :rune-codex  :category :information :label "Open rune codex"  :keys ["r"] :help-keys ["r"]}
    {:action :messages    :category :information :label "Open message log" :keys ["m"] :help-keys ["m"]}
    {:action :help        :category :information :label "Open keybindings" :keys ["?"] :help-keys ["?"]}
+   {:action :toggle-sound :category :system    :label "Sound on/off"      :keys ["M"] :help-keys ["M"]}
    {:action :quit        :category :system     :label "Quit"              :keys ["\u001b" (str (char 3))] :help-keys ["Esc" "Ctrl-C"]}])
 
 (def console-binding

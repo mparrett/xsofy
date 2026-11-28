@@ -10,7 +10,8 @@
   (:require [test :refer [deftest is testing]]
             [xsofy.world :as world]
             [xsofy.hash :as h]
-            [xsofy.debug :as dbg]))
+            [xsofy.debug :as dbg]
+            [xsofy.gentick :as gt]))
 
 (def corpus-seeds (range 1000 1010))
 (def corpus-depths (range 1 11))
@@ -64,3 +65,14 @@
             [seed want] (map vector corpus-seeds (get corpus-goldens d))]
       (is (= want (floor-fingerprint seed d))
           (str "floor changed: seed " seed " depth " d)))))
+
+(deftest floor-corpus-unchanged-with-a-tick-bound
+  (testing "binding xsofy.gentick/*tick* (as the descent screen does) leaves floors identical"
+    (let [calls (atom 0)]
+      (binding [gt/*tick* (fn [_] (swap! calls inc))]
+        (doseq [d corpus-depths
+                [seed want] (take 3 (map vector corpus-seeds (get corpus-goldens d)))]
+          (is (= want (floor-fingerprint seed d))
+              (str "floor changed with a tick bound: seed " seed " depth " d))))
+      ;; 30 floors; each ticks a few hundred times
+      (is (> @calls 3000) (str "generation ticked only " @calls " times")))))

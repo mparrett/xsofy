@@ -10,6 +10,7 @@
             [xsofy.ui :as ui]
             [xsofy.runes :as runes]
             [xsofy.play :as play]
+            [xsofy.input :as input]
             [xsofy.title :as title]
             [xsofy.screenfx :as sfx]
             [xsofy.debug :as dbg]
@@ -17,7 +18,9 @@
             [xsofy.console :as console]
             [xsofy.seed :as seed]
             [xsofy.replay :as replay]
-            [xsofy.ui-bridge :as bridge]))
+            [xsofy.ui-bridge :as bridge]
+            [xsofy.sfx :as shots]
+            [xsofy.audio :as audio]))
 
 
 (defn init-terminal []
@@ -341,10 +344,16 @@
 (defn new-game []
   (let [sd  (seed/boot-seed)
         rng {:seed sd}
-        {:keys [title scheme rng]} (title/show-title-screen rng)
-        [quest rng] (title/generate-quest rng)
-        _ (title/show-descending-screen 1 scheme)]
-    (assemble-world sd title scheme quest)))
+        _   (audio/title! sd)
+        ;; The music rises with the runes; title-fade-in! takes their {:ms}.
+        {:keys [title scheme rng handoff]} (title/show-title-screen
+                                             rng {:on-runes-rise audio/title-fade-in!})
+        [quest rng] (title/generate-quest rng)]
+    (title/run-descending-screen 1 scheme #(assemble-world sd title scheme quest)
+                                 {:handoff handoff :first? true
+                                  ;; The quest line ("You must retrieve ...") gets its
+                                  ;; own fade; the gate line before it is the log's.
+                                  :capture (fn [w _] (render/capture-frame w [(last (:messages quest))]))})))
 
 (defn build-game
   "Reconstruct a run's starting world from its seed, without the interactive
@@ -363,6 +372,7 @@
   [code]
   (let [{:keys [seed actions]} (replay/decode code)
         w0 (build-game seed)]
+    (audio/start! seed)
     (render/render-full w0)
     (bridge/emit-stats w0)
     (sfx/pause! 400)
@@ -377,9 +387,23 @@
                   (render/render-full w'))
                 ;; Keep the HUD stats tracking the replay as it plays out.
                 (bridge/emit-stats w')
+                ;; Voiced like a live turn, and the outbox dropped like one:
+                ;; left in place it would pile up across the whole replay and
+                ;; play as one burst on the first live turn.
+                (audio/turn! (shots/audio-frame w' w))
                 (sfx/pause! 90)
-                w'))
+                (dissoc w' :sfx)))
             w0 actions)))
+
+(def ^:private hazard-guard-ms 250)
+
+(defn- repaint-after-first
+  "A prompt-key! background for a prompt over the game screen: the screen is
+   already up when the prompt opens, so the first paint draws only the prompt,
+   and the game is repainted under it only after a resize."
+  [world]
+  (let [first? (atom true)]
+    (fn [] (if @first? (reset! first? false) (render/render-full world)))))
 
 (defn game-loop
   ([world]
@@ -431,7 +455,8 @@
                  (recur w w (term/size)))))
 
          :death
-         (let [[tw th] (term/size)
+         (let [_ (audio/outro!)
+               [tw th] (term/size)
                _ (sfx/clear-screen tw th)  ;; initial clear; the loop re-clears + re-scatters on resize
                ;; Capture this organic run's replay code at its final state. On
                ;; web this always fires: the shell's config pane renders the emit
@@ -508,12 +533,26 @@
          (do
            ;; render the prompt on the message line
            (let [prompt (or (:hazard-prompt world) "Are you sure?")
-                 k (ui/prompt-key! (fn [] (render/render-hazard-prompt world prompt))
-                                 (fn [] (render/render-full world)))
-                 w (if (= k "y")
+                 opened (ui/millis)
+                 ;; A move toward the hazard walks into it, so a held key would
+                 ;; carry straight on in: a toward-press needs to be a fresh one.
+                 accept? (fn [k] (or (not (world/toward-hazard? world (input/parse-key k)))
+                                     (>= (- (ui/millis) opened) hazard-guard-ms)))
+                 k (ui/prompt-key! (fn []
+                                     (sfx/with-frame
+                                       (render/render-hazard-panel world)
+                                       (render/render-hazard-prompt
+                                        world prompt "Walk on to go in, step away to cancel, or y/n.")))
+                                   (repaint-after-first world)
+                                   {:accept? accept?})
+                 answer (world/hazard-answer world k (input/parse-key k))
+                 w (if (= answer :confirm)
                      (world/confirm-hazard-step world)
-                     (world/cancel-hazard-step world))]
-             (render/render-full w)
+                     (world/cancel-hazard-step world))
+                 ;; backing away: the move goes to the play loop as its first
+                 ;; key, so it is dispatched, recorded and drawn like any other
+                 w (if (vector? answer) (assoc w :pending-action (second answer)) w)]
+             (render/erase-prompt! w world)
              (recur w w (term/size))))
 
          :confirm-quit
@@ -522,7 +561,8 @@
                           "Are you sure you want to restart?"
                           "Are you sure you want to quit?")
                  k (ui/prompt-key! (fn [] (render/render-hazard-prompt world prompt))
-                                 (fn [] (render/render-full world)))
+                                 (repaint-after-first world))
+                 restart? (and (= k "y") *in-wasm*)
                  w (if (= k "y")
                      (if *in-wasm*
                        (new-game)
@@ -530,7 +570,9 @@
                      (dissoc world :screen))]
              (if (:running w)
                (do
-                 (render/render-full w)
+                 (if restart?
+                   (render/render-full w)
+                   (render/erase-prompt! w world))
                  (recur w w (term/size)))
                w)))
 
@@ -565,8 +607,22 @@
              (recur result result (term/size))
              result)))))))
 
+(defn- install-audio-hooks!
+  "The opening's animation owns descent and arrival timing; audio hooks on
+   (2026-11-24). Installed once at startup, so every descent hears them: a
+   new game's, a floor change's, and those in a replay."
+  []
+  (title/set-descent-hooks!
+    {:min-ms    audio/descent-min-ms
+     :on-start  #(audio/descent! (:depth %) %)
+     :on-arrive audio/arrive!}))
+
 (defn -main []
   (init-terminal)
+  ;; every descent fades its floor in from a captured frame (title.lg)
+  (title/set-descent-hooks! {:capture (fn [w _] (render/capture-frame w nil))})
+  ;; set-descent-hooks! merges, so the audio hooks sit beside :capture
+  (install-audio-hooks!)
   (try
     (let [code (seed/boot-replay)]
       (game-loop (if code (play-replay code) (new-game))))

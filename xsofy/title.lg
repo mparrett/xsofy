@@ -2,7 +2,8 @@
   (:require [term]
             [xsofy.screenfx :as sfx]
             [xsofy.ui :as ui]
-            [xsofy.det :as det]))
+            [xsofy.det :as det]
+            [xsofy.gentick :as gt]))
 
 ;; --- Procedural Title Generation ---
 
@@ -107,11 +108,15 @@
 ;; under wasm load, which made a frame-counted fade run short. The audio lane
 ;; times the music fade-in against the black hold, so these are named defs
 ;; rather than literals.
-(def title-black-ms 500)        ;; pure black before anything shows
-(def title-runes-rise-ms 2000)  ;; runes ramp from black
-(def title-overlap-ms 300)      ;; title starts this long before the runes finish
-(def title-text-rise-ms 2000)   ;; title ramps from black
+(def title-black-ms 250)        ;; pure black before anything shows
+(def title-runes-rise-ms 1900)  ;; runes ramp from black
+;; The title starts this long before the runes finish; negative leaves a gap
+;; after them (-1700: the title starts at 3850 ms).
+(def title-overlap-ms -1700)
+(def title-text-rise-ms 2950)   ;; title ramps from black
 (def title-prompt-rise-ms 1500) ;; "Press any key" + seed ramp in, after the title
+;; The rune pulse clock: one pulse step per title frame.
+(def title-frame-ms 60)
 
 (def title-runes-in-ms [title-black-ms (+ title-black-ms title-runes-rise-ms)])
 (def title-text-in-ms
@@ -134,39 +139,71 @@
   [c f]
   (int (+ bg (* (- c bg) f))))
 
-(defn draw-frame
-  ;; The 7-arity derives elapsed from the frame at the nominal 120 ms pace, for
-  ;; callers (the smoke test) that only have a frame.
-  ([runes title subtitle tw th frame seed]
-   (draw-frame runes title subtitle tw th frame seed (* frame 120)))
-  ([runes title subtitle tw th frame seed elapsed-ms]
-  (sfx/with-frame
+;; Text "moat": the pulsing runes scatter to random cells (screenfx/
+;; scatter-runes) with no collision check, so some land on the title,
+;; "press any key", and seed rows — and because a faded rune redraws its
+;; cell as blank every frame, it eats the text under it. Keep runes out
+;; of a box covering all three text rows (cy, cy+2, cy+4) plus a 1-cell
+;; ring, sized to the widest line.
+(defn- in-text-moat?
+  "Predicate: is rune r inside the box the title screen keeps runes out of?"
+  [title subtitle seed tw th]
   (let [cx (quot tw 2)
         cy (quot th 2)
         tx (max 1 (- cx (quot (count title) 2)))
         sx (max 1 (- cx (quot (count subtitle) 2)))
-        runes-fade (ramp elapsed-ms title-runes-in-ms)
-        title-fade (ramp elapsed-ms title-text-in-ms)
-        prompt-fade (ramp elapsed-ms title-prompt-in-ms)
         sline (when seed (str "seed " seed))
         ssx (if sline (max 1 (- cx (quot (count sline) 2))) cx)
-        ;; Text "moat": the pulsing runes scatter to random cells (screenfx/
-        ;; scatter-runes) with no collision check, so some land on the title,
-        ;; "press any key", and seed rows — and because a faded rune redraws its
-        ;; cell as blank every frame, it eats the text under it. Keep runes out
-        ;; of a box covering all three text rows (cy, cy+2, cy+4) plus a 1-cell
-        ;; ring, sized to the widest line.
-        moat-x0 (- (min tx sx ssx) 1)
-        moat-x1 (+ (max (+ tx (count title))
-                        (+ sx (count subtitle))
-                        (+ ssx (count (or sline "")))) 1)
-        moat-y0 (- cy 1)
-        moat-y1 (+ cy 5)]
+        x0 (- (min tx sx ssx) 1)
+        x1 (+ (max (+ tx (count title))
+                   (+ sx (count subtitle))
+                   (+ ssx (count (or sline "")))) 1)
+        y0 (- cy 1)
+        y1 (+ cy 5)]
+    (fn [r] (and (>= (:x r) x0) (<= (:x r) x1) (>= (:y r) y0) (<= (:y r) y1)))))
+
+(defn- draw-title-text
+  "The title, prompt and seed lines at fades tf (title) and pf (prompt and
+   seed), the prompt pulsing at `pulse`. Unframed. `force?` draws the prompt
+   and seed even at pf 0, so a fade-out ends on background, not on the last
+   visible step."
+  [{:keys [title subtitle seed]} tw th tf pf pulse force?]
+  (let [cx (quot tw 2)
+        cy (quot th 2)
+        tx (max 1 (- cx (quot (count title) 2)))
+        sx (max 1 (- cx (quot (count subtitle) 2)))
+        sline (when seed (str "seed " seed))
+        ssx (if sline (max 1 (- cx (quot (count sline) 2))) cx)]
+    (term/move-cursor tx cy)
+    (term/set-fg (from-bg 255 tf) (from-bg 220 tf) (from-bg 120 tf))
+    (term/set-bg bg bg bg)
+    (term/write title)
+    (when (or force? (> pf 0.0))
+      (let [bright (from-bg (+ 50 (* 70 pulse)) pf)]
+        (term/move-cursor sx (+ cy 2))
+        (term/set-fg bright bright bright)
+        (term/set-bg bg bg bg)
+        (term/write subtitle))
+      ;; seed — dim, under the subtitle. Note it to replay this run via ?seed=.
+      (when sline
+        (term/move-cursor ssx (+ cy 4))
+        (term/set-fg (from-bg 90 pf) (from-bg 85 pf) (from-bg 70 pf))
+        (term/set-bg bg bg bg)
+        (term/write sline)))))
+
+(defn draw-frame
+  ;; The 7-arity derives elapsed from the frame at the nominal title-frame-ms
+  ;; pace, for callers (the smoke test) that only have a frame.
+  ([runes title subtitle tw th frame seed]
+   (draw-frame runes title subtitle tw th frame seed (* frame title-frame-ms)))
+  ([runes title subtitle tw th frame seed elapsed-ms]
+  (sfx/with-frame
+  (let [runes-fade (ramp elapsed-ms title-runes-in-ms)
+        in-moat? (in-text-moat? title subtitle seed tw th)]
     ;; draw pulsing runes — each redraws only its own cell; skip any inside the
     ;; text moat so they never draw (or blank) over the title / subtitle / seed.
     (doseq [r runes]
-      (when-not (and (>= (:x r) moat-x0) (<= (:x r) moat-x1)
-                     (>= (:y r) moat-y0) (<= (:y r) moat-y1))
+      (when-not (in-moat? r)
         (let [b (* runes-fade (sfx/rune-brightness (:phase r) frame))
               [cr cg cb] (:color r)
               ;; from the background, not from 0: a dim rune drawn below the
@@ -184,39 +221,32 @@
             (do (term/set-fg fr fg fb)
                 (term/set-bg (from-bg (* cr 0.12) b) (from-bg (* cg 0.12) b) (from-bg (* cb 0.12) b))
                 (term/write (:glyph r)))))))
-    ;; title
-    (term/move-cursor tx cy)
-    (term/set-fg (from-bg 255 title-fade) (from-bg 220 title-fade) (from-bg 120 title-fade))
-    (term/set-bg 10 10 10)
-    (term/write title)
-    ;; subtitle
-    (when (> prompt-fade 0.0)
-      (let [pulse (sfx/rune-brightness 0 frame)
-            bright (from-bg (+ 50 (* 70 pulse)) prompt-fade)]
-        (term/move-cursor sx (+ cy 2))
-        (term/set-fg bright bright bright)
-        (term/set-bg 10 10 10)
-        (term/write subtitle)))
-    ;; seed — dim, under the subtitle. Note it to replay this run via ?seed=.
-    (when (and sline (> prompt-fade 0.0))
-      (term/move-cursor ssx (+ cy 4))
-      (term/set-fg (from-bg 90 prompt-fade) (from-bg 85 prompt-fade) (from-bg 70 prompt-fade))
-      (term/set-bg 10 10 10)
-      (term/write sline))))))
+    (draw-title-text {:title title :subtitle subtitle :seed seed} tw th
+                     (ramp elapsed-ms title-text-in-ms)
+                     (ramp elapsed-ms title-prompt-in-ms)
+                     (sfx/rune-brightness 0 frame) false)))))
 
 (defn show-title-screen
-  ;; `on-start` runs once at the sequence's t=0, before the first frame paints;
-  ;; the audio lane starts its music fade from it, which keeps this ns free of
-  ;; an audio dependency.
+  "Run the title screen until a key, and return {:title :scheme :rng :handoff}.
+   :handoff is what the descent needs to continue from this screen (see
+   run-descending-screen): the visible runes and the text as it stood.
+
+   Opts, both optional, keep this ns free of an audio dependency; the audio
+   lane times its music against them:
+     :on-start       called once at t=0, before the first frame paints
+     :on-runes-rise  called once with {:at-ms :ms} when the runes start to
+                     rise from black"
   ([rng] (show-title-screen rng {}))
-  ([rng {:keys [on-start]}]
+  ([rng {:keys [on-start on-runes-rise]}]
   (let [seed (:seed rng)   ;; capture before picks advance the rng — this is the run seed
         [tw th] (or (term/size) [100 36])
         [title rng]  (generate-title rng)
         subtitle "Press any key"
-        [scheme rng] (pick-scheme rng)]
+        [scheme rng] (pick-scheme rng)
+        text {:title title :subtitle subtitle :seed seed}]
     (sfx/clear-screen tw th)
-    (let [t0 (ui/millis)]
+    (let [t0 (ui/millis)
+          rose? (atom false)]
     (when on-start (on-start))
     ;; Animate via the poll-based event loop: a cosmetic clock advances the
     ;; particle frame each tick; any key ends the screen. Never blocks while
@@ -225,6 +255,7 @@
     ;; re-scatters for the new dims and repaints. Without it the screen stays
     ;; frozen at the size it opened at — play.lg already re-reads size per
     ;; tick; the animated wait screens didn't.
+    (let [st
     (ui/run-loop
       {:sources  [(ui/input-source ui/raw-key->event) (ui/clock-source 0)]
        :state    {:frame 0 :size [tw th] :runes (sfx/scatter-runes tw th 40 scheme)}
@@ -232,6 +263,11 @@
                    (let [[tag payload] ev]
                      (case tag
                        :tick   (let [cur (or (term/size) (:size st))]
+                                 (when (and on-runes-rise (not @rose?)
+                                            (>= (- (ui/millis) t0) title-black-ms))
+                                   (reset! rose? true)
+                                   (on-runes-rise {:at-ms title-black-ms
+                                                   :ms title-runes-rise-ms}))
                                  (if (= cur (:size st))
                                    (assoc st :frame payload)
                                    ;; resized: re-scatter + clear for the new size
@@ -251,8 +287,27 @@
                    (let [[tw th] (:size st)]
                      (draw-frame (:runes st) title subtitle tw th (:frame st) seed
                                  (- (ui/millis) t0))))
-       :frame-ms 120}))
-    {:title title :scheme scheme :rng rng})))
+       :frame-ms title-frame-ms})
+          ;; Hand the visible runes to the descent screen so the same runes
+          ;; rise, from where they stood and at the brightness they had:
+          ;; skip the moat ones (never drawn), carry the pulse phase forward
+          ;; by the elapsed frames, shift to the descent's row convention (it
+          ;; draws at row y+1), and pass the fade-in level so a key pressed
+          ;; mid-fade doesn't jump them to full. The text goes along at the
+          ;; fades it had, for the descent to fade out from.
+          [w h] (:size st)
+          el    (- (ui/millis) t0)
+          runes (->> (:runes st)
+                     (remove (in-text-moat? title subtitle seed w h))
+                     (mapv #(assoc % :phase (+ (:phase %) (:frame st))
+                                     :y (dec (:y %))
+                                     :dim (ramp el title-runes-in-ms))))]
+      {:title title :scheme scheme :rng rng
+       :handoff {:runes runes
+                 :text (assoc text
+                              :tf (ramp el title-text-in-ms)
+                              :pf (ramp el title-prompt-in-ms)
+                              :pulse (sfx/rune-brightness 0 (:frame st)))}})))))
 
 ;; --- Descending Screen ---
 ;; Shown while terrain generates. Runes rise upward, flicker and fade.
@@ -264,53 +319,300 @@
    "Ancient stones groan..." "A distant echo fades..."
    "The torchlight flickers..." "You smell damp earth..."])
 
-(defn show-descending-screen
-  "Display a brief animated descending screen. Runes rise and fade."
-  [depth scheme]
-  (when (term/size)            ;; no-op headless (balance harness / tests)
-   (let [[tw th] (term/size)
-         cx (quot tw 2)
-         cy (quot th 2)
-         msg (nth descending-messages (rand-int (count descending-messages)))
-         depth-str (str "Depth " depth)
-         runes (sfx/scatter-runes tw th 25 scheme)]
-    ;; clear
-    (sfx/clear-screen tw th)
-    ;; animate — runes drift upward, erase old position each frame
-    (dotimes [frame 15]
-      (sfx/with-frame
+;; Motion is defined per 60 ms step (the screen's original pace) and sampled
+;; every descent-frame-ms, so a shorter frame adds in-between positions without
+;; changing the speed of the rise, the flicker, or the fades.
+(def descent-rise-per-frame 0.4)  ;; rows per 60 ms step
+(def descent-steps 50)            ;; minimum length, in 60 ms steps
+(def descent-frame-ms 40)
+;; Parallax: each rune rises at its own speed in this range (× the base rise),
+;; and slower runes are dimmer, so they read as farther away.
+(def descent-speed-range [0.3 2])
+(def descent-far-brightness 0.6)  ;; brightness of the slowest rune; fastest = 1
+(def descent-pulse-mult 3)        ;; flicker speed, × the title's pulse
+;; A rune handed over from the title eases from its title brightness to its
+;; descent brightness over this many steps.
+(def descent-ease-steps 8)
+;; The title text fades out over this many steps from the keypress, and the
+;; Depth label waits for it; then the label fades in over label-fade steps,
+;; and the message starts msg-start steps after the label.
+(def descent-text-fade-steps 14)
+(def descent-label-fade-steps 13)
+(def descent-msg-start-step 8)
+(def descent-fresh-runes 25)      ;; runes scattered when none are handed over
+;; Floor to floor (not the run's first descent): shorter, the length the
+;; screen had before the opening was tuned. Untuned.
+(def descent-later-steps 15)
+
+;; The arrival, in ms from the end of the descent. The runes fade out, the
+;; label and message fade out in reverse of their fade-in, then the floor
+;; fades in, and on the first floor of a run the log, quest line and sidebar
+;; follow on their own timings, each [start length] from the floor's start.
+(def arrival-runes-out-ms 500)
+(def arrival-floor-start-ms 800)
+(def arrival-floor-in-ms 1100)
+(def arrival-parts {:log [450 600] :quest [1950 600] :side [2150 400]})
+;; Later floors: everything together, quicker. Untuned.
+(def arrival-later-runes-out-ms 300)
+(def arrival-later-floor-start-ms 500)
+(def arrival-later-floor-in-ms 400)
+
+(def ^:private descent-step-per-frame (/ (float descent-frame-ms) 60.0))
+(defn- steps->frames [steps] (int (+ 0.5 (/ steps descent-step-per-frame))))
+(def descent-frames
+  "The descending screen's minimum length in frames; it runs longer while a
+   floor is still being built."
+  (steps->frames descent-steps))
+
+;; While a floor is built under the descent screen, generation hands the
+;; thread back this often. Under Go wasm nothing else runs until it does:
+;; not the animation, not the audio pump. The audio lane measured (sleep 1)
+;; between chunks of up to ~45 ms keeping its 120 ms queue fed.
+(def descent-work-chunk-ms 30)
+(def descent-yield-ms 1)
+
+;; Hooks every descent calls, installed once by the game (main.lg) so this ns
+;; stays free of an audio dependency, and so floor changes deep in xsofy.world
+;; get them without threading opts through. All optional:
+;;   :min-ms     (fn [{:keys [first?]}]) -> a floor on the screen's length, ms
+;;   :on-start   (fn [{:keys [depth ms]}]) on the first frame; ms is the
+;;               planned length, before any wait for the floor
+;;   :on-arrive  (fn [{:keys [depth first?]}]) when the floor starts to fade
+;;               in (or, with no :capture, when the screen hands over)
+;;   :capture    (fn [world first?]) -> the floor's visible cells, as
+;;               render/capture-frame returns them; without it the floor cuts
+;;               in
+(def ^:private descent-hooks (atom {}))
+
+(defn set-descent-hooks!
+  "Install descent hooks, merged over those already installed, so the audio
+   and render sides can each install their own."
+  [hooks]
+  (swap! descent-hooks merge hooks))
+
+(defn- elapsed-ms [since] (/ (float (.Sub (now) since)) 1e6))
+
+(defn- descent-row
+  "[cell frac] for rune r at `frame`: its fractional row, risen and wrapped
+   into 0..th-1, split into the cell it is entering (`cell`) and how much of it
+   is still in the cell below (`frac`)."
+  [r frame th]
+  ;; mod wraps into [0, th), so int floors
+  (let [pos (mod (- (float (:y r))
+                    (* (max 0 frame) descent-step-per-frame descent-rise-per-frame
+                       (or (:speed r) 1.0)))
+                 th)
+        cell (int pos)]
+    [cell (- pos cell)]))
+
+(defn- with-depth
+  "Give rune r a random parallax speed, and the brightness that goes with it."
+  [r]
+  (let [[lo hi] descent-speed-range
+        d (/ (float (rand-int 1001)) 1000.0)   ;; 0 = farthest, 1 = nearest
+        speed (+ lo (* d (- hi lo)))]
+    (assoc r :speed speed
+             :depth-b (+ descent-far-brightness (* d (- 1.0 descent-far-brightness))))))
+
+(defn- draw-rune-cell
+  "Draw rune r into screen row `cell` (0-based) at brightness b; below 5% the
+   cell is blanked."
+  [r cell b]
+  (let [[cr cg cb] (:color r)]
+    (term/move-cursor (:x r) (inc cell))
+    (if (< b 0.05)
+      (do (term/set-fg bg bg bg) (term/set-bg bg bg bg) (term/write " "))
+      (do (term/set-fg (from-bg cr b) (from-bg cg b) (from-bg cb b))
+          (term/set-bg (from-bg (* cr 0.12) b) (from-bg (* cg 0.12) b) (from-bg (* cb 0.12) b))
+          (term/write (:glyph r))))))
+
+(defn- draw-descent!
+  "One descent frame, unframed. `out` scales the runes, label and message
+   down as the arrival fades them out; 1.0 each while the descent plays."
+  [{:keys [runes text tw th depth-str msg]} frame out]
+  (let [cx (quot tw 2)
+        cy (quot th 2)
+        spf descent-step-per-frame
+        t (* frame spf)
+        ;; with title text to fade out, the labels wait for it
+        lt (if text (max 0.0 (- t descent-text-fade-steps)) t)
+        ease (if (pos? descent-ease-steps) (min 1.0 (/ t descent-ease-steps)) 1.0)]
+    (do
+      ;; clear inside the first frame, so the screen never shows a blank
+      ;; frame between the previous screen and the runes
+      (when (zero? frame) (sfx/paint-background! tw th))
+      ;; The title text fades from where it stood at the keypress, drawn before
+      ;; the runes so a rising rune passes over it. One extra frame at 0 leaves
+      ;; its cells at background.
+      (when (and text (< (- t spf) descent-text-fade-steps))
+        (let [k (max 0.0 (- 1.0 (/ t descent-text-fade-steps)))]
+          (draw-title-text text tw th (* k (:tf text)) (* k (:pf text)) (:pulse text) true)))
       (doseq [r runes]
-        (let [;; current y drifts upward (subtract), wrap around
-              cur-y (rem (+ th (:y r) (- (quot frame 2))) th)
-              ;; previous y to erase
-              prev-y (rem (+ th (:y r) (- (quot (dec frame) 2))) th)
-              b (sfx/rune-brightness (:phase r) (* frame 3))
-              [cr cg cb] (:color r)]
-          ;; erase previous position (if it moved)
-          (when (not= cur-y prev-y)
-            (term/move-cursor (:x r) (inc prev-y))
-            (term/set-fg 10 10 10)
-            (term/set-bg 10 10 10)
-            (term/write " "))
-          ;; draw at new position — flicker and fade
-          (term/move-cursor (:x r) (inc cur-y))
-          (if (< b 0.05)
-            (do (term/set-fg 10 10 10) (term/set-bg 10 10 10) (term/write " "))
-            (do (term/set-fg (int (* cr b)) (int (* cg b)) (int (* cb b)))
-                (term/set-bg (int (* cr b 0.12)) (int (* cg b 0.12)) (int (* cb b 0.12)))
-                (term/write (:glyph r))))))
+        (let [;; a rune handed over mid fade-in brightens to full, and its
+              ;; depth dimming eases in alongside, so it doesn't jump on the
+              ;; first descent frame
+              dim (or (:dim r) 1.0)
+              depth-b (+ 1.0 (* (- (:depth-b r) 1.0) ease))
+              b (* (:runes out) depth-b
+                   (+ dim (* (- 1.0 dim) ease))
+                   (sfx/rune-brightness (:phase r) (* t descent-pulse-mult)))
+              [lo frac] (descent-row r frame th)
+              [plo _] (descent-row r (dec frame) th)
+              now-cells #{lo (rem (inc lo) th)}]
+          ;; A rune's row is fractional, drawn split across the two cells it
+          ;; straddles at its share of the brightness, so it glides between
+          ;; rows rather than snapping. Blank last frame's cells it has left.
+          (doseq [c (distinct [plo (rem (inc plo) th)])]
+            (when-not (contains? now-cells c)
+              (draw-rune-cell r c 0.0)))
+          (draw-rune-cell r lo (* b (- 1.0 frac)))
+          (draw-rune-cell r (rem (inc lo) th) (* b frac))))
       ;; depth label
       (let [dx (max 1 (- cx (quot (count depth-str) 2)))
-            fade (min 1.0 (/ (float frame) 8.0))]
+            f (* (:label out) (min 1.0 (/ lt descent-label-fade-steps)))]
         (term/move-cursor dx (- cy 1))
-        (term/set-fg (int (* 180 fade)) (int (* 160 fade)) (int (* 100 fade)))
-        (term/set-bg 10 10 10)
+        (term/set-fg (from-bg 180 f) (from-bg 160 f) (from-bg 100 f))
+        (term/set-bg bg bg bg)
         (term/write depth-str))
       ;; message
       (let [mx (max 1 (- cx (quot (count msg) 2)))
-            mfade (min 1.0 (max 0.0 (/ (float (- frame 5)) 8.0)))]
+            f (* (:msg out) (min 1.0 (max 0.0 (/ (- lt descent-msg-start-step) descent-label-fade-steps))))]
         (term/move-cursor mx (+ cy 1))
-        (term/set-fg (int (* 120 mfade)) (int (* 110 mfade)) (int (* 90 mfade)))
-        (term/set-bg 10 10 10)
-      (term/write msg)))
-      (sfx/pause! 60)))))
+        (term/set-fg (from-bg 120 f) (from-bg 110 f) (from-bg 90 f))
+        (term/set-bg bg bg bg)
+        (term/write msg)))))
+
+(def ^:private full-out {:runes 1.0 :label 1.0 :msg 1.0})
+
+(defn- draw-descent-frame [ctx frame]
+  (sfx/with-frame (draw-descent! ctx frame full-out)))
+
+(defn- ramp-in
+  "0 before `from`, 1 after `from`+`len`, linear between; a step when len is 0."
+  [t from len]
+  (if (pos? len) (ramp t [from (+ from len)]) (if (>= t from) 1.0 0.0)))
+
+(defn- draw-cells!
+  "Redraw captured cells, each at the brightness (part-f (:part cell))."
+  [cells part-f]
+  (doseq [{:keys [x y s fg bg part]} cells]
+    (let [f (part-f part)]
+      (when (pos? f)
+        (let [[fr fg' fb] fg
+              [br bg' bb] bg]
+          (term/move-cursor x y)
+          (term/set-fg (from-bg fr f) (from-bg fg' f) (from-bg fb f))
+          (term/set-bg (from-bg br f) (from-bg bg' f) (from-bg bb f))
+          (term/write s))))))
+
+(defn- run-arrival!
+  "Fade the descent out and the captured floor in, starting at `frame`.
+   Calls (on-arrive) once, when the floor starts to fade in."
+  [ctx frame cells first? on-arrive]
+  (let [runes-out (if first? arrival-runes-out-ms arrival-later-runes-out-ms)
+        floor-start (if first? arrival-floor-start-ms arrival-later-floor-start-ms)
+        floor-in (if first? arrival-floor-in-ms arrival-later-floor-in-ms)
+        parts (if first? arrival-parts {})
+        ;; the label and message leave in reverse of how they came in: the
+        ;; message first, the label msg-start steps after it
+        text-len (* descent-label-fade-steps 60)
+        label-lag (* descent-msg-start-step 60)
+        descent-ms (max runes-out (+ label-lag text-len))
+        total (+ floor-start
+                 (reduce max floor-in (map (fn [[from len]] (+ from len)) (vals parts))))
+        t0 (now)
+        arrived? (atom false)]
+    (loop [frame frame]
+      (let [t (elapsed-ms t0)
+            tf (- t floor-start)
+            part-f (fn [part]
+                     (if-let [[from len] (get parts part)]
+                       (ramp-in tf from len)
+                       (ramp-in tf 0 floor-in)))]
+        (when (and (not @arrived?) (>= tf 0))
+          (reset! arrived? true)
+          (when on-arrive (on-arrive)))
+        (sfx/with-frame
+          ;; One frame past the descent's fade, so its cells end on background.
+          (when (< t (+ descent-ms (* 2 descent-frame-ms)))
+            (draw-descent! ctx frame
+                           {:runes (- 1.0 (ramp-in t 0 runes-out))
+                            :msg (- 1.0 (ramp-in t 0 text-len))
+                            :label (- 1.0 (ramp-in t label-lag text-len))}))
+          (draw-cells! cells (if (>= t total) (constantly 1.0) part-f)))
+        (when (< t total)
+          (sfx/pause! (long (max 1 (- descent-frame-ms (- (elapsed-ms t0) t)))))
+          (recur (inc frame)))))
+    (when (and on-arrive (not @arrived?)) (on-arrive))))
+
+(defn run-descending-screen
+  "Show the descending screen while (build) runs, and return its value.
+   Runes rise and fade for at least descent-frames frames (or the :min-ms
+   hook, if longer), longer if the build takes longer. Floor generation calls
+   xsofy.gentick/tick! as it goes; the tick bound here draws the next frame
+   when one is due and otherwise yields after descent-work-chunk-ms of work,
+   so the screen and audio keep running while the floor is built. Headless
+   (balance harness, tests) it just calls (build).
+
+   With a :capture hook, the floor then fades in over the descent (see
+   run-arrival!) rather than cutting in.
+
+   Opts: :handoff, the title screen's (see show-title-screen), to continue
+   from its runes and fade its text out; :first?, true for the run's first
+   floor, which gets the full-length descent and the staged arrival;
+   :capture, in place of the hook for this descent."
+  ([depth scheme build] (run-descending-screen depth scheme build {}))
+  ([depth scheme build {:keys [handoff first?] :as opts}]
+  (let [{:keys [min-ms on-start on-arrive]} @descent-hooks
+        capture (or (:capture opts) (:capture @descent-hooks))]
+  (if-not (term/size)
+    (build)
+    (let [[tw th] (term/size)
+          given (seq (:runes handoff))
+          ctx {:runes (mapv with-depth (or given (sfx/scatter-runes tw th descent-fresh-runes scheme)))
+               :text (:text handoff)
+               :tw tw :th th
+               :depth-str (str "Depth " depth)
+               :msg (nth descending-messages (rand-int (count descending-messages)))}
+          min-frames (max (if first? descent-frames (steps->frames descent-later-steps))
+                          (if min-ms
+                            (quot (+ (long (min-ms {:first? (boolean first?)})) descent-frame-ms -1)
+                                  descent-frame-ms)
+                            0))
+          frame (atom 0)
+          last-frame (atom (now))
+          last-yield (atom (now))
+          draw! (fn []
+                  (draw-descent-frame ctx @frame)
+                  (swap! frame inc)
+                  (reset! last-frame (now)))
+          ;; Draws and yields only; never touches the world or the dice, so
+          ;; the floor comes out the same as without it.
+          tick (fn [_]
+                 (cond
+                   (>= (elapsed-ms @last-frame) descent-frame-ms)
+                   (do (draw!) (sleep descent-yield-ms) (reset! last-yield (now)))
+
+                   (>= (elapsed-ms @last-yield) descent-work-chunk-ms)
+                   (do (sleep descent-yield-ms) (reset! last-yield (now)))))]
+      (when on-start (on-start {:depth depth :ms (* min-frames descent-frame-ms)}))
+      (draw!)
+      (let [result (binding [gt/*tick* tick] (build))]
+        ;; play out the rest of the minimum length, one frame per interval
+        (while (< @frame min-frames)
+          (sfx/pause! (long (max 1 (- descent-frame-ms (elapsed-ms @last-frame)))))
+          (draw!))
+        (let [arrive! #(when on-arrive (on-arrive {:depth depth :first? (boolean first?)}))
+              ;; The capture renders the floor once (~150 ms); the tick keeps
+              ;; the descent drawing and the audio fed while it does.
+              cells (when capture
+                      (seq (binding [gt/*tick* tick] (capture result (boolean first?)))))]
+          (if cells
+            (run-arrival! ctx @frame cells first? arrive!)
+            (arrive!)))
+        result))))))
+
+(defn show-descending-screen
+  "The descending screen on its own, with nothing to build behind it."
+  [depth scheme]
+  (run-descending-screen depth scheme (fn [] nil)))

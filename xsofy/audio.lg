@@ -1,0 +1,492 @@
+(ns xsofy.audio
+  "The audio sink: the one place the game calls the undertone natives.
+
+   xsofy.music and xsofy.sfx stay pure; this namespace turns their per-turn
+   frame into sound. The natives are resolved at load rather than required,
+   because a stock lg has no undertone namespace: there `natives` is nil,
+   every function here is a no-op, and the game runs silent. An lg with the
+   binding linked (joint-xsofy/dev/lg-undertone, or an lgx :deps entry) plays.
+
+   The surface is write-only. Nothing here returns into game code or world
+   state, so a dropped, late or divergent sound cannot reach replay, saves or
+   the hash chain.
+
+   The tension ENVELOPE lives here, not in the world: instant attack,
+   exponential release, one step per frame. Frames arrive once per turn, so
+   the half-life is in game-clock units — idling does not relieve dread,
+   taking turns does."
+  (:require [xsofy.music :as music]
+            [xsofy.sfx :as sfx]
+            [async :refer [timeout <!!]]
+            [js]
+            [os]))
+
+;; ---- the natives ----
+
+(def sound-mode
+  "How the game starts its sound (Matt, 2026-11-24): ?sound=off in the browser
+   (XSOFY_SOUND=off in a terminal) never starts audio at all, so no audio
+   context; ?sound=muted starts it silent, for M to unmute; anything else
+   plays."
+  (let [v (or (js/url-param "sound") (os/getenv "XSOFY_SOUND"))]
+    (case v
+      ("off" "0" "false") :off
+      ("muted" "mute")    :muted
+      :on)))
+
+(def ^:private raw-natives
+  (when (and (not= :off sound-mode) (resolve 'undertone/trigger))
+    (try
+      (require '[undertone.ambience])
+      {:trigger        @(resolve 'undertone/trigger)
+       :set-parameters @(resolve 'undertone/set-parameters)
+       ;; Newer than the rest (undertone#60); without it every change waits
+       ;; for the pattern boundary.
+       :set-parameters-now (or (some-> (resolve 'undertone/set-parameters-now) deref)
+                               @(resolve 'undertone/set-parameters))
+       :music-start    @(resolve 'undertone/music-start)
+       :play-theme     @(resolve 'undertone/play-theme)
+       :register-shot  @(resolve 'undertone/register-shot)
+       :set-music-gain @(resolve 'undertone/set-music-gain)
+       ;; Newer still (undertone#83); without it the descent does not duck.
+       :glide-music-gain (some-> (resolve 'undertone/glide-music-gain) deref)
+       ;; Newer again (undertone#89); without it the sfx play at board level.
+       :set-sfx-gain   (some-> (resolve 'undertone/set-sfx-gain) deref)
+       ;; Newer again (undertone#166); without it a run always plays out.
+       :cut            (some-> (resolve 'undertone/cut) deref)
+       ;; Newer again (undertone#167); without it the title theme plays its
+       ;; length once and hands over then (title-theme-for).
+       :end-theme      (some-> (resolve 'undertone/end-theme) deref)
+       :theme-playing? (some-> (resolve 'undertone/theme-playing?) deref)
+       :derive-mood    @(resolve 'undertone.ambience/derive-mood)}
+      (catch e nil))))
+
+(def ^:private mute
+  "Muting holds both gains at 0 while remembering what the game last asked
+   for, so the duck's glides and the title's fade keep their bookkeeping and
+   unmuting lands on the level the game would be at."
+  (atom {:muted? (= :muted sound-mode) :music 0.0 :sfx 0.0}))
+
+(def ^:private natives
+  (when raw-natives
+    (let [{:keys [set-music-gain glide-music-gain set-sfx-gain]} raw-natives]
+      (cond-> (assoc raw-natives
+                     :set-music-gain (fn [g]
+                                       (swap! mute assoc :music g)
+                                       (set-music-gain (if (:muted? @mute) 0.0 g)))
+                     :set-sfx-gain (when set-sfx-gain
+                                     (fn [g]
+                                       (swap! mute assoc :sfx g)
+                                       (set-sfx-gain (if (:muted? @mute) 0.0 g)))))
+        glide-music-gain
+        (assoc :glide-music-gain (fn [g s]
+                                   (swap! mute assoc :music g)
+                                   (when-not (:muted? @mute) (glide-music-gain g s))))))))
+
+(defn toggle-mute!
+  "M in the game: silence everything, or bring it back at the level the game
+   is at now."
+  []
+  (when raw-natives
+    (let [{:keys [muted? music sfx]} (swap! mute update :muted? not)
+          {:keys [set-music-gain set-sfx-gain]} raw-natives]
+      (set-music-gain (if muted? 0.0 music))
+      (when set-sfx-gain (set-sfx-gain (if muted? 0.0 sfx))))))
+
+(defn enabled?
+  "Whether this lg has the undertone binding linked."
+  []
+  (some? natives))
+
+(defn- call [k & args]
+  (when-let [f (get natives k)]
+    (apply f args)))
+
+;; Board levels are set by ear against each other; this moves all of them
+;; together. 0.75 (−2.5 dB) from 2026-11-14, when Matt found the sfx 2-3 dB
+;; too loud alongside the quieter music bed; 0.6 (−1.9 dB more) the same
+;; day, still a bit loud.
+(def sfx-gain 0.67)
+
+;; ---- the envelope ----
+
+(def decay
+  "Per-turn release factor: about a 7-turn half-life. The single taste knob;
+   the old sibling-module consumer used the same value."
+  0.9)
+
+(defn envelope
+  "The next envelope value: the target if it is higher (danger lands at
+   once), else the previous value decayed one turn (relief is earned)."
+  [prev target]
+  (max (double target) (* (double prev) decay)))
+
+(defn quantize
+  "Tension in 1/32 steps. set-parameters only lands at a pattern boundary, so
+   every turn between two boundaries overwrites the last; quantizing lets the
+   sink skip the lg derivation on the turns where nothing audible changed,
+   and lets a decaying envelope settle instead of re-sending forever."
+  [t]
+  (/ (double (int (+ 0.5 (* (double t) 32.0)))) 32.0))
+
+(def ^:private state
+  (atom {:tension 0.0 :sent nil :outro false}))
+
+(defn urgent?
+  "Whether a mood change should be heard now rather than at the next pattern
+   boundary, about 7 s away at the dungeon's tempo. A new floor and rising
+   tension are: arriving somewhere and danger arriving are both events, and
+   hearing them seconds late detaches the music from them. Falling tension is
+   relief, which the envelope already spreads over turns, so it can wait."
+  [prev k]
+  (or (nil? prev)
+      (not= (pop prev) (pop k))
+      (> (peek k) (peek prev))))
+
+(defn- score! [mood seed depth tension]
+  (let [k    [mood seed depth (quantize tension)]
+        prev (:sent @state)]
+    (when (not= k prev)
+      (swap! state assoc :sent k)
+      (call (if (urgent? prev k) :set-parameters-now :set-parameters)
+            (call :derive-mood mood seed depth (peek k))))))
+
+;; ---- themes ----
+;; Grids are 16 eighth-note steps in scale degrees (1..8, 0 rests), so a theme
+;; lands in the key of whatever floor's parameters are staged when it plays.
+;; Drum lanes are kick, clap, shaker in sixteenths.
+
+(def title-theme
+  "Plays under the title screen and hands back to the generator, so the first
+   floor's music continues out of it rather than starting cold."
+  {:grids [{:lead [5 0 0 4 3 0 0 0 1 0 0 0 0 0 0 0]
+            :bass [1 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead [5 0 0 4 3 0 0 0 2 0 3 0 1 0 0 0]
+            :bass [1 0 0 0 0 0 0 0 4 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead  [8 0 0 7 5 0 0 0 6 0 0 5 4 0 0 0]
+            :bass  [6 0 0 0 0 0 0 0 4 0 0 0 0 0 0 0]
+            :drums ["X...............X..............."]
+            :bed   true}
+           {:lead  [5 0 0 4 3 0 0 0 2 0 0 0 1 0 0 0]
+            :bass  [5 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0]
+            :drums ["X..............................."]
+            :bed   true}]
+   :then :generate})
+
+(def title-hand-over
+  "How much of the title theme plays on after the descent starts before the
+   floor's music takes over: the rest of the bar, so the hand-over lands while
+   the bed is ducked under the run (a bar is 3.6 s at the dungeon's 67 bpm; a
+   grid, 7.2 s, often outlasted the duck). Matt, 2026-11-24."
+  {:bars 1})
+
+(defn- title-theme-for
+  "The title theme loops while the title waits, so a player who lingers does
+   not drop into generated music on the title, and descent! ends it on a
+   phrase boundary. Without end-theme a loop would never end, so it plays
+   once and hands over, as before."
+  []
+  (if (:end-theme natives) (assoc title-theme :then :loop) title-theme))
+
+(def outro-theme
+  "Plays over the death screen: the title's motif falling, the bed dropping
+   out under the last grid, then silence until the next run's title."
+  {:grids [{:lead [8 0 0 0 7 0 0 0 5 0 0 0 4 0 0 0]
+            :bass [1 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0]
+            :bed  true}
+           {:lead [3 0 0 0 2 0 0 0 1 0 0 0 0 0 0 0]
+            :bass [4 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0]
+            :bed  false}]
+   :then :silence})
+
+;; ---- the sink ----
+
+(def music-gain
+  "The bed's level under the one-shots. Shots always play at full level, so
+   trimming the bed is how the sfx stand out; 1.0 buried the quieter ones
+   on laptop speakers (2026-10-29 playtest). 0.85 sat the bed near −19 LUFS,
+   loud enough that 50% system volume in headphones was barely comfortable
+   and big shots were judged against it; 0.5 (about −24) from 2026-11-10.
+   0.32 (−3.9 dB, about −28) from 2026-11-14: at 0.5 Matt had to drop
+   system volume to 50% where 75-80% should be comfortable. 0.25 (−2.1 dB
+   more) the same day, still a bit loud."
+  0.25)
+
+(def duck
+  "The bed ducks under a floor change: after :delay-ms, down to :level of
+   music-gain over :down seconds, held :hold-ms from the drop, then back over
+   :release seconds. The hold is timed because undertone does not report
+   when a shot ends. Level and release tuned on the sfx board,
+   2026-11-10; the hold spans the run and its arrival, which lands about 5 s
+   in (xsofy.sfx/arrival-ms), since 2026-11-13."
+  ;; 2026-11-14, from the board's audition over the title music: deeper (0.2
+  ;; from 0.4), so the run and arrival cut through; a slower drop; and a
+  ;; second duck from the arrival (:arrival-hold-ms), whose release is the
+  ;; floor's music coming in.
+  ;; 2026-11-24, Matt in the game: the arrival's 3.8 s hold left about 2 s of
+  ;; near-silence after the arrival ended. Now the bed starts back 0.2 s after
+  ;; the arrival and is full 2 s after it (:arrival-release). The drop waits
+  ;; :delay-ms so the run's first hit lands over the music, and is quicker
+  ;; and shallower (0.3 from 0.2).
+  {:level 0.3 :delay-ms 150 :down 0.23 :hold-ms 4200 :release 0.8
+   :arrival-hold-ms 200 :arrival-release 1.8
+   ;; Matt, 2026-11-24, on later floors: the run's stop should be a rapid
+   ;; fade, not a cut; the bed starts back almost at once and is full by
+   ;; about 1.5 s. The first entry keeps the values above.
+   :later-hold-ms 50 :later-release 1.45 :later-cut-fade-ms 300
+   ;; Matt, 2026-11-24: the bed comes back as the floor's music, never as the
+   ;; title theme rising before it hands over, so the arrival's release waits
+   ;; for the theme to end (title-hand-over), at most this long.
+   :theme-wait-ms 4000})
+
+(defn register-shots!
+  "Register xsofy's own patches (xsofy.sfx/custom-shots). Idempotent: a
+   re-registration replaces the patch. The offline renders call it too."
+  []
+  (when natives
+    (doseq [spec sfx/custom-shots]
+      (call :register-shot spec))))
+
+(defn start!
+  "Begin a run's audio: stage the first floor's mood, optionally queue a
+   theme, and start the music. Before the first start a theme waits and plays
+   with the music (in a browser that is the tap that unlocks audio); after
+   it, the theme cuts in within one block. Calling start! again is safe —
+   music-start is idempotent — which is what a new game after a death is."
+  ([seed] (start! seed nil))
+  ([seed theme] (start! seed theme music-gain))
+  ([seed theme gain]
+   (when natives
+     (reset! state {:tension 0.0 :sent nil :outro false})
+     (register-shots!)
+     (call :set-music-gain gain)
+     (call :set-sfx-gain sfx-gain)
+     (score! :dungeon (music/music-seed {:seed-input seed :depth 1}) 1 0.0)
+     (when theme (call :play-theme theme))
+     (call :music-start))))
+
+(def title-fade-s
+  "How long the bed takes to rise on the title: from the first (black) frame
+   into the rune rise."
+  1.5)
+
+(defn title!
+  "start! with the title theme, for the title screen. The bed starts silent
+   and title-fade-in! brings it up; without a glide native it starts at its
+   level as before."
+  [seed]
+  ;; Silent from before music-start, so no frame plays at full level; a
+  ;; glide asked for before the first frame runs from it (undertone#90).
+  (start! seed (title-theme-for) (if (:glide-music-gain natives) 0.0 music-gain)))
+
+(defn title-fade-in!
+  "Raise the bed over title-fade-s, or over :ms when the title's animation
+   says how long its rise is (it owns the title's timing, 2026-11-24)."
+  ([] (title-fade-in! {}))
+  ([{:keys [ms]}]
+   (when-let [glide (:glide-music-gain natives)]
+     (glide music-gain (if ms (/ ms 1000.0) title-fade-s)))))
+
+(defn- duck!
+  "Duck the bed under a big shot (see duck), held `hold-ms`. The release runs
+   on its own goroutine; a later duck bumps :duck-gen so an earlier timer
+   cannot lift the bed while the later shot still wants it down. With
+   theme-wait-ms, the release also waits, up to that long, for a playing
+   theme to end."
+  ([] (duck! (:hold-ms duck) (:release duck) (:delay-ms duck) 0))
+  ([hold-ms release-s delay-ms theme-wait-ms]
+  (when-let [glide (:glide-music-gain natives)]
+    (let [n (:duck-gen (swap! state update :duck-gen (fnil inc 0)))
+          down! #(glide (* music-gain (:level duck)) (:down duck))]
+      (if (pos? delay-ms)
+        (go (<!! (timeout delay-ms))
+            (when (= n (:duck-gen @state)) (down!)))
+        (down!))
+      ;; The hold runs from the start of the drop.
+      (go (<!! (timeout (+ delay-ms hold-ms)))
+          (loop [left theme-wait-ms]
+            (when (and (pos? left) (call :theme-playing?))
+              (<!! (timeout 50))
+              (recur (- left 50))))
+          (when (= n (:duck-gen @state))
+            (glide music-gain release-s)))
+      nil))))
+
+(defn- duck-arrival!
+  "Duck again as the arrival lands, `delay-ms` from now, so it is not heard
+   over the bed coming back; its release brings the floor's music in."
+  ([delay-ms] (duck-arrival! delay-ms true))
+  ([delay-ms first?]
+   (when (:glide-music-gain natives)
+     (go (<!! (timeout delay-ms))
+         ;; No delay: the bed is usually down already, and when a slow load
+         ;; let it come back, the arrival should not land over it.
+         (if first?
+           (duck! (:arrival-hold-ms duck) (:arrival-release duck) 0 (:theme-wait-ms duck))
+           (duck! (:later-hold-ms duck) (:later-release duck) 0 (:theme-wait-ms duck))))
+     nil)))
+
+(defn arrive!
+  "The arrival after descent!'s run: called when the new floor appears (the
+   first frame after it, or a new game's first floor). It lands then, or as
+   late as it does after the board's run (xsofy.sfx/arrival-ms) if the floor
+   appeared sooner, so a fast load still hears the run out and a slow one
+   hears it land as the floor shows. A no-op unless a run is going. opts
+   {:first? bool} is the animation's: on a later floor ({:first? false}) the
+   arrival lands at once, with its floor fading in."
+  [& [opts]]
+  (when-let [{:keys [at seed]} (and natives (:going @state))]
+    (swap! state dissoc :going)
+    (let [elapsed (quot (.Sub (now) at) 1000000)
+          ;; A later floor's arrival lands as its floor fades in: the
+          ;; animation owns that moment, and holding the arrival to the
+          ;; first descent's minimum would land it after the floor showed.
+          later? (false? (:first? opts))
+          cut-ms (if later? 0 sfx/run-cut-ms)
+          {:keys [delay-ms cut?]} (sfx/arrival-plan elapsed cut-ms (some? (:cut natives)))]
+      (when cut?
+        ;; The arrival's own triggers are timed by the synth; the cut by the
+        ;; host, a few ms off at worst, which the fade covers.
+        (go (<!! (timeout delay-ms))
+            (call :cut {:group :descent
+                        :fade-ms (if later? (:later-cut-fade-ms duck) sfx/run-cut-fade-ms)})))
+      (duck-arrival! delay-ms (not later?))
+      (call :trigger (sfx/arrival-shots :down seed delay-ms)))))
+
+(defn- turn-group
+  "A turn's shots tagged :turn (unless they carry a group already), so your
+   death can cut exactly them and leave its own sounds playing."
+  [trs]
+  (mapv #(update % :group (fn [g] (or g :turn))) trs))
+
+(defn turn!
+  "Play one turn's frame (xsofy.sfx/audio-frame): advance the envelope,
+   restage the mood if it moved audibly, and fire the turn's one-shots."
+  [frame]
+  (when natives
+    (let [t (:tension (swap! state update :tension envelope (:tension-target frame)))]
+      (score! (:mood frame) (:seed frame) (:depth frame) t)
+      ;; A new floor's run started under the descending animation (descent!);
+      ;; the frame's copy, built after it, would double it, so this frame
+      ;; only marks the arrival.
+      (let [floor? (some :floor (:triggers frame))
+            trs (if (and floor? (:going @state))
+                  (do (arrive!) (vec (remove :floor (:triggers frame))))
+                  (:triggers frame))]
+        (when (seq trs)
+          (when (some :floor trs)
+            (duck!)
+            (when-let [at (some #(when (= :chirp-land (:shot %)) (:delay-ms %)) trs)]
+              (duck-arrival! at)))
+          (call :trigger (turn-group trs)))))))
+
+(defn descent-min-ms
+  "How long the descending screen should last at least, so the floor does
+   not appear before the run's arrival lands: the run's cut point
+   (xsofy.sfx/run-cut-ms) when sound is on, else 0 (Matt, 2026-11-24). Only
+   the first descent: Matt asked for a minimum there, and later floors keep
+   the animation's own length, so {:first? false} is 0."
+  ([] (descent-min-ms {}))
+  ([{:keys [first?]}]
+   (if (and natives (not (false? first?))) (or sfx/run-cut-ms 0) 0)))
+
+(defn descent!
+  "The going-down run, fired when the descending animation starts so the
+   sound spans it rather than arriving after it. Pitched by note, not degree:
+   the new floor's mood is not staged yet. arrive! plays the arrival.
+   opts is the animation's plan, {:ms planned-ms}: accepted, unused while the
+   run is authored rather than stretched to fit."
+  [depth & [_opts]]
+  (when natives
+    (swap! state assoc :going {:at (now) :seed depth})
+    (duck!)
+    ;; A new game's descent: the title theme finishes its bar under the duck.
+    ;; Later descents have no theme playing, and end-theme does nothing.
+    (call :end-theme title-hand-over)
+    (call :trigger (sfx/descent-shots depth))))
+
+(defn menu!
+  "Menu sounds: call with the screen being shown (nil for the game). Remembers
+   the last one, so a screen handing off to itself is silent and the next call
+   decides open, close or switch (xsofy.sfx/menu-shots)."
+  [screen]
+  (when natives
+    (let [prev (:menu @state)]
+      (when (not= prev screen)
+        (swap! state assoc :menu screen)
+        (let [trs (sfx/menu-shots prev screen)]
+          (when (seq trs) (call :trigger trs)))))))
+
+(defn cues!
+  "Play and drain a world's :sfx outbox outside the play loop: an item used
+   from a menu cues inside the menu's key handler, and play-advance would only
+   drain it a turn later. Drains with or without the binding, so the world a
+   menu returns is the same on every lg."
+  [world]
+  (if-let [evs (seq (:sfx world))]
+    (do (when natives
+          (let [trs (sfx/for-events world (or (:turn world) 0) (vec evs))]
+            (when (seq trs) (call :trigger (turn-group trs)))))
+        (dissoc world :sfx))
+    world))
+
+(def death-music
+  "Matt, 2026-11-26: on death the music \"should fade fast or cut (200-300
+   ms), then a fade-in of the outro, ping while that's ramping up, and then
+   it keeps playing\"; then \"sound needs to stop immediately and the
+   abrupt silence felt\". So the floor's music stops in :out-ms (short of
+   a click, no shorter) and every effect with it (the killing blow too,
+   2026-11-27), but for the @'s blink, which plays from 0 (S264, 750 ms);
+   :silence-ms passes with nothing else, then the outro starts at zero and
+   glides up over :in-s, so the blip-out (about 3.35 s in) lands while it
+   rises."
+  {:out-ms 20 :silence-ms 1200 :in-s 3.0})
+
+(defn outro-plan
+  "The death's sound as [ms action & args], ms from death: the floor's music
+   out, the turn's effects cut, the blink, the outro theme in, and the
+   blip-out at `blip-ms` (nil without the death fade). With `cut?` false
+   (an lg without undertone/cut) every effect is muted instead, the blink
+   with them, and brought back before the outro."
+  ([blip-ms] (outro-plan blip-ms true))
+  ([blip-ms cut?]
+  (let [{:keys [out-ms silence-ms in-s]} death-music]
+    (cond-> (into [[0 :glide 0.0 (/ out-ms 1000.0)]]
+                  (if cut?
+                    [[0 :cut-turn] [0 :blink]]
+                    [[0 :sfx 0.0] [silence-ms :sfx sfx-gain]]))
+      true (into [[silence-ms :theme]
+                  [silence-ms :glide music-gain in-s]])
+      blip-ms (conj [blip-ms :blip])))))
+
+(defn outro!
+  "The death outro. Once per death: the death screen re-enters itself when a
+   restart is declined, and the outro should not restart with it."
+  []
+  (when (and natives (not (:outro @state)))
+    (swap! state assoc :outro true)
+    ;; A pending duck release would bring the floor's bed back over the
+    ;; outro; bumping the generation retires it.
+    (swap! state update :duck-gen (fnil inc 0))
+    ;; The blip as the @ goes out. Resolved, not required: render needs no
+    ;; audio, and a build without the death fade plays no blip.
+    (let [blip-ms (sfx/blip-out-ms (some-> (resolve 'xsofy.render/death-fade-ms) deref))
+          glide   (:glide-music-gain natives)
+          act!    (fn [[_ k & args]]
+                    (case k
+                      :glide (apply glide args)
+                      :sfx   (call :set-sfx-gain (first args))
+                      :cut-turn (call :cut {:group :turn :fade-ms 20})
+                      :blink (call :trigger (sfx/death-blink-shots))
+                      :theme (call :play-theme outro-theme)
+                      :blip  (call :trigger (sfx/death-blip-shots 0))))]
+      (if glide
+        (doseq [[ms :as step] (outro-plan blip-ms (some? (:cut natives)))]
+          (if (pos? ms)
+            (go (<!! (timeout ms)) (act! step))
+            (act! step)))
+        ;; An lg without glides: the theme at once, as before.
+        (do (call :play-theme outro-theme)
+            (when blip-ms (call :trigger (sfx/death-blip-shots blip-ms))))))))

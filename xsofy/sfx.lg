@@ -1,0 +1,1251 @@
+(ns xsofy.sfx
+  "The one-shot sfx vocabulary: event descriptors -> engine trigger maps,
+   plus the per-turn audio frame the presentation seam emits.
+
+   This is the SINGLE frontend-agnostic home for the vocabulary — the :vfx
+   seam's one thinness is a lifecycle copied per consumer, kept in sync by a
+   docstring, and audio does not repeat that. Every frontend that plays
+   sound consumes this namespace's output; none reimplements it.
+
+   Descriptors say WHAT HAPPENED ({:kind :combat-hit :dist 3 :dir 0.5}),
+   never how it sounds; producers append them to the :sfx outbox (see
+   xsofy.sound/deliver-sound and the cue helper), and the outbox is drained
+   and dissoc'd at the presentation seam every turn, exactly like :vfx — so
+   it can never reach saves, the hash chain, or replay. Everything here is
+   pure, consumes no rng, and the emitted frame is fire-and-forget: a
+   dropped or divergent sound can never touch world state.
+
+   Trigger-map contract (consumed by undertone/trigger, through xsofy.audio):
+     :shot      engine patch name (:footstep :hit :pluck)
+     :note      absolute MIDI-ish note — used when pitch has no musical
+                context (impacts, steps)
+     :degree    scale degree + :octave INSTEAD of :note, for shots that
+                must land in key (the pickup chime). The module resolves
+                note = root + 12*octave + scale[degree], from the same
+                derivation that pitched the music — in key by construction.
+     :gain :pan :delay-ms        as in the prototype's sfx.lg
+     :seed      the engine's humanize seed, an int"
+  (:require [xsofy.music :as music]
+            [xsofy.det :as det]
+            [xsofy.terrain :as terrain]))
+
+;; Levels: every :gain below was set by ear on the sfx board's Levels (joint
+;; dev/sfx-board), against the floor music at 0.25, and folded to one number
+;; on 2026-11-24. The passes are logged in project-docs' joint-xsofy
+;; sound-design.md (Levels log); git has each step.
+
+;; ---- xsofy's own shots ----
+;; Registered with undertone at start (xsofy.audio/register-shots!), in the
+;; EDN shape engine.ShotSpec reads. They live here, as data, so the offline
+;; renders and the game register the same patches.
+
+(def custom-shots
+  [;; The everyday step (Matt's pick W100, round 42 of the sfx board,
+   ;; 2026-11-24): a leather heel on stone. No tone and no reverb: a pitched
+   ;; ring and a hard rubber thump read as "combat boots on a hardwood
+   ;; floor". Built per step by stone-step-shots from these four.
+   {:name :step-click :gate-ms 400
+    :patch [[:env 0.0003 0.0025 0 0.002] [:osc 0 :noise 0 1] [:mul] [:lpf 3000] [:hpf 300] [:out 0.7 0.5]]}
+   {:name :step-pat :gate-ms 400
+    :patch [[:env 0.002 0.016 0 0.012] [:osc 0 :noise 0 1] [:mul] [:lpf 900] [:lpf 900] [:hpf 200] [:out 0.8 0.5]]}
+   {:name :step-scuff :gate-ms 400
+    :patch [[:env 0.0015 0.006 0 0.005] [:osc 0 :noise 0 1] [:mul] [:lpf 700] [:lpf 700] [:lpf 900] [:lpf 900] [:out 0.6 0.5]]}
+   {:name :step-grit :gate-ms 400
+    :patch [[:env 0.0008 0.003 0 0.003] [:osc 0 :noise 0 1] [:mul] [:lpf 1700] [:lpf 1700] [:out 0.4 0.5]]}
+   ;; The water step (W123, and W121's plop now and then; round 44): a
+   ;; softer heel, then round 29's wade and drip, which were never wired.
+   {:name :step-pat-soft :gate-ms 400
+    :patch [[:env 0.004 0.025 0 0.02] [:osc 0 :noise 0 1] [:mul] [:lpf 600] [:lpf 600] [:hpf 150] [:out 0.8 0.5]]}
+   {:name :step-wade :gate-ms 700
+    :patch [[:env 0.02 0.16 0 0.12] [:osc 0 :noise 0 1] [:mul] [:env 0.03 0.12 0 0.1] [:svf 500 0.5 1 2] [:out 0.7 0.5]
+            [:env 0.004 0.08 0 0.05] [:dust 300 1 0] [:svf 3000 0.4 1 0] [:mul] [:out 0.35 0.5]]}
+   {:name :step-drip :gate-ms 700
+    :patch [[:env 0.002 0.12 0 0.08] [:osc 0 :noise 0 1] [:mul] [:svf 1400 0.4 1 0] [:out 0.5 0.5]
+            [:env 0.01 0.3 0 0.2] [:dust 25 0 0] [:comb 12 0.96 0.4] [:mul] [:out 0.35 0.5]]}
+   {:name :step-plop :gate-ms 700
+    :patch [[:env 0.001 0.06 0 0.04] [:pitch -9]
+            [:env 0.001 0.07 0 0.05] [:osc 0 :sine 0 1] [:mul] [:out 0.35 0.5]
+            [:env 0.002 0.1 0 0.06] [:dust 500 1 0] [:svf 2200 0.5 1 0] [:mul] [:out 0.6 0.5]]}
+;; Changing floor: a chirp, each note scooping up 3 semitones into place,
+   ;; run as a Shepard scale (going-shots), then held once as the arrival
+   ;; (arrival-shots). Matt's picks from the 2026-11 rounds of the sfx board:
+   ;; C007/C008 going (round 19) and C038/C039 arriving (round 26); renders
+   ;; and notes in project-docs joint-xsofy/audio-candidates.
+   {:name :scoop :gate-ms 300
+    :patch [[:env 0.005 0.35 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.5] [:out 0.45 0.5]]}
+   ;; K008's going-down run (round 22): a soft, dark knock, tried in game
+   ;; in place of C007 on 2026-11-14.
+   {:name :knock-soft :gate-ms 500
+    :patch [[:env 0.003 0.3 0 0.15] [:pluck 0 0.96] [:mul] [:lpf 600] [:verb 0.45] [:out 0.8 0.5]]}
+   ;; Z011/Z014's tube ping (round 29, from undertone v0.3.0's textures): a
+   ;; noise tick through a tuned comb. The short phrase for a visited floor.
+   {:name :tube-ping :gate-ms 100
+    :patch [[:env 0.0 0.003 0.0 0.002] [:osc 0 :noise 0 1] [:mul] [:comb 0.0 0.98 0.3] [:out 0.3 0.5]]}
+   ;; Death cries by creature (2026-11-24): Matt's picks from rounds 28 and
+   ;; 29, patches as rendered on the sfx board. Rat V009/V010/V025, kobold
+   ;; V030, goblin V013, fire imp V028 (see cries).
+   {:name :cry-rat-squeak :gate-ms 400
+    :patch [[:env 0.003 0.12 0 0.05] [:pitch 7] [:env 0.004 0.14 0 0.06] [:osc 0 :saw 0 1] [:mul] [:env 0.002 0.1 0 0.05] [:svf 2600 0.7 1 1.2] [:drive 1.6 0.1] [:verb 0.25] [:out 0.5 0.5] [:env 0.001 0.025 0 0.015] [:osc 0 :noise 0 1] [:mul] [:svf 5200 0.4 1 0] [:out 0.15 0.5]]}
+   {:name :cry-rat-squeal :gate-ms 400
+    :patch [[:lfo 16 2] [:pitch 1.5] [:env 0.006 0.3 0 0.1] [:osc 0 :saw 6 0.28] [:mul] [:svf 3000 0.65 1 0] [:drive 2.2 0.15] [:verb 0.3] [:out 0.45 0.5]]}
+   {:name :cry-gob-whine :gate-ms 400
+    :patch [[:lfo 7 0] [:pitch 0.7] [:env 0.02 0.42 0 0.2] [:osc 0 :saw 9 0.4] [:mul] [:svf 1400 0.85 1 0] [:drive 1.6 0.1] [:verb 0.3] [:out 0.5 0.5] [:env 0.02 0.4 0 0.2] [:osc 0 :saw 9 0.4] [:mul] [:svf 2900 0.85 1 0] [:out 0.2 0.5]]}
+   {:name :cry-rat-chit :gate-ms 400
+    :patch [[:env 0.002 0.025 0 0.012] [:osc 0 :saw 3 0.02] [:mul] [:svf 3200 0.7 1 0] [:drive 1.5 0.1] [:verb 0.15] [:out 0.4 0.5]]}
+   {:name :cry-kob-yrrr-short :gate-ms 400
+    :patch [[:env 0.008 0.15 0 0.06] [:lfo 26 0] [:scale 0.45 0.55] [:mul] [:osc 0 :saw 2 0.15] [:mul] [:svf 500 0.7 1 0] [:drive 2 0.12] [:verb 0.2] [:out 0.5 0.5] [:env 0.008 0.15 0 0.06] [:lfo 26 0] [:scale 0.45 0.55] [:mul] [:osc 0 :saw 2 0.15] [:mul] [:svf 1400 0.8 1 0] [:out 0.28 0.5]]}
+   {:name :cry-imp-poof-short :gate-ms 400
+    :patch [[:env 0.03 0.12 0 0.08] [:osc 0 :noise 0 1] [:mul] [:env 0.04 0.12 0 0.08] [:svf 600 0.6 1 2.2] [:verb 0.25] [:out 0.5 0.5] [:lfo 5 2] [:pitch 0.3] [:env 0.03 0.25 0 0.15] [:osc 24 :sine 0 1] [:mul] [:verb 0.35] [:out 0.08 0.5] [:env 0.03 0.2 0 0.12] [:osc 31.2 :sine 0 1] [:mul] [:verb 0.35] [:out 0.04 0.5]]}
+   {:name :crackle :gate-ms 400
+    :patch [[:env 0.001 0.02 0 0.01] [:osc 0 :noise 0 1] [:mul] [:hpf 3000] [:out 0.3 0.5]]}
+   {:name :imp-harmonic :gate-ms 400
+    :patch [[:env 0.02 0.3 0 0.2] [:lfo 6 0] [:scale 0.15 0.85] [:mul] [:osc 12 :sine 0 1] [:mul] [:verb 0.3] [:out 0.12 0.5] [:env 0.02 0.25 0 0.15] [:osc 19.02 :sine 0 1] [:mul] [:verb 0.3] [:out 0.06 0.5]]}
+   ;; Round 31's picks (Matt, 2026-11-24): slime V060, archer V068, goblin
+   ;; shaman V071; patches as rendered on the sfx board.
+   ;; The slime's are V104 since round 45 (2026-11-24): V060 sat 99% below
+   ;; 400 Hz and Matt could barely hear it, so the bubbles moved up an
+   ;; octave (the table's notes) with a higher low-pass (1400 -> 3500), and
+   ;; the hiss's band moved up (900 -> 2000 Hz).
+   {:name :cry-sli-bubble :gate-ms 400
+    :patch [[:env 0.002 0.05 0 0.03] [:osc 0 :sine -7 0.03] [:mul] [:lpf 3500] [:verb 0.15] [:out 0.5 0.5]]}
+   ;; Round 45's slime sounds (Matt, 2026-11-24): a wet slap (S098, now a
+   ;; death take) and a squelch (S097, S099: your blow landing on a slime).
+   {:name :sli-slap :gate-ms 400
+    :patch [[:env 0.001 0.03 0 0.02] [:osc 0 :noise 0 1] [:mul] [:svf 2200 0.4 1 0] [:out 0.7 0.5]]}
+   {:name :sli-squelch :gate-ms 400
+    :patch [[:env 0.003 0.07 0 0.05] [:osc 0 :noise 0 1] [:mul] [:svf 1200 0.5 1 0] [:out 0.7 0.5]]}
+   ;; V060's darker hiss (band at 900 Hz), kept for V103, a slime's hit
+   {:name :sli-hiss-dark :gate-ms 700
+    :patch [[:env 0.12 0.45 0 0.3] [:osc 0 :noise 0 1] [:mul] [:lfo 30 2] [:scale 0.3 0.7] [:mul] [:env 0.12 0.45 0 0.3] [:svf 900 0.3 0 1] [:verb 0.08] [:out 0.4 0.5]]}
+   {:name :cry-sli-hiss :gate-ms 700
+    :patch [[:env 0.12 0.45 0 0.3] [:osc 0 :noise 0 1] [:mul] [:lfo 30 2] [:scale 0.3 0.7] [:mul] [:env 0.12 0.45 0 0.3] [:svf 2000 0.3 0 1] [:verb 0.08] [:out 0.4 0.5]]}
+   {:name :cry-arch-uh-swirl :gate-ms 400
+    :patch [[:env 0.01 0.24 0 0.1] [:osc 0 :saw 4 0.25] [:mul] [:lfo 4 0] [:svf 600 0.75 1 0.6] [:drive 1.6 0.1] [:verb 0.2] [:out 0.5 0.5] [:env 0.01 0.24 0 0.1] [:osc 0 :saw 4 0.25] [:mul] [:lfo 4 1] [:svf 1150 0.8 1 0.5] [:verb 0.2] [:out 0.28 0.5]]}
+   {:name :cry-body-thud :gate-ms 400
+    :patch [[:env 0.002 0.18 0 0.08] [:pluck 0 0.9] [:mul] [:lpf 320] [:verb 0.2] [:out 0.8 0.5] [:env 0.001 0.05 0 0.03] [:osc 0 :noise 0 1] [:mul] [:lpf 800] [:out 0.3 0.5]]}
+   {:name :cry-fizzle :gate-ms 500
+    :patch [[:env 0.01 0.35 0 0.15] [:lfo 40 2] [:scale 0.5 0.5] [:mul] [:osc 0 :noise 0 1] [:mul] [:hpf 3000] [:verb 0.2] [:out 0.25 0.5]]}
+   {:name :cry-sham-groan :gate-ms 400
+    :patch [[:lfo 5 0] [:pitch 0.3] [:env 0.02 0.32 0 0.12] [:osc 0 :saw 3 0.3] [:mul] [:svf 520 0.75 1 0] [:drive 1.6 0.1] [:verb 0.2] [:out 0.5 0.5] [:env 0.02 0.32 0 0.12] [:osc 0 :saw 3 0.3] [:mul] [:svf 1000 0.8 1 0] [:drive 1.6 0.1] [:verb 0.2] [:out 0.25 0.5]]}
+   ;; Round 32's picks (Matt, 2026-11-24): spider V086, wraith V090.
+   {:name :cry-spi-click :gate-ms 400
+    :patch [[:env 0.001 0.008 0 0.004] [:osc 0 :noise 0 1] [:mul] [:svf 3600 0.65 1 0] [:out 0.5 0.5]]}
+   {:name :cry-spi-rasp-soft :gate-ms 400
+    :patch [[:env 0.01 0.3 0 0.1] [:lfo 35 2] [:scale 0.5 0.5] [:mul] [:osc 0 :saw 3 0.3] [:mul] [:svf 1200 0.6 1 0] [:drive 1.2 0.05] [:verb 0.12] [:out 0.4 0.5]]}
+   {:name :cry-wra-mist :gate-ms 500
+    :patch [[:env 0.07 0.32 0 0.18] [:osc 0 :noise 0 1] [:mul] [:env 0.06 0.35 0 0.18] [:svf 900 0.5 1 1.5] [:verb 0.35] [:out 0.3 0.5]]}
+   {:name :cry-wra-moan :gate-ms 400
+    :patch [[:env 0.04 0.28 0 0.14] [:lfo 6 0] [:scale 0.3 0.7] [:mul] [:osc 0 :sine 5 0.28] [:mul] [:verb 0.35] [:out 0.2 0.5] [:env 0.04 0.28 0 0.14] [:osc 0.12 :sine 5 0.28] [:mul] [:verb 0.35] [:out 0.15 0.5]]}
+   ;; A creature's attack, and its pain (round 34, Matt 2026-11-24): teeth
+   ;; and claws, with the rat's chit (:cry-rat-chit) for its squeak.
+   {:name :bite-snap :gate-ms 200
+    :patch [[:env 0.001 0.018 0 0.01] [:osc 0 :noise 0 1] [:mul] [:svf 2400 0.65 1 0] [:drive 2 0.1] [:verb 0.1] [:out 0.6 0.5] [:env 0.001 0.01 0 0.006] [:pluck 24 0.5] [:mul] [:out 0.3 0.5]]}
+   {:name :bite-scrape :gate-ms 200
+    :patch [[:env 0.004 0.06 0 0.03] [:osc 0 :noise 0 1] [:mul] [:env 0.001 0.06 0 0.03] [:svf 2200 0.7 1 1.2] [:verb 0.1] [:out 0.5 0.5]]}
+   {:name :chirp-land :gate-ms 400
+    :patch [[:env 0.005 0.45 0 0.3] [:osc 0 :pulse -3 0.08] [:mul] [:lpf 900] [:verb 0.55] [:out 0.45 0.5]]}
+   ;; A step in water: band-passed noise plus a small rising blip.
+   {:name :splash :gate-ms 140
+    :patch [[:env 0.002 0.14 0 0.1] [:osc 0 :noise 0 1] [:mul] [:svf 1400 0.4 1 0] [:out 0.7 0.5]
+            [:env 0.001 0.07 0 0.05] [:osc 12 :sine 7 0.04] [:mul] [:out 0.25 0.5]]}
+   ;; Stuck in a web (round 46, S124/S125): a grain of G020's old crushed
+   ;; rasp, ~25 ms, and round 38's dark scuff and smear (W058/W065's crunch).
+   {:name :web-grain :gate-ms 300
+    :patch [[:env 0.002 0.025 0 0.015] [:osc 0 :noise 0 1] [:mul] [:crush 900 6] [:svf 1800 0.6 1 0] [:out 0.5 0.5]]}
+   {:name :web-scuff :gate-ms 300
+    :patch [[:env 0.0015 0.006 0 0.005] [:osc 0 :noise 0 1] [:mul] [:lpf 700] [:lpf 700] [:lpf 900] [:lpf 900] [:out 0.6 0.5]]}
+   {:name :web-smear :gate-ms 300
+    :patch [[:env 0.02 0.1 0 0.06] [:osc 0 :noise 0 1] [:mul] [:lpf 800] [:lpf 800] [:lpf 1000] [:out 0.5 0.5]]}
+   ;; Tearing free of a web: a stretched thread, a high damped string with a
+   ;; soft scratch. N003 (round 27), Matt's pick for breaking free, 2026-11-25.
+   {:name :web-thread :gate-ms 300
+    :patch [[:env 0.002 0.12 0 0.08] [:pluck 0 0.8] [:mul] [:hpf 900] [:out 0.4 0.5]
+            [:env 0.01 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:svf 4200 0.5 1 0] [:out 0.25 0.5]]}
+   ;; The generic hit taken's click, S156 (round 49): the thud alone sits near
+   ;; 100 Hz and is close to inaudible on a laptop.
+   {:name :hit-click :gate-ms 400
+    :patch [[:env 0.001 0.02 0 0.012] [:osc 0 :noise 0 1] [:mul] [:svf 2200 0.5 1 0] [:out 0.6 0.5]]}
+   ;; Water pouring off as you climb out of deep water, S151 (round 48)
+   {:name :emerge-pour :gate-ms 500
+    :patch [[:env 0.04 0.29 0 0.2] [:osc 0 :noise 0 1] [:mul] [:svf 800 0.4 1 0] [:lpf 1800] [:out 0.7 0.5]]}
+   ;; The default death cry, S247 (round 55, Matt 2026-11-27), for every
+   ;; creature without its own; it replaced S227 the same day, and G014 (the
+   ;; engine's :cry, "too much") before that. The rat's squeal four octaves
+   ;; down, its band-pass following (3 kHz to 187.5 Hz), then shaken: random
+   ;; pitch steps (lfo mode 2, 11.3 Hz, 2.8 semitones), its level stepping at
+   ;; random (a stutter), and a crackle of random impulses under it. Played
+   ;; twice, the second high; see death-shots.
+   {:name :death-squeal :gate-ms 400
+    :patch [[:lfo 11.3 2] [:pitch 2.8] [:env 0.006 0.3 0 0.1] [:osc 0 :saw 6 0.28] [:mul]
+            [:lfo 23 2] [:scale 0.6 0.4] [:mul]
+            [:svf 187.5 0.65 1 0] [:drive 2.2 0.15] [:verb 0.3] [:out 0.45 0.5]
+            [:env 0.01 0.32 0 0.1] [:dust 70 1 0] [:mul] [:svf 260 0.5 1 0] [:drive 2 0.1] [:out 0.5 0.5]]}
+   ;; Your death's blip-out, C045 (round 54, Matt 2026-11-26): round 21's
+   ;; crushed-pulse chirp, sagging down, the descent's tone.
+   {:name :death-blip :gate-ms 500
+    :patch [[:env 0.002 0.16 0 0.1] [:osc 0 :pulse 5 0.14] [:mul] [:lpf 900] [:crush 3000 5] [:lpf 3200] [:verb 0.4] [:out 0.45 0.5]]}
+   ;; The @ blinking out as you die, S264 (round 58, Matt 2026-11-27: "some
+   ;; kind of quick fizzle"): a burst of bright noise on each bright frame of
+   ;; the blink, then a ramp falling in level and band, cut dead.
+   {:name :blink-burst :gate-ms 40
+    :patch [[:env 0.002 0.04 0.5 0.003] [:osc 0 :noise 0 1] [:mul] [:svf 3200 0.5 1 0] [:out 0.6 0.5]]}
+   {:name :blink-ramp :gate-ms 225
+    :patch [[:env 0.01 0.22 0.2 0.003] [:osc 0 :noise 0 1] [:mul] [:env 0.001 0.22 0 0.01] [:svf 1200 0.5 1 1.5] [:out 0.6 0.5]]}
+   ;; The kobold's death, C055 (round 52, Matt 2026-11-27): the goblin's old
+   ;; gurgle (V014) at half length, heavily crushed, stumbling down halfway
+   ;; in two uneven steps (1.8, then 4.7 semitones). Patches as the board
+   ;; exported them.
+   {:name :kob-gurgle-head :gate-ms 100
+    :patch [[:env 0.01 0.2 0 0.02] [:osc -12 :saw 2 0.175] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
+   {:name :kob-gurgle-step1 :gate-ms 40
+    :patch [[:env 0.006 0.1 0 0.015] [:osc -13.8 :saw 0.3 0.02] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
+   {:name :kob-gurgle-step2 :gate-ms 700
+    :patch [[:env 0.006 0.075 0 0.035] [:osc -16.7 :saw 0.4 0.025] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
+   ;; The goblin's death, S231 (round 52, Matt 2026-11-27): the same gurgle,
+   ;; full length, starting 3.4 semitones low with a heavier, guttural "eyy"
+   ;; (harder drive, a sub saw an octave down, a growl of wobbled noise),
+   ;; then cracking up halfway.
+   {:name :gob-eyy-head :gate-ms 200
+    :patch [[:env 0.005 0.4 0 0.02] [:osc -15.4 :saw 2 0.35] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 4.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]
+            [:env 0.005 0.4 0 0.02] [:osc -27.4 :saw 2 0.35] [:mul] [:lpf 350] [:drive 3 0.2] [:verb 0.05] [:out 0.35 0.5]
+            [:env 0.005 0.4 0 0.02] [:osc 0 :noise 0 1] [:mul] [:lfo 35 2] [:svf 350 0.7 1 1.2] [:drive 3 0.2] [:verb 0.05] [:out 0.2 0.5]]}
+   {:name :gob-eyy-tail :gate-ms 700
+    :patch [[:env 0.006 0.2 0 0.08] [:osc -12 :saw 0.6 0.03] [:mul] [:lfo 18 2] [:svf 900 0.8 1 1.5] [:drive 2.5 0.15] [:crush 3000 5] [:verb 0.3] [:out 0.55 0.5]]}
+   ;; The ogre's death, S259 (round 57, Matt 2026-11-27), after the breathy
+   ;; ones of rounds 31-33 sounded like a kazoo: S247's shaken squeal (random
+   ;; pitch steps, a level stutter, a crackle) lasting 0.75 s, low-passed
+   ;; under 260 Hz, with a sine an octave down. Patch as the board exported it.
+   {:name :ogre-squeal :gate-ms 1100
+    :patch [[:lfo 11.3 2] [:pitch 2.8] [:env 0.01 0.75 0 0.2] [:osc 0 :saw 3 0.6] [:mul] [:lfo 23 2] [:scale 0.6 0.4] [:mul]
+            [:svf 260 0.65 1 0] [:drive 2.6 0.15] [:verb 0.3] [:out 0.45 0.5]
+            [:env 0.01 0.75 0 0.2] [:dust 70 1 0] [:mul] [:svf 260 0.5 1 0] [:drive 2 0.1] [:out 0.5 0.5]
+            [:env 0.01 0.75 0 0.2] [:osc -12 :sine 3 0.6] [:mul] [:lpf 180] [:out 0.35 0.5]]}
+   ;; The dragon's death, S251 (round 56, Matt 2026-11-27, "for now"): round
+   ;; 30's long roar (V059), a driven low "aa" at 550 and 1000 Hz with
+   ;; breath, its pitch jostled at random, made irregular by its level
+   ;; stepping at random, at different rates in its two voiced layers; then
+   ;; its fire flickering out.
+   {:name :dragon-roar :gate-ms 1600
+    :patch [[:lfo 9 2] [:pitch 0.6]
+            [:env 0.12 1.0 0 0.4] [:osc 0 :saw 4 1.0] [:mul] [:lfo 17 2] [:scale 0.65 0.35] [:mul]
+            [:svf 550 0.62 1 0] [:drive 3.5 0.15] [:verb 0.4] [:out 0.5 0.5]
+            [:env 0.12 1.0 0 0.4] [:osc 0.12 :saw 4 1.0] [:mul] [:lfo 13 2] [:scale 0.65 0.35] [:mul]
+            [:svf 1000 0.7 1 0] [:out 0.25 0.5]
+            [:env 0.1 0.9 0 0.4] [:osc 0 :noise 0 1] [:mul] [:svf 800 0.5 1 0] [:out 0.3 0.5]]}
+   {:name :dragon-fire-out :gate-ms 900
+    :patch [[:env 0.01 0.6 0 0.3] [:lfo 40 2] [:scale 0.5 0.5] [:mul] [:osc 0 :noise 0 1] [:mul] [:hpf 2500] [:verb 0.3] [:out 0.25 0.5]]}
+   ;; The ice elemental's death, V054 (round 30, Matt's pick): a cracking
+   ;; snap, then glass-like shards, each a sine with two inharmonic partials.
+   {:name :ice-crack :gate-ms 400
+    :patch [[:env 0.001 0.03 0 0.02] [:osc 0 :noise 0 1] [:mul] [:hpf 1500] [:drive 2 0] [:verb 0.3] [:out 0.5 0.5]]}
+   {:name :ice-shard :gate-ms 400
+    :patch [[:env 0.001 0.08 0 0.048] [:osc 0 :sine 0 1] [:mul] [:verb 0.35] [:out 0.12 0.5]
+            [:env 0.001 0.05 0 0.03] [:osc 17.6 :sine 0 1] [:mul] [:verb 0.35] [:out 0.07 0.5]
+            [:env 0.001 0.03 0 0.018] [:osc 29.2 :sine 0 1] [:mul] [:verb 0.35] [:out 0.03 0.5]]}
+   ;; A swimming stroke's slosh (round 47): round 45's squelch drawn out.
+   {:name :swim-slosh :gate-ms 500
+    :patch [[:env 0.04 0.18 0 0.12] [:osc 0 :noise 0 1] [:mul] [:svf 1000 0.45 1 0] [:lpf 2500] [:out 0.7 0.5]]}
+   ;; Fire catching: a bright crackle, then a low whoomph.
+   {:name :ignite :gate-ms 400
+    :patch [[:env 0.005 0.08 0 0.05] [:osc 0 :noise 0 1] [:mul] [:hpf 1500] [:out 0.5 0.5]
+            [:env 0.06 0.4 0 0.25] [:osc 0 :noise 0 1] [:mul] [:lpf 900] [:verb 0.2] [:out 0.45 0.5]]}
+   ;; A step through grass: a short, bright band of noise, quieter than
+   ;; the water step because it is the more common of the two.
+   {:name :rustle :gate-ms 100
+    :patch [[:env 0.004 0.09 0 0.06] [:osc 0 :noise 0 1] [:mul] [:svf 3200 0.3 1 0] [:out 0.7 0.5]]}
+   ;; One swallow: a low sine bent upward fast. Played three times for a drink.
+   {:name :gulp :gate-ms 100
+    :patch [[:env 0.005 0.09 0 0.05] [:osc -12 :sine 7 0.05] [:mul] [:lpf 1200] [:out 0.7 0.5]]}
+   ;; Unrolling a scroll: band-passed, slightly crushed noise.
+   {:name :paper :gate-ms 260
+    :patch [[:env 0.02 0.25 0 0.1] [:osc 0 :noise 0 1] [:mul] [:svf 2500 0.2 1 0] [:hpf 900]
+            [:crush 6000 8] [:out 0.4 0.5]]}
+   ;; Metal on metal for equipping: a high pulse with an inharmonic sine above.
+   {:name :clink :gate-ms 130
+    :patch [[:env 0.001 0.12 0 0.08] [:osc 24 :pulse 0 1] [:mul] [:hpf 1200] [:verb 0.15] [:out 0.25 0.5]
+            [:env 0.001 0.07 0 0.05] [:osc 31 :sine 0 1] [:mul] [:out 0.2 0.5]]}
+   ;; Poison: a dull saw, drooping, with a fast vibrato that reads as queasy.
+   {:name :sick :gate-ms 550
+    :patch [[:env 0.05 0.5 0 0.3] [:lfo 7 0] [:pitch 0.6] [:osc 0 :saw -3 0.5] [:mul]
+            [:lpf 800] [:out 0.5 0.5]]}
+   ;; A burn tick: a short, crushed, high crackle, distinct from a blow.
+   {:name :sizzle :gate-ms 200
+    :patch [[:env 0.002 0.18 0 0.1] [:osc 0 :noise 0 1] [:mul] [:crush 4000 5] [:hpf 2500] [:out 0.4 0.5]]}
+   ;; Fire going out: noise whose lowpass closes from bright to dull.
+   {:name :hiss :gate-ms 700
+    :patch [[:env 0.01 0.7 0 0.4] [:osc 0 :noise 0 1] [:mul]
+            [:env 0.001 0.7 0 0.4] [:svf 600 0.2 0 3] [:out 0.45 0.5]]}])
+
+;; ---- spatial model ----
+
+(defn attenuate
+  "Distance -> gain scale, hyperbolic like `pressed`: adjacent is nearly
+   full, six tiles is a murmur, and it never quite reaches zero — the
+   audibility cutoff is the producer's (deliver-sound's radius), not the
+   mix's."
+  [dist]
+  (/ 1.0 (+ 1.0 (* 0.3 (max 0.0 (double (or dist 0)))))))
+
+(defn pan-of
+  "Direction -1..1 (left..right) -> pan 0..1, kept off the hard edges: a
+   fully one-eared sound reads as a headphone glitch, not a position."
+  [dir]
+  (+ 0.5 (* 0.35 (max -1.0 (min 1.0 (double (or dir 0)))))))
+
+;; ---- per-event seed ----
+
+(defn- shot-seed
+  "Seeds the engine-side humanize jitter. Salted per turn and per event so
+   two footsteps in a row differ — the point — while the same replay step
+   still yields the same seed. On the det/combine lineage, separate from
+   worldgen and the gameplay chain both."
+  [world salt i]
+  (det/combine (or (:seed-input world) 0) [:sfx salt i]))
+
+(defn- jit
+  "Small deterministic offset in [-n, n], folded off the shot seed."
+  [seed k n]
+  (- (mod (bit-and (det/combine seed [k]) 0xffffff) (+ (* 2 n) 1)) n))
+
+;; ---- the vocabulary ----
+;; One function per voiced kind. Gains are relative to the music bed: the
+;; footstep is quiet BY DESIGN — it plays every turn. An unvoiced kind falls
+;; through to [] rather than erroring: producers may emit kinds a consumer
+;; does not render yet, and silence is the correct rendering for those.
+;; :idle is the one kind that is unvoiced on PURPOSE — every sleeping creature
+;; in earshot emits it every turn, so voicing it is a decision about the noise
+;; floor, not about coverage.
+
+(def ^:private stone-step
+  "W100's settings: 5 dark scuffs over 180 ms rising to a peak at 0.4, every
+   third one grit; a leather pat and a click on the heel, then again at 55%
+   as the sole lands 85 ms later. On the board, as candidates-42's w96."
+  {:n 5 :span 180 :peak 0.4 :spread 0.35 :hi-every 3 :pat 1.1 :click 0.8
+   :roll 85 :roll-level 0.55
+   ;; 0.36 (the old step's gain) x 1.758, the board's leveling of W100 to
+   ;; the old step's loudness
+   :gain 0.633})
+
+(def ^:private grass-step
+  "W119 (round 44, Matt 2026-11-24): W100 with half the click and a quiet
+   rustle on the heel and again on the sole. Its board level against W100's
+   (0.813 / 1.189) sets the gain."
+  (assoc stone-step :click 0.4 :gain 0.433
+         :layers [[0 :rustle 0.22 55] [85 :rustle 0.15 57]]))
+
+(def ^:private water-step
+  "W123 (round 44, Matt 2026-11-24): a soft heel, no click and no scuffs,
+   the wade and a faint drip; and, one step in three, W121's plop, \"you
+   know how we like to vary steps\". Gain from the board's level against
+   W100's (0.562 / 1.189)."
+  (assoc stone-step :n 0 :click 0 :pat 0.8 :pat-shot :step-pat-soft :gain 0.299
+         :layers [[0 :step-wade 0.6 54] [60 :step-drip 0.25 57]]
+         ;; Each [chance layers] drawn on its own. The slosh: S133 (round 47)
+         ;; in 15% of steps, Matt 2026-11-25: "shallow water should be a slosh
+         ;; like S133, but only with occasional slosh, maybe 10-20%". At 0.7 of
+         ;; its board level, since the step plays under it.
+         :sometimes [[0.333 [[30 :step-plop 0.5 58]]]
+                     [0.15 [[0 :swim-slosh 0.4 61] [90 :cry-sli-bubble 0.18 72] [150 :cry-sli-bubble 0.14 68]]]]))
+
+(defn- unit
+  "A deterministic draw in [0, 1) off the shot seed."
+  [seed k]
+  (/ (double (bit-and (det/combine seed [k]) 0xffffff)) 16777216.0))
+
+(defn- stone-step-shots
+  "One step on a hard floor: a heel then the sole, with a few scuffs between,
+   timing and levels drawn from the seed so no two steps are the same. Each
+   trigger gets its own note: undertone merges identical triggers a few ms
+   apart, and the noise ignores pitch. :foot (0 or 1, the player's) swings
+   the pan a touch left or right, step by step."
+  ([ev seed] (stone-step-shots ev seed stone-step))
+  ([ev seed preset]
+  (let [{:keys [n span peak spread hi-every pat click roll roll-level gain layers sometimes pat-shot]
+         :or {pat-shot :step-pat}} preset
+        g    (* gain (attenuate (:dist ev)) (+ 0.7 (* 0.6 (unit seed :level))))
+        pan  (if-let [f (:foot ev)] (if (zero? f) 0.45 0.55) (pan-of (:dir ev)))
+        tr   (fn [ms shot lv note]
+               {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note) :delay-ms (long ms)})
+        ts   (sort (map #(* span (Math/pow (unit seed [:t %]) 1.3)) (range n)))
+        scuffs (map-indexed
+                 (fn [i ms]
+                   (let [x (/ ms span)
+                         shape (if (< x peak) (/ x peak) (- 1 (/ (- x peak) (- 1 peak))))
+                         lv (* (+ 0.25 (* 0.75 shape)) (+ (- 1 spread) (* spread (unit seed [:lv i]))))]
+                     (tr ms (if (zero? (mod i hi-every)) :step-grit :step-scuff) lv (+ 30 i))))
+                 ts)]
+    ;; the heel's pat and click lead, so the first trigger is the step's onset
+    (->> (concat [(tr 0 pat-shot pat 90)
+                  (tr 0 :step-click click 92)
+                  (tr roll pat-shot (* pat roll-level) 91)
+                  (tr roll :step-click (* click roll-level) 93)]
+                 scuffs
+                 ;; the floor's own sounds: [ms shot level note]
+                 (map (fn [[ms shot lv note]] (tr ms shot lv note)) layers)
+                 ;; [chance layers]: now and then, drawn from the seed
+                 (mapcat (fn [i [chance extra]]
+                           (when (< (unit seed [:sometimes i]) chance)
+                             (map (fn [[ms shot lv note]] (tr ms shot lv note)) extra)))
+                         (range) sometimes))
+         ;; a preset with no click leaves zero-gain triggers out
+         (remove #(zero? (:gain %)))
+         vec))))
+
+(defn- swim-shots
+  "A stroke in deep water, S134 (round 47, Matt 2026-11-25): the slime's
+   bubble twice after a slosh at half. Matt hears the slosh as \"a brush or a
+   broom sweeping\", hence half. Swimming is not a step, so no heel. Gain is
+   the board's levelling to the water step (x0.29)."
+  [ev seed]
+  (let [g   (* 0.29 (+ 0.7 (* 0.6 (unit seed :level))))
+        pan (if-let [f (:foot ev)] (if (zero? f) 0.45 0.55) 0.5)
+        tr  (fn [ms shot lv note]
+              {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note) :delay-ms ms})]
+    [(tr 0 :swim-slosh 0.4 60)
+     (tr 90 :cry-sli-bubble 0.35 (+ 72 (long (* 6 (unit seed :b1)))))
+     (tr 150 :cry-sli-bubble 0.28 (+ 68 (long (* 6 (unit seed :b2)))))]))
+
+(defn- surface-step-shots [ev seed]
+  (case (:surface ev)
+    nil    (stone-step-shots ev seed)
+    :grass (stone-step-shots ev seed grass-step)
+    :water (stone-step-shots ev seed water-step)
+    ;; Matt: swimming is not a step
+    :deep  (swim-shots ev seed)
+  [{:shot (case (:surface ev) :water :splash :grass :rustle :footstep)
+    ;; An octave above draft 1's 43: at ~98 Hz laptop speakers dropped the
+    ;; step entirely, and the gain is what keeps it subtle, not the register.
+    :note (+ 55 (jit seed :note 2))
+    :gain (* (case (:surface ev) (:water :grass) 0.285 0.36) (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}]))
+
+
+(defn- emerge-shots
+  "Climbing out of deep water: S151 (Matt's pick from round 48), water
+   pouring off, then three drips falling in pitch and level. Gains are the
+   board's, relative to the step it rides on."
+  [ev seed]
+  (let [g   (+ 0.85 (* 0.3 (unit seed :emerge)))
+        pan (if-let [f (:foot ev)] (if (zero? f) 0.45 0.55) 0.5)
+        tr  (fn [ms shot lv note]
+              {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note 300) :delay-ms ms})]
+    [(tr 0 :emerge-pour 0.35 60)
+     (tr 162 :step-drip 0.12 61)
+     (tr 273 :step-drip 0.09 59)
+     (tr 416 :step-drip 0.0675 57)]))
+
+;; A monster's step under the player's: Matt, 2026-11-25, "enemy footstep
+;; sounds (subtle, offset on turn like we did before with hits)".
+(def monster-step-level 0.5)
+
+(def ^:private monster-grit
+  "What a monster's step on stone carries, one drawn per step, [ms shot note
+   share-of-the-step's-peak]: round 50's S183, S184 and S185 (Matt,
+   2026-11-25, \"maybe could pick random\"). Two grains; one grain, or a
+   foot dragging three; a grain, or grit."
+  [[[20 :web-grain 50 0.4] [65 :web-grain 53 0.25]]
+   [[20 :web-grain 50 0.4]]
+   [[20 :web-grain 50 0.3] [80 :web-grain 53 0.25] [130 :web-grain 55 0.12]]
+   [[20 :web-grain 51 0.45]]
+   [[25 :step-grit 40 0.5] [60 :step-grit 44 0.3]]])
+
+(defn- monster-step
+  "A monster's step: quieter than yours, one foot sometimes lighter (S183,
+   S184: x0.7-0.8), and on stone a little grit so it is not your step."
+  [ev seed trs]
+  (let [foot (if (< (unit seed :foot) 0.5) 1.0 0.75)
+        trs  (mapv #(update % :gain * monster-step-level foot) trs)]
+    (if (or (:surface ev) (empty? trs))
+      trs
+      (let [peak  (apply max (map :gain trs))
+            pan   (:pan (first trs))
+            extra (nth monster-grit (mod (bit-and (det/combine seed [:grit]) 0xffffff)
+                                         (count monster-grit)))]
+        (into trs (map (fn [[ms shot note g]]
+                         {:shot shot :note note :gain (* g peak) :pan pan
+                          :seed (det/combine seed [:grit ms]) :delay-ms ms})
+                       extra))))))
+
+(defn- footstep-shots [ev seed]
+  (cond->> (surface-step-shots ev seed)
+    (:emerged ev) (#(into % (emerge-shots ev seed)))
+    (:monster ev) (monster-step ev seed)))
+
+
+(defn- combat-hit-shots
+  "Fighting you can hear but are not part of — creature versus creature.
+   Spatial, and deliberately plain: it is scenery, not feedback."
+  [ev seed]
+  [{:shot :hit
+    :note (+ 45 (jit seed :note 3))
+    :gain (* 0.9 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+(defn severity
+  "0..1 — how big a bite the blow took out of its target. A FRACTION of the
+   target's max hp rather than raw damage, so the scale means the same thing
+   against a rat and against something enormous. Producers compute it; the
+   default is a mid-weight blow for any producer that does not."
+  [ev]
+  (max 0.0 (min 1.0 (double (or (:severity ev) 0.3)))))
+
+(defn- voice-take
+  "One take of a creature's voice, [[ms shot note gain] ...], as triggers:
+   the notes jittered together by the seed, panned and delayed as given."
+  [take seed tag pan delay-ms]
+  (let [j (jit seed :note 1)]
+    (vec (map-indexed (fn [i [ms shot note g]]
+                        {:shot shot :note (+ note j) :gain g :pan pan
+                         :delay-ms (+ delay-ms ms) :seed (det/combine seed [tag i])})
+                      take))))
+
+(defn- pick-take
+  "One of takes, chosen by the seed, so repeats alternate."
+  [takes seed]
+  (nth takes (mod (bit-and (det/combine seed [:take]) 0xffffff) (count takes))))
+
+(def ^:private creature-hits
+  "A creature's own sound when it hits you, in place of the thud, keyed by
+   template name (the hit-taken event's :creature). Takes alternate. Rat:
+   J008 and its sibling J009, two claw scrapes (Matt, 2026-11-24); a rat's
+   hit is always light, so the thud's severity pitch is not missed. Gains
+   are round 34's levelling, to the light hit taken."
+  {"rat" [[[0 :bite-scrape 62 1.834] [50 :bite-scrape 58 1.376]]    ; J008
+          [[0 :bite-scrape 60 1.451] [42 :bite-scrape 64 1.813]]]  ; J009
+   ;; Slime: V103 and V104 (round 45), its bubbling cry an octave up with a
+   ;; dark or a bright hiss (Matt, 2026-11-24). V104 is also one of its death
+   ;; takes. Levelled to the light hit taken, as the rat's: the board's
+   ;; level for each, times 2.43 (the light hit sits 7.7 dB over the
+   ;; goblin's cry, which the death rows were levelled to).
+   "slime" [[[0 :cry-sli-bubble 74 0.723] [45 :cry-sli-bubble 79 0.578]   ; V103
+             [95 :cry-sli-bubble 72 0.651] [135 :cry-sli-bubble 77 0.434]
+             [200 :cry-sli-bubble 70 0.362] [60 :sli-hiss-dark 62 0.434]]
+            [[0 :cry-sli-bubble 74 0.707] [45 :cry-sli-bubble 79 0.565]   ; V104
+             [95 :cry-sli-bubble 72 0.636] [135 :cry-sli-bubble 77 0.424]
+             [200 :cry-sli-bubble 70 0.353] [60 :cry-sli-hiss 62 0.424]]]}) ; J009
+
+(def ^:private struck
+  "What your blow sounds like landing on a creature, on top of the blow,
+   keyed by template name (the hit-dealt event's :creature). Takes
+   alternate. Slime: S097 and S099, a squelch with bubbles (Matt,
+   2026-11-24: \"better as you hitting slime\"); round 45's levelling."
+  {"slime" [[[0 :sli-squelch 60 1.542] [20 :cry-sli-bubble 74 1.028]]                              ; S097
+            [[0 :sli-squelch 60 1.045] [0 :cry-sli-bubble 70 0.940] [50 :cry-sli-bubble 65 0.627]]]}) ; S099
+
+(def ^:private pains
+  "A creature's cry of pain when your blow takes at least :min of its health
+   and does not kill it (a kill has its death cry). Rat: J005, a snap and a
+   squeak, from a quarter of its health (Matt, 2026-11-24)."
+  {"rat" {:min 0.25 :take [[0 :bite-snap 60 1.877] [40 :cry-rat-chit 88 1.502]]}})
+
+(defn- hit-dealt-shots
+  "Damage YOU deal. Severity drives pitch and level together: a glancing blow
+   is a high quick tick, a heavy one drops nearly an octave and hits harder —
+   the standard bigger-is-lower-and-louder mapping, which is what makes a
+   heavy hit read as heavy without needing a separate sound for it.
+
+   A kill adds a second, lower shot just behind the first, so 'it went down'
+   is audible as a fall rather than announced by an unrelated noise."
+  [ev seed]
+  (let [s    (severity ev)
+        ;; ±2 rather than ±1: at ±1 a run of blows on one enemy sounded
+        ;; like the same sample repeated.
+        note (- 48 (int (* 11.0 s)) (jit seed :note 2))
+        ;; Level rises only a little with severity; the drop in pitch carries
+        ;; most of the weight.
+        ;; A ranged blow lands after the release, not with it: without the
+        ;; flight time the impact started with the twang and masked it.
+        flight (or (:flight-ms ev) 0)
+        ;; An arrow's hit 3.5 dB under a melee blow's (Matt, 2026-11-25:
+        ;; "arrow hits sound about 3-4dB too high").
+        gain (* (if (pos? flight) 0.668 1.0) (+ 0.344 (* 0.086 s)))
+        base {:shot :hit :note note :gain gain :pan 0.5 :delay-ms flight :seed seed}]
+    (if (:killed ev)
+      ;; The blow alone, kept down since the cry lands on top of it. The kill
+      ;; had a bright tink two octaves up; Matt dropped it (2026-11-27: "no
+      ;; tink"), and a coin drop for loot is to come instead.
+      [(update base :gain * 0.836)]
+      (let [pain (get pains (:creature ev))
+            base (into [base] (when-let [takes (get struck (:creature ev))]
+                                (voice-take (pick-take takes seed) seed :struck 0.5 flight)))]
+        (if (and pain (>= s (:min pain)))
+          ;; Just behind the blow, so the blow is heard first.
+          (into base (voice-take (:take pain) seed :pain 0.5 (+ flight 30)))
+          base)))))
+
+(defn- hit-taken-shots
+  "Damage you TAKE — its own patch (dull and low, no bright crack) rather than
+   a louder copy of the blow you land. Same severity curve, so a scratch and a
+   near-fatal blow are told apart by ear before the log is read. A creature
+   with its own attack sound (creature-hits) plays that instead."
+  [ev seed]
+  (if-let [takes (get creature-hits (:creature ev))]
+    (voice-take (pick-take takes seed) seed :hit 0.5 (or (:flight-ms ev) 0))
+    ;; S156 (Matt, 2026-11-25): the thud with a click on top, at the board's
+    ;; level for it, 0.46 of the thud's old gain. Both grow with severity.
+    (let [s  (severity ev)
+          at (or (:flight-ms ev) 0)]
+      [{:shot :thud
+        :note (- 45 (int (* 9.0 s)) (jit seed :note 2))
+        :gain (* 0.46 (+ 0.4 (* 0.267 s)))
+        :pan  0.5
+        :delay-ms at
+        :seed seed}
+       {:shot :hit-click
+        :note 60
+        :gain (* 0.23 (+ 0.5 (* 0.5 s)))
+        :pan  0.5
+        :delay-ms at
+        :seed (det/combine seed [:click])}])))
+
+(defn- door-shots
+  "A door swinging. Spatial and unhurried: it is almost always something else
+   moving through the level, and it is the main way a closed map tells you it
+   is not empty."
+  [ev seed]
+  ;; The refusal's thunk; the two swapped sounds on 2026-11-24 (Matt, G018/G022).
+  [{:shot :thunk
+    :note 52
+    :gain (* 0.95 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+;; Takes as [ms shot note gain], from the board's renders of each pick,
+;; then levelled to the shared cry's -6.3 over the music (2026-11-24).
+(def ^:private cries
+  "Death cries by creature, keyed by template name (the event's :creature).
+   A creature with several takes plays one per death, picked by the seed:
+   Matt wanted the rat's three shuffled (2026-11-22). The rest keep the old
+   shared cry. Goblin and fire imp were drawn at random from the ones Matt
+   had vetted (V012-V015, V027-V029; 2026-11-24). Slime, archer and goblin
+   shaman are Matt's round 31 picks, spider and wraith round 32's. Every cry
+   is set to read as the shared one does on the board's Levels (-6.3 over
+   the music, 2026-11-24)."
+  {"rat"      [[[0 :cry-rat-squeak 86 0.63]]                       ; V009
+               [[0 :cry-rat-squeal 86 0.324]]                        ; V010
+               [[0 :cry-rat-chit 88 0.259] [32 :cry-rat-chit 86 0.227] ; V025
+                [70 :cry-rat-chit 89 0.259] [101 :cry-rat-chit 85 0.194]
+                [135 :cry-rat-squeal 86 0.324]]]
+   ;; C055 and S231 (2026-11-27): the board's gains scaled to sound as loud
+   ;; as the cries they replaced (V030 x4.867, V013 x4.253, measured).
+   "kobold"   [[[0 :kob-gurgle-head 62 0.742] [92 :kob-gurgle-step1 62 0.416]
+                [134 :kob-gurgle-step2 62 0.327]]]                   ; C055
+   "goblin"   [[[0 :gob-eyy-head 62 0.281] [192 :gob-eyy-tail 62 0.123]]] ; S231
+   "fire-imp" [[[0 :cry-imp-poof-short 70 0.388] [20 :crackle 70 0.194] ; V028
+                [60 :crackle 70 0.136] [105 :crackle 70 0.097]
+                [30 :imp-harmonic 70 0.388]]]
+   ;; V104: V060 an octave up at the board's level for it (x0.596)
+   "slime"    [[[0 :cry-sli-bubble 74 0.291] [45 :cry-sli-bubble 79 0.232]
+                [95 :cry-sli-bubble 72 0.262] [135 :cry-sli-bubble 77 0.175]
+                [200 :cry-sli-bubble 70 0.145] [60 :cry-sli-hiss 62 0.175]]
+               ;; S098, a wet slap and two bubbles (Matt: "a good slime death
+               ;; cry"), at the goblin's cry level like V104
+               [[0 :sli-slap 60 0.547] [30 :cry-sli-bubble 76 0.319] [70 :cry-sli-bubble 71 0.274]]]
+   "archer"   [[[0 :cry-arch-uh-swirl 55 0.566] [210 :cry-body-thud 45 0.453]]] ; V068
+   "goblin-shaman" [[[0 :cry-fizzle 74 0.4] [60 :cry-sham-groan 55 0.445]]] ; V071
+   ;; V086: a soft creak, then the legs curling, ticks slowing and sinking.
+   "spider"   [[[0 :cry-spi-rasp-soft 67 0.937]
+                [200 :cry-spi-click 79 1.311] [228 :cry-spi-click 78 1.245] [260 :cry-spi-click 78 1.179]
+                [296 :cry-spi-click 76 1.114] [340 :cry-spi-click 75 0.983] [392 :cry-spi-click 74 0.852]
+                [455 :cry-spi-click 72 0.721] [530 :cry-spi-click 71 0.524] [620 :cry-spi-click 69 0.393]]]
+   "wraith"   [[[0 :cry-wra-mist 64 0.427] [40 :cry-wra-moan 64 0.533]]]      ; V090
+   ;; V054: the board's gains (a share of the shared cry, 0.445) at its
+   ;; level for the row, x0.733
+   "ice-elemental" [[[0 :ice-crack 84 0.326]
+                     [10 :ice-shard 88 0.326] [45 :ice-shard 84 0.294] [70 :ice-shard 91 0.261]
+                     [120 :ice-shard 86 0.277] [150 :ice-shard 82 0.228] [210 :ice-shard 89 0.196]
+                     [260 :ice-shard 80 0.163] [340 :ice-shard 85 0.131] [430 :ice-shard 78 0.098]]]
+   ;; S251: the board's gains (a share of the shared cry, 0.445, as V054)
+   ;; at its level for the row, x0.861 x1.161
+   "dragon" [[[0 :dragon-roar 33 0.445] [300 :dragon-fire-out 70 0.356]]]
+   ;; S259: 2 dB under the dragon, as on the board (measured)
+   "ogre"   [[[0 :ogre-squeal 36 0.2784]]]})
+
+(defn- creature-cry
+  "A creature's own cry, nil when it has none."
+  [ev seed]
+  (when-let [takes (get cries (:creature ev))]
+    (let [take (nth takes (mod (bit-and (det/combine seed [:take]) 0xffffff) (count takes)))
+          j    (jit seed :note 1)
+          a    (attenuate (:dist ev))
+          pan  (pan-of (:dir ev))]
+      (vec (map-indexed (fn [i [ms shot note g]]
+                          {:shot shot :note (+ note j) :gain (* g a) :pan pan
+                           :delay-ms ms :seed (det/combine seed [:cry i])})
+                        take)))))
+
+(defn blip-out-ms
+  "When the @ goes fully dark in the death fade, in ms from death: flash,
+   hold, out and linger of the fade's timings (xsofy.render/death-fade-ms),
+   read from the fade rather than copied, since they keep changing (the
+   flash arrived 2026-11-27). Nil without a fade."
+  [fade]
+  (when fade
+    (+ (get fade :flash 0) (get fade :hold 0) (get fade :out 0) (get fade :linger 0))))
+
+(defn death-blink-shots
+  "The @ blinking out, S264, from your death: a burst on each bright frame
+   of render.lg's blink (0, 75, 225, 375 ms), then the ramp down from 525,
+   cut at 750. Copied from the blink's rhythm, which has no keys to read.
+   At the board's level (0.556 of the row)."
+  []
+  (mapv (fn [[ms shot g]] {:shot shot :note 60 :gain (* 0.556 g) :pan 0.5 :delay-ms ms :seed (+ 58 ms)})
+        [[0 :blink-burst 0.5] [75 :blink-burst 0.35] [225 :blink-burst 0.3] [375 :blink-burst 0.25]
+         [525 :blink-ramp 0.3]]))
+
+(defn death-blip-shots
+  "Your death's blip-out, C045, `delay-ms` from now, at the board's level
+   (0.248 of the patch at 0.5)."
+  [delay-ms]
+  [{:shot :death-blip :note 64 :gain 0.124 :pan 0.5 :delay-ms delay-ms :seed 54}])
+
+(defn- death-shots
+  "Something died. Louder than the blow that killed it and longer than any
+   impact, because it is the outcome rather than the exchange — and spatial,
+   so a death out in the dark still tells you where."
+  [ev seed]
+  (or (creature-cry ev seed)
+      ;; Two copies, the second 23 ms late at note 60, each seeding its own
+      ;; random steps. The board's S247 asked for 37.4 (0.6 flat); undertone
+      ;; reads whole notes only and played a fractional one at its default,
+      ;; 60, and that is the sound Matt picked. Gains are the board's for
+      ;; S247, which sits 6 dB under the :cry (G014) it replaces.
+      (let [a (attenuate (:dist ev)) pan (pan-of (:dir ev))]
+        [{:shot :death-squeal :note 38 :gain (* 0.1288 a) :pan pan :seed seed}
+         {:shot :death-squeal :note 60 :gain (* 0.1011 a) :pan pan :delay-ms 23
+          :seed (det/combine seed [:double])}])))
+
+;; ---- Changing floor: going, then arrived ----
+;; Every trigger carries :floor (undertone ignores unknown keys) so
+;; xsofy.audio can drop the frame's copy when descent! already played the run.
+
+(defn- shepard-weight
+  "Round 17's loudness bell over the Shepard's three octaves: a copy
+   `pos` semitones above note 36 weighs exp(-(pos-14)^2 / 98), so copies fade
+   in at the top and out at the bottom and the run never seems to land."
+  [pos]
+  (Math/exp (- (/ (* (- pos 14) (- pos 14)) 98.0))))
+
+(def ^:private going-gaps
+  "Ms between the run's 16 steps: 330 shrinking to 70, geometrically (slow,
+   then faster)."
+  (mapv #(* 330 (Math/pow (/ 70.0 330) (/ % 14.0))) (range 15)))
+
+(def ^:private run-pans [0.5 0.88 0.97 0.72 0.28 0.04 0.12 0.45 0.86 0.97 0.7 0.25 0.03 0.15])
+
+(def ^:private going
+  "Each direction's run: the semitone it starts on, its step, and the gain
+   for each step before the Shepard weight."
+  {;; K008 (round 22's knock-soft-accel-down) going down, C008 going up.
+   :down {:top 11 :step -1 :shot :knock-soft :gain 0.789}
+   :up   {:top 0  :step 1  :shot :scoop :gain 0.211}})
+
+(def ^:private arrival
+  "The chirp held once where the run stops: low and settled going down, two
+   octaves up going up. :ms is when it lands after
+   the run starts, as in the board's after-C007/C008 takes Matt picked from:
+   once the run's tail has faded, plus 0.2 s."
+  {;; 3650 with K008, from the board's audition (2026-11-14); 4950 with C007.
+   :down {:base 36 :gain 0.292 :ms 3650}
+   :up   {:base 60 :gain 0.218 :ms 5150}})
+
+(defn going-shots
+  "The run (C007 down, C008 up): 16 chromatic steps, slow then faster, each
+   played by the octave copies (0-2 above note 36) audible under the bell,
+   the 3 loudest 4 ms apart. Chromatic, so it sits in any floor's key; it is
+   pitched by note because a new floor's key is not staged when it starts."
+  [dir seed]
+  (let [{:keys [top step gain shot]} (going dir)]
+    (vec (mapcat
+           (fn [i t]
+             (let [s (mod (+ top (* step i)) 12)]
+               (->> (for [o [0 1 2]
+                          :let [w (shepard-weight (+ (* 12 o) s))]
+                          :when (> w 0.03)]
+                      [o w])
+                    (sort-by (comp - second))
+                    (take 3)
+                    (map-indexed
+                      (fn [j [o w]]
+                        {:shot shot :note (+ 36 (* 12 o) s) :gain (* gain w)
+                         :pan (nth run-pans (mod i (count run-pans)))
+                         :delay-ms (+ t (* 4 j)) :seed (det/combine seed [:run i o])
+                         :floor true})))))
+           (range) (reductions + 0 going-gaps)))))
+
+(defn landing-pc
+  "The pitch class the run stops on, where the arrival lands so the run
+   resolves: G# going down, D# going up."
+  [dir]
+  (let [{:keys [top step]} (going dir)]
+    (mod (+ top (* step (count going-gaps))) 12)))
+
+(defn arrival-ms
+  "When the arrival lands, in ms after the run starts."
+  [dir]
+  (:ms (arrival dir)))
+
+(defn arrival-shots
+  "The arrival (C038 down, C039 up), `delay-ms` from now: the landing note
+   and its octave above at 0.35, 4 ms behind."
+  [dir seed delay-ms]
+  (let [{:keys [base gain]} (arrival dir)
+        n (+ base (landing-pc dir))]
+    [{:shot :chirp-land :note n :gain gain :pan 0.5 :delay-ms delay-ms :seed seed :floor true}
+     {:shot :chirp-land :note (+ n 12) :gain (* 0.35 gain) :pan 0.5 :delay-ms (+ delay-ms 4)
+      :seed (det/combine seed [:land]) :floor true}]))
+
+(defn descent-shots
+  "The going-down run alone. descent! plays it as the descending animation
+   starts; xsofy.audio fires the arrival when the new floor appears. Tagged
+   :descent so arrival-plan can have it cut (undertone/cut)."
+  [seed]
+  (mapv #(assoc % :group :descent) (going-shots :down seed)))
+
+(def run-cut-ms
+  "How far into the going-down run it may be cut when the new floor appears
+   before the run has played out: the arrival then lands at the later of the
+   floor appearing and this. nil hears every run out to its arrival, as
+   before undertone could cut a run (#166). The descending screen lasts at
+   least 0.9 s and the run 3.65 s, so a value under that cuts most runs.
+   2400 (Matt, 2026-11-24, after 1200 played well but short): a load slower
+   than that is cut when it ends."
+  2400)
+
+(def run-cut-fade-ms
+  "How fast a cut run fades: quick, so it reads as stopping, not dying away."
+  120)
+
+(defn arrival-plan
+  "When the arrival lands, as ms from now, given the run started elapsed-ms
+   ago, and whether the run is cut then: {:delay-ms n :cut? bool}. Cut only
+   with a cut-ms and an lg that can cut (can-cut?), and only if the run would
+   still be going; otherwise the arrival waits for the run, as ever."
+  [elapsed-ms cut-ms can-cut?]
+  (let [run-ms (arrival-ms :down)
+        land (if (and cut-ms can-cut?) (max elapsed-ms cut-ms) run-ms)]
+    (if (< land run-ms)
+      {:delay-ms (- land elapsed-ms) :cut? true}
+      {:delay-ms (max 0 (- run-ms elapsed-ms)) :cut? false})))
+
+(def ^:private visited
+  "A floor you have visited: Z011's four tube pings climbing going up, Z014's
+   falling going down (round 29), then the arrival. The long run is kept for
+   a floor you have not seen (Matt, 2026-11-24). Each phrase is transposed to
+   end on the arrival's pitch class, as the run does; as rendered, both
+   ended a semitone off it. :ms is when the arrival lands: the phrase has
+   rung out by about 1.15 s, plus 0.2."
+  {:shape [0 3 7 10] :gap-ms 300 :gain 0.335 :ms 1350})
+
+(defn visited-shots
+  "The phrase for changing to a visited floor, then the arrival."
+  [dir seed]
+  (let [{:keys [shape gap-ms gain ms]} visited
+        pc (landing-pc dir)
+        notes (if (= dir :up)
+                (mapv #(+ 50 pc %) shape)
+                (mapv #(+ 48 pc %) (rseq shape)))]
+    (into (vec (map-indexed (fn [i n]
+                              {:shot :tube-ping :note n :gain gain :pan 0.5
+                               :delay-ms (* i gap-ms) :seed (det/combine seed [:visited i])
+                               :floor true})
+                            notes))
+          (arrival-shots dir seed ms))))
+
+(defn- floor-shots
+  "Changing floor. This frame's copy is what plays only for a floor you have
+   visited, which appears at once: the short phrase and the arrival. A new
+   floor's run started under the descending animation (xsofy.audio/descent!),
+   which drops this copy and times the arrival itself."
+  [ev seed]
+  (visited-shots (if (= (:dir-of-travel ev) :up) :up :down) seed))
+
+(defn- blocked-shots
+  "The game said no — you walked into water, a chasm or lava, and it wants
+   confirmation. The thunk is the refusal: quiet and unmusical on purpose, so
+   it is not satisfying to trigger. The hazard's own sound rides on top so
+   the prompt is noticed. It sits under a blow: as loud as one, it was far
+   too loud for a prompt (Matt, 2026-11-23)."
+  [ev seed]
+  ;; Note 40 (~82 Hz) vanished on laptop speakers; 52 keeps it low and dull
+  ;; but inside what small speakers reproduce.
+  (let [no {:shot :thunk :note 52 :gain (if (= :water (:element ev)) 0.535 0.6) :pan 0.5 :seed seed}
+        body (case (:element ev)
+               ;; Not :fall for water: a falling saw read as a creature's
+               ;; death cry. Filtered noise reads as water and is its own
+               ;; timbre; the chasm keeps :fall, low enough to sit under the cry.
+               :water {:shot :sink :note 60 :gain 0.312}
+               :fall  {:shot :fall :note 43 :gain 0.32}
+               :fire  {:shot :zap :note 64 :gain 0.7}
+               nil)]
+    (if body
+      [no (assoc body :pan 0.5 :delay-ms 40 :seed (det/combine seed [:hazard]))]
+      ;; The door's creak since 2026-11-24 (swapped with the door, G018/G022).
+      ;; The hazard prompts above keep the thunk.
+      [{:shot :creak :note (+ 40 (jit seed :note 3)) :gain 1.679 :pan 0.5 :seed seed}])))
+
+(defn- stuck-shots
+  "A turn stuck in a web, S124/S125 (round 46, Matt 2026-11-25: \"like
+   walking into a web: left foot -> stuck, right foot -> stuck, maybe a
+   small tug\"). A foot lands (W100's heel pat), catches: W100's step shape
+   stretched x1.2, a burst of grains at the heel and at the roll and dark
+   scuffs swelling over 216 ms; then a small tug of grains, one or two,
+   drawn per turn. The foot's side is drawn too, since the cue carries no
+   turn; gains are the board's levelling to G020 (x1.2)."
+  [seed]
+  (let [g    (* 1.2 (+ 0.7 (* 0.6 (unit seed :level))))
+        pan  (if (< (unit seed :foot) 0.5) 0.45 0.55)
+        ;; whole ms: the grains' times are fractional, and a fractional seed
+        ;; breaks every reader that parses seeds as integers
+        tr   (fn [ms shot lv note]
+               (let [ms (long ms)]
+                 {:shot shot :note note :gain (* g lv) :pan pan :seed (+ seed note ms) :delay-ms ms}))
+        ;; 3 grains over span ms from at, each at lv +-25%
+        burst (fn [at span lv k]
+                (map (fn [i] (tr (+ at (* span (unit seed [k :t i]))) :web-grain
+                                 (* lv (+ 0.75 (* 0.5 (unit seed [k :lv i])))) (+ 50 i)))
+                     (range 3)))
+        span 216
+        scuffs (map (fn [i]
+                      (let [ms (* span (Math/pow (unit seed [:scuff i]) 1.3))
+                            x (/ ms span)
+                            shape (if (< x 0.4) (/ x 0.4) (- 1 (/ (- x 0.4) 0.6)))]
+                        (tr (+ 30 ms) :web-scuff
+                            (* 0.9 (+ 0.25 (* 0.75 shape)) (+ 0.65 (* 0.35 (unit seed [:scuff-lv i]))))
+                            (+ 70 i))))
+                    (range 8))
+        two? (< (unit seed :tugs) 0.5)]
+    (vec (concat [(tr 0 :step-pat 0.4 90)
+                  (tr 30 :web-smear 0.225 40)]
+                 (burst 30 26 0.7 :heel)
+                 (burst 132 26 0.385 :roll)
+                 scuffs
+                 (burst 270 35 (if two? 0.4 0.5) :tug)
+                 (when two? (burst 360 35 0.4 :tug2))))))
+
+(defn- web-shots
+  "A web: tearing free is a sharp snap, still being stuck is the same sound
+   held back. One patch, two gains — the difference the player needs to hear
+   is whether they got out, and level says that without a second sound."
+  [ev seed]
+  (if (:broke ev)
+    ;; N003 at the level Matt heard it on the board (round 27's levelling).
+    [{:shot :web-thread :note (+ 67 (jit seed :note 2)) :gain 1.096 :pan 0.5 :seed seed}]
+    (stuck-shots seed)))
+
+(defn- shoot-shots
+  "A bow releasing. Spatial, because being shot AT from somewhere is the
+   information — a shot you cannot place is just a noise."
+  [ev seed]
+  [{:shot :twang
+    :note (+ 57 (jit seed :note 3))
+    :gain (* 1.952 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+(defn- cast-shots
+  "A creature casting at range (the fire imp's bolt). Spatial like the bow,
+   but a rising zap, so a spell is never mistaken for an arrow."
+  [ev seed]
+  [{:shot :zap
+    :note (+ 60 (jit seed :note 2))
+    :gain (* 1.507 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+(defn- ignite-shots
+  "Fire catching somewhere you can hear. Inferred from the world, so every
+   source of fire (spell, lava, spread) is voiced without a producer."
+  [ev seed]
+  [{:shot :ignite
+    :note 60
+    :gain (* 0.8 (attenuate (:dist ev)))
+    :pan  (pan-of (:dir ev))
+    :seed seed}])
+
+(defn- pickup-shots
+  "Two plucks a fifth apart, high register, 70 ms apart. Pitch crosses as
+   scale DEGREES, not notes: the module resolves them against the floor's
+   own scale (the same derivation that pitched the music), so the chime is
+   in key by construction — the trick a sample library can't do."
+  [ev seed]
+  [{:shot :pluck :degree 0 :octave 2 :gain 0.551 :pan 0.45 :seed seed}
+   {:shot :pluck :degree 4 :octave 2 :gain 0.466 :pan 0.55 :delay-ms 70
+    :seed (det/combine seed [:second])}])
+
+;; ---- the player's own items ----
+
+(defn- use-shots
+  "Using an item, by what it is: three swallows for a potion, paper and a
+   chime for a scroll, a rising in-key arpeggio for an enchantment."
+  [ev seed]
+  (let [s (fn [k] (det/combine seed [k]))]
+    (case (:item ev)
+      :potion  [{:shot :gulp :note 55 :gain 0.847 :pan 0.5 :seed seed}
+                {:shot :gulp :note 58 :gain 0.741 :pan 0.5 :delay-ms 130 :seed (s :g2)}
+                {:shot :gulp :note 53 :gain 0.741 :pan 0.5 :delay-ms 260 :seed (s :g3)}]
+      :scroll  [{:shot :paper :note 60 :gain 0.883 :pan 0.5 :seed seed}
+                {:shot :pluck :degree 4 :octave 2 :gain 0.442 :pan 0.5 :delay-ms 220 :seed (s :chime)}]
+      :enchant [{:shot :pluck :degree 0 :octave 1 :gain 0.602 :pan 0.4 :seed seed}
+                {:shot :pluck :degree 2 :octave 1 :gain 0.602 :pan 0.47 :delay-ms 70 :seed (s :e2)}
+                {:shot :pluck :degree 4 :octave 1 :gain 0.602 :pan 0.53 :delay-ms 140 :seed (s :e3)}
+                {:shot :pluck :degree 0 :octave 2 :gain 0.668 :pan 0.6 :delay-ms 210 :seed (s :e4)}]
+      [])))
+
+(defn- equip-shots [ev seed]
+  [{:shot :clink :note (+ 60 (jit seed :note 1)) :gain 0.38 :pan 0.5 :seed seed}])
+
+(defn- unequip-shots [ev seed]
+  [{:shot :clink :note (+ 55 (jit seed :note 1)) :gain 0.4 :pan 0.5 :seed seed}])
+
+(defn- drop-shots [ev seed]
+  [{:shot :thud :note 52 :gain 0.588 :pan 0.5 :seed seed}])
+
+(defn- cursed-shots
+  "A cursed item refusing to come off: the hazard prompt's refusal thunk."
+  [ev seed]
+  [{:shot :thunk :note 52 :gain 1.01 :pan 0.5 :seed seed}])
+
+;; ---- statuses on the player ----
+
+(defn- status-shots
+  "A status landing on the player (:on true) or leaving (:on false). Only
+   burning has an ending: the fire going out is news, the rest are not."
+  [ev seed]
+  (let [s (fn [k] (det/combine seed [k]))]
+    (if (:on ev)
+      (case (:status ev)
+        :burning  [{:shot :ignite :note 64 :gain 0.736 :pan 0.5 :seed seed}
+                   {:shot :sizzle :note 60 :gain 0.397 :pan 0.5 :delay-ms 120 :seed (s :tail)}]
+        :poison   [{:shot :sick :note 50 :gain 0.48 :pan 0.5 :seed seed}]
+        :frozen   [{:shot :tink :degree 4 :octave 2 :gain 0.337 :pan 0.45 :seed seed}
+                   {:shot :tink :degree 6 :octave 2 :gain 0.281 :pan 0.55 :delay-ms 50 :seed (s :f2)}]
+        :confused [{:shot :pluck :degree 1 :octave 1 :gain 1.01 :pan 0.4 :seed seed}
+                   {:shot :pluck :degree 2 :octave 1 :gain 1.01 :pan 0.6 :delay-ms 20 :seed (s :c2)}]
+        :slowed   [{:shot :sink :note 55 :gain 0.421 :pan 0.5 :seed seed}]
+        :haste    [{:shot :pluck :degree 0 :octave 2 :gain 0.8 :pan 0.45 :seed seed}
+                   {:shot :pluck :degree 2 :octave 2 :gain 0.8 :pan 0.5 :delay-ms 45 :seed (s :h2)}
+                   {:shot :pluck :degree 4 :octave 2 :gain 0.8 :pan 0.55 :delay-ms 90 :seed (s :h3)}]
+        [])
+      (case (:status ev)
+        :burning [{:shot :hiss :note 60 :gain 0.869 :pan 0.5 :seed seed}]
+        []))))
+
+(defn- status-tick-shots
+  "Damage from a status rather than a blow: a crackle for fire, the queasy
+   saw, quieter, for poison."
+  [ev seed]
+  (case (:status ev)
+    :burning [{:shot :sizzle :note (+ 60 (jit seed :note 2)) :gain 0.933 :pan 0.5 :seed seed}]
+    :poison  [{:shot :sick :note (+ 48 (jit seed :note 1)) :gain 0.393 :pan 0.5 :seed seed}]
+    []))
+
+;; ---- menus ----
+
+;; ---- the music's echo ----
+;; Most sounds sit dry of the delay the music sends to: on 2026-11-23 the
+;; menus, the bow and the hits taken rang on in it for seconds, and Matt
+;; ruled the echo the exception. A trigger leaves it with :send 0 (undertone
+;; #165, a scale on the patch's send, 1 as authored); the kinds here keep it.
+;; The floor change's run and arrival keep it too: they are the one big
+;; transition, and the music ducks under them. The player's death is the
+;; outro, music, which keeps its own.
+
+(def ^:private echo-kinds #{:floor})
+
+(defn- dry
+  "Triggers with no send to the music's delay, unless one says otherwise."
+  [trs]
+  (mapv #(if (contains? % :send) % (assoc % :send 0)) trs))
+
+(defn menu-shots
+  "Menu sounds for a change of screen, `from` -> `to` (nil is the game):
+   opening rises a third, closing falls it, and moving between two screens is
+   one quiet pluck. Called by xsofy.audio/menu!, not from the turn's frame:
+   menus are UI, so they never touch the world."
+  [from to]
+  (let [seed 77]
+    (dry
+     (cond
+      (= from to) []
+      (nil? from) [{:shot :pluck :degree 2 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
+                   {:shot :pluck :degree 4 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
+                    :seed (det/combine seed [:open])}]
+      (nil? to)   [{:shot :pluck :degree 4 :octave 2 :gain 0.6 :pan 0.5 :seed seed}
+                   {:shot :pluck :degree 2 :octave 2 :gain 0.6 :pan 0.5 :delay-ms 45
+                    :seed (det/combine seed [:close])}]
+      :else       [{:shot :pluck :degree 3 :octave 2 :gain 0.45 :pan 0.5 :seed seed}]))))
+
+(defn for-event
+  "One event descriptor -> a vector of trigger maps, dry of the music's echo
+   unless its kind is one of echo-kinds."
+  [ev seed]
+  (cond->
+   (case (:kind ev)
+    :footstep   (footstep-shots ev seed)
+    :hit-dealt  (hit-dealt-shots ev seed)
+    :hit-taken  (hit-taken-shots ev seed)
+    :combat-hit (combat-hit-shots ev seed)
+    :pickup     (pickup-shots ev seed)
+    :door       (door-shots ev seed)
+    :death      (death-shots ev seed)
+    :floor      (floor-shots ev seed)
+    :blocked    (blocked-shots ev seed)
+    :web        (web-shots ev seed)
+    :shoot      (shoot-shots ev seed)
+    :cast       (cast-shots ev seed)
+    :ignite     (ignite-shots ev seed)
+    :use        (use-shots ev seed)
+    :equip      (equip-shots ev seed)
+    :unequip    (unequip-shots ev seed)
+    :drop       (drop-shots ev seed)
+    :cursed     (cursed-shots ev seed)
+    :status     (status-shots ev seed)
+    :status-tick (status-tick-shots ev seed)
+    [])
+   (not (echo-kinds (:kind ev))) dry))
+
+(def response-ms
+  "How long after the turn's start a monster's hit on you lands. A turn's
+   sounds otherwise all start together, so your blow and its answer landed
+   on top of each other; the player acts first in a turn, so the answer
+   comes after (Matt, 2026-11-24). One of these, drawn per hit, so a run of
+   exchanges does not fall into a fixed rhythm (Matt, 2026-11-25). If
+   monsters can ever strike first, this becomes per event."
+  [110 125 140])
+
+(defn- after-you
+  "An event's triggers moved later when it is the monsters' part of the turn."
+  [ev seed trs]
+  (if (or (= :hit-taken (:kind ev)) (:monster ev))
+    (let [ms (nth response-ms (mod (bit-and (det/combine seed [:response]) 0xffffff)
+                                   (count response-ms)))]
+      (mapv #(update % :delay-ms (fnil + 0) ms) trs))
+    trs))
+
+(defn for-events
+  "The turn's event list -> one flat trigger vector. `salt` names the turn."
+  [world salt evs]
+  (vec (mapcat (fn [i ev] (let [seed (shot-seed world salt i)]
+                            (after-you ev seed (for-event ev seed))))
+               (range (count evs)) evs)))
+
+;; ---- the per-turn frame ----
+
+(defn audio-frame
+  "Everything xsofy.audio needs for one turn, in one map:
+
+     :mood :seed :depth   the derivation inputs for undertone.ambience
+     :tension-target      instantaneous; xsofy.audio applies the envelope
+     :triggers            resolved one-shot trigger maps
+
+   Some events are INFERRED here from the two worlds rather than produced in
+   world code — the step and its surface (position changed), the floor change
+   (depth changed), a blocked move (a hazard prompt opened), fire catching
+   nearby, and statuses arriving, leaving or doing damage. None needs a world change or a
+   producer call, which keeps the busiest sources entirely presentation-side.
+   NPC/world events arrive via the :sfx outbox (xsofy.sound)."
+  [new-world prev-world]
+  (let [pos        (get-in new-world [:entities :player :pos])
+        prev-pos   (get-in prev-world [:entities :player :pos])
+        stepped    (and pos prev-pos (not= pos prev-pos))
+        depth      (:depth new-world)
+        prev-depth (:depth prev-world)
+        moved-floor (and depth prev-depth (not= depth prev-depth))
+        ;; A prompt that was not open and now is. The world field is the whole
+        ;; signal, so a refusal needs no producer and no world change — the
+        ;; same trick the player's own footstep uses.
+        blocked    (and (:hazard-prompt new-world)
+                        (not (:hazard-prompt prev-world)))
+        ;; Guarded: a world without terrain (a test fixture) has no surface.
+        ;; Grass is read as either state: trample! mutates the shared terrain
+        ;; array, so the previous world already shows the trampled tile.
+        tile-at    (fn [[x y]] (terrain/tget (:terrain new-world) (:width new-world) x y))
+        surface-at (fn [p]
+                     (let [t (tile-at p)]
+                       ;; deep water (4) swims; shallow (3) wades
+                       (cond (= 3 t)     :water
+                             (= 4 t)     :deep
+                             (#{2 18} t) :grass)))
+        surface    (when (and stepped (:terrain new-world)) (surface-at pos))
+        ;; out of deep water this move: the terrain array is shared, but
+        ;; water does not change under a step
+        emerged    (and stepped (:terrain new-world)
+                        (= 4 (tile-at prev-pos)) (not= 4 (tile-at pos)))
+        ;; Creatures that moved this turn, within earshot: the nearest three,
+        ;; so a crowd is a patter and not a flood of triggers.
+        monster-steps
+        (when (and pos (:terrain new-world))
+          (let [[px py] pos]
+            (->> (:entities new-world)
+                 (keep (fn [[id e]]
+                         (let [was (get-in prev-world [:entities id :pos])
+                               now (:pos e)]
+                           (when (and (:ai e) (not= :player id) was now (not= was now))
+                             (let [dx (- (first now) px)
+                                   d  (max (Math/abs dx) (Math/abs (- (second now) py)))]
+                               (when (<= d 8)
+                                 {:kind :footstep :monster true :dist d
+                                  :dir (/ (double dx) (max 1.0 (double d)))
+                                  :surface (surface-at now)}))))))
+                 (sort-by :dist)
+                 (take 3))))
+        ;; Statuses that arrived or left this turn. :webbed and :swimming have
+        ;; their own sounds (the web, the water step).
+        statuses   (fn [w] (set (remove #{:webbed :swimming}
+                                        (keys (get-in w [:entities :player :statuses])))))
+        now-st     (statuses new-world)
+        was-st     (statuses prev-world)
+        status-evs (concat (map (fn [k] {:kind :status :status k :on true})
+                                (sort (remove was-st now-st)))
+                           (map (fn [k] {:kind :status :status k :on false})
+                                (sort (remove now-st was-st))))
+        ;; HP lost to a status, not a blow: no :hit-taken this turn and a
+        ;; damaging status held at either end of it.
+        hp         (get-in new-world [:entities :player :body :hp])
+        prev-hp    (get-in prev-world [:entities :player :body :hp])
+        tick       (when (and hp prev-hp (< hp prev-hp)
+                              (not-any? #(= :hit-taken (:kind %)) (:sfx new-world)))
+                     (some (into now-st was-st) [:burning :poison]))
+        ;; The nearest tile that caught fire this turn, within earshot.
+        ignite     (when pos
+                     (let [prev-fire (or (:fire-ttl prev-world) {})
+                           [px py] pos
+                           near (->> (keys (or (:fire-ttl new-world) {}))
+                                     (remove #(contains? prev-fire %))
+                                     (map (fn [[x y]] [(max (abs (- x px)) (abs (- y py))) (- x px)]))
+                                     (filter #(<= (first %) 10))
+                                     (sort-by first)
+                                     first)]
+                       (when near
+                         (let [[dist dx] near]
+                           {:kind :ignite :dist dist
+                            :dir (/ (double dx) (max 1.0 (double dist)))}))))
+        hazard     (when-let [[hx hy] (and blocked (:hazard-pos new-world))]
+                     (:element (get terrain/hazard-info
+                                    (terrain/tget (:terrain new-world) (:width new-world) hx hy))))
+        evs        (let [base (vec (or (:sfx new-world) []))
+                         base (if stepped
+                                (conj base (cond-> {:kind :footstep :surface surface
+                                                    ;; left or right foot, by turn
+                                                    :foot (mod (or (:turn new-world) 0) 2)}
+                                             emerged (assoc :emerged true)))
+                                base)
+                         base (into base monster-steps)
+                         base (if ignite (conj base ignite) base)
+                         base (if moved-floor
+                                (conj base {:kind :floor
+                                            :dir-of-travel (if (< depth prev-depth) :up :down)})
+                                base)
+                         base (if blocked (conj base {:kind :blocked :element hazard}) base)
+                         base (into base status-evs)
+                         base (if tick (conj base {:kind :status-tick :status tick}) base)]
+                     base)
+        salt       (or (:turn new-world) 0)]
+    {:mood           :dungeon ; no overworld yet — single mood until there is
+     :seed           (music/music-seed new-world)
+     :depth          (or (:depth new-world) 1)
+     :tension-target (music/tension-target new-world)
+     :triggers       (for-events new-world salt evs)}))
