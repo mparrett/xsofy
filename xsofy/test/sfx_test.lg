@@ -226,7 +226,7 @@
 (deftest new-kinds-are-voiced
   (testing "the kinds producers already emitted but nothing rendered"
     (is (= :thunk (:shot (first (triggers {:kind :door :dist 4 :dir 0.5})))))
-    (is (= :death-uh (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
+    (is (= :death-squeal (:shot (first (triggers {:kind :death :dist 4 :dir -0.5})))))
     (is (= :twang (:shot (first (triggers {:kind :shoot :dist 6 :dir 0})))))
     (is (= :creak (:shot (first (triggers {:kind :blocked}))))))
   (testing "spatial kinds attenuate with distance like every other one"
@@ -450,8 +450,8 @@
   (is (contains? (cry-shots "fire-imp") :cry-imp-poof-short))
   (is (some #{:cry-rat-squeak :cry-rat-squeal :cry-rat-chit} (cry-shots "rat")))
   (testing "anything else keeps the shared cry"
-    (is (= #{:death-uh} (cry-shots "troll")))
-    (is (= #{:death-uh} (cry-shots nil)))))
+    (is (= #{:death-squeal} (cry-shots "troll")))
+    (is (= #{:death-squeal} (cry-shots nil)))))
 
 (defn- rat-take [salt]
   (mapv :shot (sfx/for-events base salt [{:kind :death :creature "rat" :dist 1}])))
@@ -492,7 +492,7 @@
     (testing who
       (let [trs (triggers {:kind :death :creature who :dist 2 :dir 0})]
         (is (some #(= shot (:shot %)) trs))
-        (is (not-any? #(= :death-uh (:shot %)) trs))))))
+        (is (not-any? #(= :death-squeal (:shot %)) trs))))))
 
 (deftest round-32-creatures-have-their-own-cries
   (doseq [[who shot] [["spider" :cry-spi-rasp-soft] ["wraith" :cry-wra-moan]]]
@@ -689,3 +689,13 @@
     (let [[b] (sfx/death-blip-shots 3150)]
       (is (= :death-blip (:shot b)))
       (is (= 3150 (:delay-ms b))))))
+
+(deftest the-default-death-cry-is-doubled-and-beats
+  (let [[a b :as trs] (triggers {:kind :death :creature "troll" :dist 0 :dir 0})]
+    (is (= 2 (count trs)))
+    (is (= [:death-squeal :death-squeal] (map :shot trs)))
+    (testing "the second is a little flat and a little late"
+      (is (< (:note b) (:note a) (+ 1 (:note b))))
+      (is (< 0 (:delay-ms b 0) 50)))
+    (testing "each copy seeds its own random steps"
+      (is (not= (:seed a) (:seed b))))))

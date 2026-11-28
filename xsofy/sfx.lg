@@ -168,14 +168,18 @@
    ;; Water pouring off as you climb out of deep water, S151 (round 48)
    {:name :emerge-pour :gate-ms 500
     :patch [[:env 0.04 0.29 0 0.2] [:osc 0 :noise 0 1] [:mul] [:svf 800 0.4 1 0] [:lpf 1800] [:out 0.7 0.5]]}
-   ;; The default death cry, S227 (round 53, Matt 2026-11-27), in place of
-   ;; the engine's :cry (G014, "too much"): an "uh" from formants, a saw
-   ;; barely gliding through band-passes at 600 and 1000 Hz, half as long
-   ;; as round 53's first "uh", and driven hard to squash it.
-   {:name :death-uh :gate-ms 350
-    :patch [[:env 0.01 0.175 0 0.1] [:osc 0 :saw 1 0.15] [:mul] [:svf 600 0.8 1 0] [:drive 1.4 0.05] [:drive 4 0.3] [:out 0.5 0.5]
-            [:env 0.01 0.175 0 0.1] [:osc 0 :saw 1 0.15] [:mul] [:svf 1000 0.82 1 0] [:drive 4 0.3] [:out 0.3 0.5]
-            [:env 0.01 0.15 0 0.075] [:osc 0 :saw 1 0.15] [:mul] [:svf 2500 0.85 1 0] [:drive 4 0.3] [:out 0.08 0.5]]}
+   ;; The default death cry, S247 (round 55, Matt 2026-11-27), for every
+   ;; creature without its own; it replaced S227 the same day, and G014 (the
+   ;; engine's :cry, "too much") before that. The rat's squeal four octaves
+   ;; down, its band-pass following (3 kHz to 187.5 Hz), then shaken: random
+   ;; pitch steps (lfo mode 2, 11.3 Hz, 2.8 semitones), its level stepping at
+   ;; random (a stutter), and a crackle of random impulses under it. Played
+   ;; doubled; see death-shots.
+   {:name :death-squeal :gate-ms 400
+    :patch [[:lfo 11.3 2] [:pitch 2.8] [:env 0.006 0.3 0 0.1] [:osc 0 :saw 6 0.28] [:mul]
+            [:lfo 23 2] [:scale 0.6 0.4] [:mul]
+            [:svf 187.5 0.65 1 0] [:drive 2.2 0.15] [:verb 0.3] [:out 0.45 0.5]
+            [:env 0.01 0.32 0 0.1] [:dust 70 1 0] [:mul] [:svf 260 0.5 1 0] [:drive 2 0.1] [:out 0.5 0.5]]}
    ;; Your death's blip-out, C045 (round 54, Matt 2026-11-26): round 21's
    ;; crushed-pulse chirp, sagging down, the descent's tone.
    {:name :death-blip :gate-ms 500
@@ -637,13 +641,13 @@
    so a death out in the dark still tells you where."
   [ev seed]
   (or (creature-cry ev seed)
-      [{:shot :death-uh
-        :note (+ 47 (jit seed :note 2))
-        ;; The board's level for S227, levelled against the :cry it replaces
-        ;; (0.445): 0.437 of the row at 0.5.
-        :gain (* 0.2185 (attenuate (:dist ev)))
-        :pan  (pan-of (:dir ev))
-        :seed seed}]))
+      ;; Two copies, the second 0.6 semitones flat and 23 ms late, so they
+      ;; beat; each seeds its own random steps. Gains are the board's for
+      ;; S247, which sits 6 dB under the :cry (G014) it replaces.
+      (let [a (attenuate (:dist ev)) pan (pan-of (:dir ev))]
+        [{:shot :death-squeal :note 38 :gain (* 0.1288 a) :pan pan :seed seed}
+         {:shot :death-squeal :note 37.4 :gain (* 0.1011 a) :pan pan :delay-ms 23
+          :seed (det/combine seed [:double])}])))
 
 ;; ---- Changing floor: going, then arrived ----
 ;; Every trigger carries :floor (undertone ignores unknown keys) so
