@@ -700,3 +700,9 @@
       (is (< 0 (:delay-ms b 0) 50)))
     (testing "each copy seeds its own random steps"
       (is (not= (:seed a) (:seed b))))))
+
+(deftest the-dragon-roars-and-its-fire-goes-out
+  (let [trs (triggers {:kind :death :creature "dragon" :dist 1 :dir 0})]
+    (is (= [:dragon-roar :dragon-fire-out] (map :shot trs)))
+    (is (= [0 300] (map #(:delay-ms % 0) trs)))
+    (is (not-any? #(= :death-squeal (:shot %)) trs))))

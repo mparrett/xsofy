@@ -184,6 +184,20 @@
    ;; crushed-pulse chirp, sagging down, the descent's tone.
    {:name :death-blip :gate-ms 500
     :patch [[:env 0.002 0.16 0 0.1] [:osc 0 :pulse 5 0.14] [:mul] [:lpf 900] [:crush 3000 5] [:lpf 3200] [:verb 0.4] [:out 0.45 0.5]]}
+   ;; The dragon's death, S251 (round 56, Matt 2026-11-27, "for now"): round
+   ;; 30's long roar (V059), a driven low "aa" at 550 and 1000 Hz with
+   ;; breath, its pitch jostled at random, made irregular by its level
+   ;; stepping at random, at different rates in its two voiced layers; then
+   ;; its fire flickering out.
+   {:name :dragon-roar :gate-ms 1600
+    :patch [[:lfo 9 2] [:pitch 0.6]
+            [:env 0.12 1.0 0 0.4] [:osc 0 :saw 4 1.0] [:mul] [:lfo 17 2] [:scale 0.65 0.35] [:mul]
+            [:svf 550 0.62 1 0] [:drive 3.5 0.15] [:verb 0.4] [:out 0.5 0.5]
+            [:env 0.12 1.0 0 0.4] [:osc 0.12 :saw 4 1.0] [:mul] [:lfo 13 2] [:scale 0.65 0.35] [:mul]
+            [:svf 1000 0.7 1 0] [:out 0.25 0.5]
+            [:env 0.1 0.9 0 0.4] [:osc 0 :noise 0 1] [:mul] [:svf 800 0.5 1 0] [:out 0.3 0.5]]}
+   {:name :dragon-fire-out :gate-ms 900
+    :patch [[:env 0.01 0.6 0 0.3] [:lfo 40 2] [:scale 0.5 0.5] [:mul] [:osc 0 :noise 0 1] [:mul] [:hpf 2500] [:verb 0.3] [:out 0.25 0.5]]}
    ;; The ice elemental's death, V054 (round 30, Matt's pick): a cracking
    ;; snap, then glass-like shards, each a sine with two inharmonic partials.
    {:name :ice-crack :gate-ms 400
@@ -605,7 +619,10 @@
    "ice-elemental" [[[0 :ice-crack 84 0.326]
                      [10 :ice-shard 88 0.326] [45 :ice-shard 84 0.294] [70 :ice-shard 91 0.261]
                      [120 :ice-shard 86 0.277] [150 :ice-shard 82 0.228] [210 :ice-shard 89 0.196]
-                     [260 :ice-shard 80 0.163] [340 :ice-shard 85 0.131] [430 :ice-shard 78 0.098]]]})
+                     [260 :ice-shard 80 0.163] [340 :ice-shard 85 0.131] [430 :ice-shard 78 0.098]]]
+   ;; S251: the board's gains (a share of the shared cry, 0.445, as V054)
+   ;; at its level for the row, x0.861 x1.161
+   "dragon" [[[0 :dragon-roar 33 0.445] [300 :dragon-fire-out 70 0.356]]]})
 
 (defn- creature-cry
   "A creature's own cry, nil when it has none."
