@@ -68,5 +68,11 @@
       (is (>= (at :theme) 800)))
     (testing "the blip lands while the outro is still rising"
       (is (< ms (at :blip) (+ ms (* 1000 secs)))))
+    (testing "every effect stops with the music, and is back before the outro"
+      (is (some #(= [0 :sfx 0.0] %) plan))
+      (let [back (some #(when (and (= :sfx (second %)) (pos? (nth % 2))) %) plan)]
+        (is (some? back))
+        (is (<= (first back) (at :theme)))
+        (is (< (first back) (at :blip)))))
     (testing "no fade, no blip"
       (is (not-any? #(= :blip (second %)) (audio/outro-plan nil))))))
