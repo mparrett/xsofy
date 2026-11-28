@@ -713,3 +713,10 @@
 (deftest the-ogre-dies-in-its-own-voice
   (let [trs (triggers {:kind :death :creature "ogre" :dist 1 :dir 0})]
     (is (= [:ogre-squeal] (map :shot trs)))))
+
+(deftest the-blink-fizzles-on-its-bright-frames-then-ramps-out
+  (let [trs (sfx/death-blink-shots)]
+    (is (= [0 75 225 375 525] (map :delay-ms trs)))
+    (is (= [:blink-burst :blink-burst :blink-burst :blink-burst :blink-ramp] (map :shot trs)))
+    (testing "no group: the death's cut of the turn's sounds leaves it"
+      (is (not-any? :group trs)))))

@@ -184,6 +184,13 @@
    ;; crushed-pulse chirp, sagging down, the descent's tone.
    {:name :death-blip :gate-ms 500
     :patch [[:env 0.002 0.16 0 0.1] [:osc 0 :pulse 5 0.14] [:mul] [:lpf 900] [:crush 3000 5] [:lpf 3200] [:verb 0.4] [:out 0.45 0.5]]}
+   ;; The @ blinking out as you die, S264 (round 58, Matt 2026-11-27: "some
+   ;; kind of quick fizzle"): a burst of bright noise on each bright frame of
+   ;; the blink, then a ramp falling in level and band, cut dead.
+   {:name :blink-burst :gate-ms 40
+    :patch [[:env 0.002 0.04 0.5 0.003] [:osc 0 :noise 0 1] [:mul] [:svf 3200 0.5 1 0] [:out 0.6 0.5]]}
+   {:name :blink-ramp :gate-ms 225
+    :patch [[:env 0.01 0.22 0.2 0.003] [:osc 0 :noise 0 1] [:mul] [:env 0.001 0.22 0 0.01] [:svf 1200 0.5 1 1.5] [:out 0.6 0.5]]}
    ;; The kobold's death, C055 (round 52, Matt 2026-11-27): the goblin's old
    ;; gurgle (V014) at half length, heavily crushed, stumbling down halfway
    ;; in two uneven steps (1.8, then 4.7 semitones). Patches as the board
@@ -677,6 +684,16 @@
   [fade]
   (when fade
     (+ (get fade :flash 0) (get fade :hold 0) (get fade :out 0) (get fade :linger 0))))
+
+(defn death-blink-shots
+  "The @ blinking out, S264, from your death: a burst on each bright frame
+   of render.lg's blink (0, 75, 225, 375 ms), then the ramp down from 525,
+   cut at 750. Copied from the blink's rhythm, which has no keys to read.
+   At the board's level (0.556 of the row)."
+  []
+  (mapv (fn [[ms shot g]] {:shot shot :note 60 :gain (* 0.556 g) :pan 0.5 :delay-ms ms :seed (+ 58 ms)})
+        [[0 :blink-burst 0.5] [75 :blink-burst 0.35] [225 :blink-burst 0.3] [375 :blink-burst 0.25]
+         [525 :blink-ramp 0.3]]))
 
 (defn death-blip-shots
   "Your death's blip-out, C045, `delay-ms` from now, at the board's level

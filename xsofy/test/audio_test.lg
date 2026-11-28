@@ -68,11 +68,18 @@
       (is (>= (at :theme) 800)))
     (testing "the blip lands while the outro is still rising"
       (is (< ms (at :blip) (+ ms (* 1000 secs)))))
-    (testing "every effect stops with the music, and is back before the outro"
-      (is (some #(= [0 :sfx 0.0] %) plan))
-      (let [back (some #(when (and (= :sfx (second %)) (pos? (nth % 2))) %) plan)]
-        (is (some? back))
-        (is (<= (first back) (at :theme)))
-        (is (< (first back) (at :blip)))))
+    (testing "the turn's effects are cut with the music, and the blink plays"
+      (is (= 0 (at :cut-turn)))
+      (is (= 0 (at :blink)))
+      (is (not-any? #(= :sfx (second %)) plan)))
+    (testing "without undertone/cut every effect is muted, and back before the outro"
+      (let [plan (audio/outro-plan 3150 false)
+            back (some #(when (and (= :sfx (second %)) (pos? (nth % 2))) %) plan)]
+        (is (some #(= [0 :sfx 0.0] %) plan))
+        (is (not-any? #(= :blink (second %)) plan))
+        (is (<= (first back) (some #(when (= :theme (second %)) (first %)) plan)))))
     (testing "no fade, no blip"
       (is (not-any? #(= :blip (second %)) (audio/outro-plan nil))))))
+
+(deftest a-turns-sounds-carry-the-group-your-death-cuts
+  (is (= [:turn :descent] (map :group (#'audio/turn-group [{:shot :hit} {:shot :run :group :descent}])))))
